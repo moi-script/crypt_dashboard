@@ -1,26 +1,258 @@
 @import "tailwindcss";
 
-:root {
-  --background: #ffffff;
-  --foreground: #171717;
+/*
+  ────────────────────────────────────────────────────────────────────────────
+  TERMINAL // NOIR  — a Bloomberg-desk inspired design language
+  Near-black panels, hairline grid, monospace numerics, a single phosphor-green
+  signal accent with red for downside and amber for warnings/alerts.
+  ────────────────────────────────────────────────────────────────────────────
+*/
+
+@theme {
+  /* Surfaces */
+  --color-void: #05070a;
+  --color-bg: #07090c;
+  --color-panel: #0b0e13;
+  --color-panel-2: #0f141b;
+  --color-elev: #131a23;
+  --color-line: #1b232d;
+  --color-line-bright: #283340;
+
+  /* Signal palette */
+  --color-up: #00e08a;
+  --color-up-dim: #0a7d52;
+  --color-down: #ff4d5e;
+  --color-down-dim: #8f2630;
+  --color-warn: #ffb020;
+  --color-info: #36b6ff;
+  --color-violet: #b388ff;
+
+  /* Text */
+  --color-ink: #e6edf3;
+  --color-ink-soft: #aeb9c4;
+  --color-muted: #6b7785;
+  --color-faint: #3c4854;
+
+  /* Type */
+  --font-sans: var(--font-plex), ui-sans-serif, system-ui, sans-serif;
+  --font-mono: var(--font-jb), ui-monospace, "SFMono-Regular", monospace;
+
+  /* Motion */
+  --ease-out-expo: cubic-bezier(0.16, 1, 0.3, 1);
 }
 
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
-}
+@layer base {
+  * {
+    border-color: var(--color-line);
+  }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
+  html {
+    color-scheme: dark;
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+  }
+
+  body {
+    background-color: var(--color-bg);
+    color: var(--color-ink);
+    font-family: var(--font-sans);
+    font-feature-settings: "ss01", "cv01", "tnum";
+    overflow-x: hidden;
+    /* Layered atmosphere: a top phosphor glow + a faint grid floor */
+    background-image:
+      radial-gradient(120% 80% at 50% -10%, rgba(0, 224, 138, 0.06), transparent 60%),
+      radial-gradient(80% 60% at 100% 0%, rgba(54, 182, 255, 0.04), transparent 55%),
+      linear-gradient(var(--color-bg), var(--color-bg));
+    background-attachment: fixed;
+  }
+
+  /* Tabular figures everywhere numbers live */
+  .tnum,
+  table,
+  input,
+  .font-mono {
+    font-variant-numeric: tabular-nums;
+  }
+
+  ::selection {
+    background: var(--color-up);
+    color: #04130c;
+  }
+
+  ::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+  ::-webkit-scrollbar-track {
+    background: var(--color-void);
+  }
+  ::-webkit-scrollbar-thumb {
+    background: var(--color-line-bright);
+    border: 2px solid var(--color-void);
+    border-radius: 0;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: var(--color-muted);
+  }
+
+  /* Focus ring tuned to the phosphor accent */
+  :focus-visible {
+    outline: 1px solid var(--color-up);
+    outline-offset: 2px;
   }
 }
 
-body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+/*
+  ── Texture overlays ──────────────────────────────────────────────────────────
+  Scanlines + grain rendered as fixed pseudo-elements so they sit above the page
+  without intercepting pointer events. Kept very subtle.
+*/
+@layer components {
+  .crt-overlay {
+    pointer-events: none;
+    position: fixed;
+    inset: 0;
+    z-index: 60;
+  }
+  .crt-overlay::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background: repeating-linear-gradient(
+      to bottom,
+      rgba(255, 255, 255, 0.015) 0px,
+      rgba(255, 255, 255, 0.015) 1px,
+      transparent 1px,
+      transparent 3px
+    );
+    mix-blend-mode: overlay;
+  }
+  .crt-overlay::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    opacity: 0.025;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+  }
+
+  /* A panel: the fundamental unit of the terminal grid */
+  .panel {
+    background: var(--color-panel);
+    border: 1px solid var(--color-line);
+    position: relative;
+  }
+  .panel-hd {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.5rem 0.75rem;
+    border-bottom: 1px solid var(--color-line);
+    font-family: var(--font-mono);
+    font-size: 0.6875rem;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--color-muted);
+  }
+
+  /* Hairline corner ticks — the signature terminal flourish */
+  .ticks::before,
+  .ticks::after {
+    content: "";
+    position: absolute;
+    width: 7px;
+    height: 7px;
+    border-color: var(--color-up);
+    opacity: 0.7;
+  }
+  .ticks::before {
+    top: -1px;
+    left: -1px;
+    border-top: 1px solid;
+    border-left: 1px solid;
+  }
+  .ticks::after {
+    bottom: -1px;
+    right: -1px;
+    border-bottom: 1px solid;
+    border-right: 1px solid;
+  }
+}
+
+/*
+  ── Animations ────────────────────────────────────────────────────────────────
+*/
+@keyframes blink {
+  0%, 49% { opacity: 1; }
+  50%, 100% { opacity: 0; }
+}
+.cursor-blink::after {
+  content: "▋";
+  margin-left: 1px;
+  color: var(--color-up);
+  animation: blink 1.1s steps(1) infinite;
+}
+
+@keyframes flash-up {
+  0% { background-color: rgba(0, 224, 138, 0.28); }
+  100% { background-color: transparent; }
+}
+@keyframes flash-down {
+  0% { background-color: rgba(255, 77, 94, 0.28); }
+  100% { background-color: transparent; }
+}
+.flash-up { animation: flash-up 0.7s var(--ease-out-expo); }
+.flash-down { animation: flash-down 0.7s var(--ease-out-expo); }
+
+@keyframes ticker {
+  from { transform: translateX(0); }
+  to { transform: translateX(-50%); }
+}
+.ticker-track {
+  display: inline-flex;
+  white-space: nowrap;
+  animation: ticker 60s linear infinite;
+}
+.ticker-track:hover {
+  animation-play-state: paused;
+}
+
+@keyframes fade-up {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.fade-up {
+  opacity: 0;
+  animation: fade-up 0.5s var(--ease-out-expo) forwards;
+}
+
+@keyframes sweep {
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(300%); }
+}
+.skeleton {
+  position: relative;
+  overflow: hidden;
+  background: var(--color-panel-2);
+}
+.skeleton::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    rgba(255, 255, 255, 0.04),
+    transparent
+  );
+  animation: sweep 1.4s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+  }
+  .fade-up { opacity: 1; }
 }
