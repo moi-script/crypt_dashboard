@@ -1,0 +1,67 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "crypto-data"
+version = "0.1.0"
+description = "Crypto dashboard — data ingestion, analysis, and Celery workers"
+requires-python = ">=3.11"
+
+dependencies = [
+    # ── Web framework ─────────────────────────────────────────────────────────
+    "fastapi>=0.115,<1",
+    "uvicorn[standard]>=0.29,<1",
+
+    # ── Database ──────────────────────────────────────────────────────────────
+    "beanie>=1.20,<3",          # ODM; TimeSeriesConfig needs >=1.20
+    "motor>=3.4,<4",            # async MongoDB driver (beanie dependency)
+    "pymongo>=4.7,<5",          # sync driver used for IndexModel / errors
+
+    # ── Config ────────────────────────────────────────────────────────────────
+    "pydantic>=2.6,<3",
+    "pydantic-settings>=2.2,<3",
+
+    # ── Task queue ────────────────────────────────────────────────────────────
+    "celery>=5.4,<6",
+    "celery[redis]>=5.4,<6",    # includes kombu + redis transport
+
+    # ── Redis ─────────────────────────────────────────────────────────────────
+    "redis>=5.0,<9",            # sync client used in workers
+
+    # ── HTTP / ingestion ──────────────────────────────────────────────────────
+    "requests>=2.32,<3",
+    "feedparser>=6.0,<7",
+
+    # ── Analysis ─────────────────────────────────────────────────────────────
+    "numpy>=1.26,<3",
+    "vaderSentiment>=3.3,<4",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0,<10",
+    "pytest-asyncio>=0.23,<2",
+    "httpx>=0.27,<1",           # async test client for FastAPI
+    "anyio[trio]>=4.3,<5",      # backend for pytest-asyncio
+]
+
+[tool.hatch.envs.default.scripts]
+api    = "uvicorn app.main:app --host 0.0.0.0 --port 8001 --reload"
+worker = "celery -A app.workers.celery_app worker --loglevel=info"
+beat   = "celery -A app.workers.celery_app beat   --loglevel=info"
+
+[tool.hatch.build.targets.wheel]
+packages = ["app"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths   = ["tests"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP"]
+ignore = ["E501"]

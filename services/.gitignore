@@ -1,0 +1,15 @@
+# Dependencies & build output for the backend services (node + python)
+node_modules/
+coverage/
+dist/
+build/
+*.tsbuildinfo
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/

@@ -1,0 +1,125 @@
+services:
+
+  # ── Infrastructure ───────────────────────────────────────────────────────────
+
+  mongo:
+    image: mongo:7
+    restart: unless-stopped
+    volumes:
+      - mongo_data:/data/db
+    environment:
+      MONGO_INITDB_DATABASE: crypto
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping').ok"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    networks:
+      - internal
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: redis-server --save 60 1 --loglevel warning
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    networks:
+      - internal
+
+  # ── Application services ─────────────────────────────────────────────────────
+
+  api:
+    build:
+      context: ./api
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    ports:
+      - "4000:4000"
+    environment:
+      MONGO_URL:   mongodb://mongo:27017/crypto
+      REDIS_URL:   redis://redis:6379
+      JWT_SECRET:  ${JWT_SECRET:?JWT_SECRET is required}
+      WEB_URL:     ${WEB_URL:-http://localhost:3000}
+      NODE_ENV:    ${NODE_ENV:-development}
+    depends_on:
+      mongo:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - internal
+      - external
+
+  data:
+    build:
+      context: ./data
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    ports:
+      - "8001:8001"
+    environment:
+      MONGO_URL:          mongodb://mongo:27017/crypto
+      REDIS_URL:          redis://redis:6379
+      COINGECKO_API_KEY:  ${COINGECKO_API_KEY:-}
+    depends_on:
+      mongo:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - internal
+      - external
+
+  worker:
+    build:
+      context: ./data
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    command: celery -A app.workers.celery_app worker --loglevel=info --concurrency=2
+    environment:
+      MONGO_URL:          mongodb://mongo:27017/crypto
+      REDIS_URL:          redis://redis:6379
+      COINGECKO_API_KEY:  ${COINGECKO_API_KEY:-}
+    depends_on:
+      mongo:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - internal
+
+  beat:
+    build:
+      context: ./data
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    command: >
+      celery -A app.workers.celery_app beat
+        --loglevel=info
+        --scheduler celery.beat.PersistentScheduler
+        --schedule /tmp/celerybeat-schedule
+    environment:
+      MONGO_URL:          mongodb://mongo:27017/crypto
+      REDIS_URL:          redis://redis:6379
+      COINGECKO_API_KEY:  ${COINGECKO_API_KEY:-}
+    depends_on:
+      - redis
+    networks:
+      - internal
+
+# ── Volumes & networks ─────────────────────────────────────────────────────────
+
+volumes:
+  mongo_data:
+  redis_data:
+
+networks:
+  internal:   # service-to-service; never exposed
+  external:   # services that accept public traffic
+    driver: bridge
