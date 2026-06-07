@@ -12,7 +12,8 @@ const UserSchema = new Schema<IUser>({
   passwordHash: { type: String, required: true },
 }, { timestamps: true })
 
-UserSchema.index({ email: 1 })
+// `unique: true` on the email field above already creates the index — no
+// separate UserSchema.index({ email: 1 }) needed (it would be a duplicate).
 
 export const UserDoc = model<IUser>('User', UserSchema)
 

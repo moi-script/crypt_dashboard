@@ -9,6 +9,7 @@
     "rootDir": "./src",
 
     "strict": true,
+    "isolatedModules": true,
     "esModuleInterop": true,
     "forceConsistentCasingInFileNames": true,
     "skipLibCheck": true,
@@ -17,6 +18,9 @@
       "@/*": ["./src/*"]
     }
   },
-  "include": ["src/**/*"], 
-  "exclude": ["node_modules", "dist"]
+  "ts-node": {
+    "transpileOnly": true
+  },
+  "include": ["src/**/*"],
+  "exclude": ["node_modules", "dist", "src/views"]
 }

@@ -15,8 +15,20 @@ export function validate<T>(schema: ZodType<T>, source: Source = 'body') {
         .join(', ')
       return next(new AppError(400, message))
     }
-    // Replace source with the parsed + coerced value
-    ;(req as any)[source] = result.data
+
+    // req.query is a read-only getter in Express — cannot reassign directly.
+    // Use Object.defineProperty to safely write the coerced/parsed value back.
+    if (source === 'query' || source === 'params') {
+      Object.defineProperty(req, source, {
+        value: result.data,
+        writable: true,
+        configurable: true,
+      })
+    } else {
+      // body is a plain writable property — direct assignment is fine
+      ;(req as any)[source] = result.data
+    }
+
     next()
   }
 }

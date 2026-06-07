@@ -50,9 +50,15 @@ function IndicatorRow({ label, value }: { label: string; value: string }) {
   );
 }
 
+// Stat strip data defined outside component to avoid recreating on every render
+const STAT_LABELS = ["24h Volume", "Market Cap", "MACD", "Signal Score"] as const;
+
 export default function CoinDetailView() {
   const params = useParams<{ id: string }>();
-  const id = params?.id ?? "";
+  // Sanitise the id — useParams can return "undefined" as a string during SSR hydration
+  const id = params?.id && params.id !== "undefined" ? params.id : "";
+
+  // ── All hooks must be called unconditionally (Rules of Hooks) ──────────────
   const [range, setRange] = useState<OHLCVRange>("1D");
   const [modal, setModal] = useState<"none" | "hold" | "alert">("none");
 
@@ -64,9 +70,22 @@ export default function CoinDetailView() {
   const latest = indicators?.[indicators.length - 1];
   const signal = useMemo(() => computeSignal(latest, coin?.price), [latest, coin?.price]);
 
+  // ── Guard render — after all hooks ────────────────────────────────────────
+  if (!id) return null;
+
+  const stats = [
+    { l: "24h Volume",   v: coin ? `$${fmtCompact(coin.volume24h)}` : "—" },
+    { l: "Market Cap",   v: coin ? `$${fmtCompact(coin.marketCap)}` : "—" },
+    { l: "MACD",         v: latest ? latest.macd.toFixed(2) : "—" },
+    { l: "Signal Score", v: `${signal.score > 0 ? "+" : ""}${signal.score}` },
+  ];
+
   return (
     <div className="mx-auto max-w-[1400px] p-4 md:p-6">
-      <Link href="/" className="mb-4 inline-flex items-center gap-1.5 font-mono text-[11px] uppercase tracking-wider text-muted transition-colors hover:text-up">
+      <Link
+        href="/"
+        className="mb-4 inline-flex items-center gap-1.5 font-mono text-[11px] uppercase tracking-wider text-muted transition-colors hover:text-up"
+      >
         ← markets
       </Link>
 
@@ -112,14 +131,9 @@ export default function CoinDetailView() {
         </div>
       </div>
 
-      {/* Stat strip */}
+      {/* Stat strip — each item needs a unique key */}
       <div className="mb-4 grid grid-cols-2 gap-px overflow-hidden border border-line bg-line md:grid-cols-4">
-        {[
-          { l: "24h Volume", v: coin ? `$${fmtCompact(coin.volume24h)}` : "—" },
-          { l: "Market Cap", v: coin ? `$${fmtCompact(coin.marketCap)}` : "—" },
-          { l: "MACD", v: latest ? latest.macd.toFixed(2) : "—" },
-          { l: "Signal Score", v: `${signal.score > 0 ? "+" : ""}${signal.score}` },
-        ].map((s) => (
+        {stats.map((s) => (
           <div key={s.l} className="bg-panel px-4 py-3">
             <div className="font-mono text-[10px] uppercase tracking-wider text-muted">{s.l}</div>
             <div className="mt-0.5 font-mono text-sm tabular-nums text-ink">{s.v}</div>
@@ -136,7 +150,11 @@ export default function CoinDetailView() {
           ticks
         >
           <div className="p-2">
-            <CandlestickChart data={ohlcv ?? []} loading={ohlcvLoading || coinLoading} height={400} />
+            <CandlestickChart
+              data={ohlcv ?? []}
+              loading={ohlcvLoading || coinLoading}
+              height={400}
+            />
           </div>
         </Panel>
 
@@ -146,15 +164,26 @@ export default function CoinDetailView() {
             <div className="space-y-3 p-3">
               <div className="flex items-center justify-between">
                 <SignalBadge verdict={signal.verdict} size="lg" />
-                <span className={clsx("font-mono text-lg tabular-nums", signal.score >= 0 ? "text-up" : "text-down")}>
-                  {signal.score > 0 ? "+" : ""}{signal.score}
+                <span
+                  className={clsx(
+                    "font-mono text-lg tabular-nums",
+                    signal.score >= 0 ? "text-up" : "text-down",
+                  )}
+                >
+                  {signal.score > 0 ? "+" : ""}
+                  {signal.score}
                 </span>
               </div>
               {latest && <RsiGauge value={latest.rsi14} />}
               <ul className="space-y-1.5 pt-1">
                 {signal.reasons.map((r, i) => (
-                  <li key={i} className="flex items-center gap-2 font-mono text-[11px]">
-                    <span className={clsx(r.bias === "bull" ? "text-up" : r.bias === "bear" ? "text-down" : "text-faint")}>
+                  // label is unique per signal result; use label as key
+                  <li key={`${r.label}-${i}`} className="flex items-center gap-2 font-mono text-[11px]">
+                    <span
+                      className={clsx(
+                        r.bias === "bull" ? "text-up" : r.bias === "bear" ? "text-down" : "text-faint",
+                      )}
+                    >
                       {r.bias === "bull" ? "▲" : r.bias === "bear" ? "▼" : "■"}
                     </span>
                     <span className="text-ink-soft">{r.label}</span>
@@ -167,17 +196,17 @@ export default function CoinDetailView() {
           <Panel title="Indicators" bodyClassName="" ticks>
             {latest ? (
               <>
-                <IndicatorRow label="SMA-20" value={`$${fmtPrice(latest.sma20)}`} />
-                <IndicatorRow label="EMA-50" value={`$${fmtPrice(latest.ema50)}`} />
-                <IndicatorRow label="MACD" value={latest.macd.toFixed(3)} />
-                <IndicatorRow label="Signal" value={latest.signal.toFixed(3)} />
-                <IndicatorRow label="BB Upper" value={`$${fmtPrice(latest.bbUpper)}`} />
-                <IndicatorRow label="BB Lower" value={`$${fmtPrice(latest.bbLower)}`} />
+                <IndicatorRow label="SMA-20"    value={`$${fmtPrice(latest.sma20)}`} />
+                <IndicatorRow label="EMA-50"    value={`$${fmtPrice(latest.ema50)}`} />
+                <IndicatorRow label="MACD"      value={latest.macd.toFixed(3)} />
+                <IndicatorRow label="Signal"    value={latest.signal.toFixed(3)} />
+                <IndicatorRow label="BB Upper"  value={`$${fmtPrice(latest.bbUpper)}`} />
+                <IndicatorRow label="BB Lower"  value={`$${fmtPrice(latest.bbLower)}`} />
               </>
             ) : (
               <div className="p-3">
                 {Array.from({ length: 6 }).map((_, i) => (
-                  <div key={i} className="skeleton my-1.5 h-4 w-full" />
+                  <div key={`skeleton-${i}`} className="skeleton my-1.5 h-4 w-full" />
                 ))}
               </div>
             )}
@@ -186,9 +215,15 @@ export default function CoinDetailView() {
       </div>
 
       {/* News */}
-      <Panel className="mt-4" title={<span className="text-ink-soft">Related Headlines</span>} ticks>
+      <Panel
+        className="mt-4"
+        title={<span className="text-ink-soft">Related Headlines</span>}
+        ticks
+      >
         {news?.length ? (
-          news.map((a) => <NewsCard key={a.id} article={a} compact />)
+          news.map((a) => (<div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(200px, 1fr))", gap: "12px" }}>
+  {news.map((a) => <NewsCard key={a.id} article={a} />)}
+</div>))
         ) : (
           <p className="px-4 py-6 text-center font-mono text-xs text-muted">
             No recent headlines mention {coin?.symbol ?? id}.
@@ -197,10 +232,20 @@ export default function CoinDetailView() {
       </Panel>
 
       {modal === "hold" && coin && (
-        <HoldingModal coinId={id} symbol={coin.symbol} price={coin.price} onClose={() => setModal("none")} />
+        <HoldingModal
+          coinId={id}
+          symbol={coin.symbol}
+          price={coin.price}
+          onClose={() => setModal("none")}
+        />
       )}
       {modal === "alert" && coin && (
-        <AlertModal coinId={id} symbol={coin.symbol} price={coin.price} onClose={() => setModal("none")} />
+        <AlertModal
+          coinId={id}
+          symbol={coin.symbol}
+          price={coin.price}
+          onClose={() => setModal("none")}
+        />
       )}
     </div>
   );
@@ -305,7 +350,9 @@ function AlertModal({
                   onClick={() => setCondition(c)}
                   className={clsx(
                     "border py-1.5 font-mono text-[10px] uppercase tracking-wider transition-colors",
-                    condition === c ? "border-up/40 bg-up/10 text-up" : "border-line text-muted hover:text-ink",
+                    condition === c
+                      ? "border-up/40 bg-up/10 text-up"
+                      : "border-line text-muted hover:text-ink",
                   )}
                 >
                   {c === "pct_change" ? "± %" : c}

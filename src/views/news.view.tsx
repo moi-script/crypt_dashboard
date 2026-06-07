@@ -80,7 +80,11 @@ export default function NewsView() {
             </div>
           ))
         ) : shown.length ? (
-          shown.map((a) => <NewsCard key={a.id} article={a} />)
+          shown.map((a) => (
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(200px, 1fr))", gap: "12px" }}>
+  {shown.map((a) => <NewsCard key={a.id} article={a} />)}
+</div>
+          ))
         ) : (
           <p className="px-4 py-8 text-center font-mono text-xs text-muted">No matching headlines.</p>
         )}
