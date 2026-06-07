@@ -5,6 +5,7 @@ import newsRoutes      from './news.routes'
 import portfolioRoutes from './portfolio.routes'
 import authRoutes from './auth.routes'
 import analysisRoutes from './analysis.routes';
+import agentRoutes from './agent.routes';
 const router = Router()
 
 router.get('/health', (_req, res) => res.json({ status: 'ok', ts: new Date() }))
@@ -15,4 +16,5 @@ router.use('/alerts',    alertRoutes)
 router.use('/news',      newsRoutes)
 router.use('/portfolio', portfolioRoutes)
 router.use('/analysis',  analysisRoutes)  
+router.use('/agent', agentRoutes)
 export default router
