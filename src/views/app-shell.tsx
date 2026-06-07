@@ -26,6 +26,9 @@ const I = {
   alerts: (
     <path d="M6 9a6 6 0 1112 0c0 5 2 6 2 6H4s2-1 2-6M10 21a2 2 0 004 0" strokeWidth="1.6" />
   ),
+  agent: (
+  <path d="M12 2a5 5 0 015 5v2a5 5 0 01-10 0V7a5 5 0 015-5zM4 20c0-4 3.6-7 8-7s8 3 8 7" strokeWidth="1.6" />
+),
   news: (
     <path d="M4 5h13v14H4zM17 9h3v8a2 2 0 01-2 2M8 9h5M8 13h5M8 17h3" strokeWidth="1.6" />
   ),
@@ -35,6 +38,7 @@ const NAV: NavItem[] = [
   { href: "/", label: "Markets", icon: I.markets, match: (p) => p === "/" || p.startsWith("/coins") },
   { href: "/portfolio", label: "Portfolio", icon: I.portfolio, match: (p) => p.startsWith("/portfolio") },
   { href: "/alerts", label: "Alerts", icon: I.alerts, match: (p) => p.startsWith("/alerts") },
+  { href: "/agent", label: "Agent", icon: I.agent, match: (p) => p.startsWith("/agent") },
   { href: "/news", label: "News", icon: I.news, match: (p) => p.startsWith("/news") },
 ];
 

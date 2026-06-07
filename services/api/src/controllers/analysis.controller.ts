@@ -1,5 +1,8 @@
 /**
- * analysis.controller.ts
+ * analysis.controller.ts  (updated)
+ *
+ * Now accepts optional sessionId in body so the agent
+ * gets notified after analysis completes.
  */
 
 import { Request, Response, NextFunction } from 'express'
@@ -8,13 +11,18 @@ import { AnalysisService } from '../services/analysis.service'
 const svc = new AnalysisService()
 
 // POST /api/analysis/:coinId/run
+// Body (optional): { sessionId }
 export async function runAnalysis(req: Request, res: Response, next: NextFunction) {
   try {
     const { coinId } = req.params
     if (!coinId || coinId === 'undefined') {
       return res.status(400).json({ error: 'coinId is required' })
     }
-    const analysis = await svc.runAnalysis(coinId as string)
+
+    // sessionId is optional — if provided, agent gets notified after analysis
+    const { sessionId } = req.body ?? {}
+
+    const analysis = await svc.runAnalysis(coinId as string, sessionId)
     res.json(analysis)
   } catch (err) {
     next(err)
@@ -35,7 +43,7 @@ export async function getLatest(req: Request, res: Response, next: NextFunction)
 // GET /api/analysis/:coinId/history?limit=10
 export async function getHistory(req: Request, res: Response, next: NextFunction) {
   try {
-    const limit = Math.min(parseInt(req.query.limit as string) || 10, 50)
+    const limit  = Math.min(parseInt(req.query.limit as string) || 10, 50)
     const result = await svc.getHistory(req.params.coinId as string, limit)
     res.json(result)
   } catch (err) {
