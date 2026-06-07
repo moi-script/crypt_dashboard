@@ -13,7 +13,8 @@ import { connectSubscriber } from './websocket/redisSubscriber'
 import morgan from 'morgan';
 const app = express()
 const server = http.createServer(app)
-
+import './config/env'
+console.log('OpenRouter key loaded:', !!process.env.OPENROUTER_API_KEY)
 // WEB_URL may list multiple allowed origins separated by commas
 // (e.g. "http://localhost:3000,http://localhost:3001"). Split into an array so
 // the cors middleware matches each one exactly instead of treating the whole
