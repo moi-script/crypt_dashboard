@@ -515,6 +515,30 @@ export class AgentService {
     }
   }
 
+  // Never returns 404 — creates the doc if missing (used by GET /api/agent/session/:id)
+  async getOrCreateSession(
+    sessionId: string,
+    coinId:    string,
+    userId?:   string,
+  ): Promise<AgentChatSession> {
+    if (sessionCache.has(sessionId)) return sessionCache.get(sessionId)!
+    const doc = await AgentSessionDoc.findOne({ sessionId }).lean()
+    if (doc) {
+      const session: AgentChatSession = {
+        sessionId:      doc.sessionId,
+        coinId:         doc.coinId,
+        messages:       doc.messages as AgentChatMessage[],
+        currentEmotion: doc.currentEmotion as AgentEmotion,
+        createdAt:      doc.createdAt.getTime(),
+        updatedAt:      doc.updatedAt.getTime(),
+      }
+      sessionCache.set(sessionId, session)
+      return session
+    }
+    // Document missing — upsert it now
+    return loadOrCreateSession(sessionId, coinId, userId)
+  }
+
   async getUserSessions(userId: string): Promise<IAgentSession[]> {
     return AgentSessionDoc.find({ userId }).sort({ updatedAt: -1 }).limit(10).lean()
   }

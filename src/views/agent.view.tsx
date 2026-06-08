@@ -3,10 +3,13 @@
 import { useParams } from "next/navigation";
 import Link from "next/link";
 import { AgentChat } from "@/components/AgentChat";
-
+import { useAuth } from "@/controllers/useAuth";
 export default function AgentView() {
   const params = useParams<{ coinId?: string }>();
   const coinId = params?.coinId ?? "bitcoin";
+
+
+  const {user} = useAuth();
 
   return (
     <div style={{ display: "flex", flexDirection: "column", height: "100%", background: "rgb(2,6,9)" }}>
@@ -99,7 +102,7 @@ export default function AgentView() {
 
       {/* Chat */}
       <div style={{ flex: 1, minHeight: 0 }}>
-        <AgentChat coinId={coinId} />
+        <AgentChat coinId={coinId} userId={user?.id}/>
       </div>
     </div>
   );

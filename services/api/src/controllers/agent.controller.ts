@@ -1,5 +1,5 @@
 /**
- * agent.controller.ts  (updated)
+ * agent.controller.ts
  */
 
 import type { Request, Response, NextFunction } from 'express'
@@ -28,10 +28,21 @@ export async function chat(req: Request, res: Response, next: NextFunction) {
 }
 
 // GET /api/agent/session/:sessionId
+// NOTE: never returns 404 — auto-creates the session document if it doesn't
+// exist yet. This is intentional: the frontend generates the sessionId client-
+// side and calls GET to verify/restore it; we don't want a race between the
+// seed POST and this GET.
 export async function getSession(req: Request, res: Response, next: NextFunction) {
   try {
-    const session = await svc.getSession(req.params.sessionId as string)
-    if (!session) return res.status(404).json({ error: 'Session not found' })
+    const { sessionId } = req.params
+    const { coinId, userId } = req.query
+
+    const session = await svc.getOrCreateSession(
+      sessionId as string,
+      (coinId as string | undefined) ?? 'bitcoin',
+      userId as string | undefined,
+    )
+
     res.json(session)
   } catch (err) {
     next(err)
@@ -39,7 +50,6 @@ export async function getSession(req: Request, res: Response, next: NextFunction
 }
 
 // GET /api/agent/sessions/user/:userId
-// Returns last 10 sessions for a user
 export async function getUserSessions(req: Request, res: Response, next: NextFunction) {
   try {
     const sessions = await svc.getUserSessions(req.params.userId as string)
