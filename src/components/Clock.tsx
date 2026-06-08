@@ -16,9 +16,27 @@ export function Clock() {
     : "--:--:--";
 
   return (
-    <span className="font-mono text-xs tabular-nums text-ink-soft">
+    <span
+      className="tabular-nums"
+      style={{
+        fontFamily: "var(--font-mono)",
+        fontSize: 11,
+        color: "var(--ink-muted)",
+        letterSpacing: "0.06em",
+      }}
+    >
       {text}
-      <span className="ml-1 text-faint">UTC</span>
+      <span
+        style={{
+          marginLeft: 5,
+          fontSize: 9,
+          letterSpacing: "0.15em",
+          textTransform: "uppercase",
+          color: "var(--ink-faint)",
+        }}
+      >
+        UTC
+      </span>
     </span>
   );
 }

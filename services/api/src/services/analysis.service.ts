@@ -1,8 +1,8 @@
 /**
  * analysis.service.ts  (updated)
  *
- * Added: notifies the AgentService after analysis completes
- * so the emotion system reacts to fresh analysis results.
+ * notifyAnalysisComplete now returns a ChatOutput with the full analysisReport
+ * attached so the HTTP response can carry it back to the frontend.
  */
 
 import { orchestrate }        from '../agents/orchestrator'
@@ -52,21 +52,30 @@ export class AnalysisService {
     // 5. Update behaviour memory
     await this.updateBehaviour(orchestrated.coinId, orchestrated.symbol, report)
 
-    // 6. ── Notify agent — this is the bridge to the emotion system ───────────
-    // If a sessionId was provided (frontend passed it), update that session's
-    // chat history with the analysis result and trigger emotion recalculation
+    // 6. Notify agent and get rich ChatOutput back
+    let agentOutput = null
     if (sessionId) {
-      agentSvc.notifyAnalysisComplete(
-        sessionId,
-        coinId,
-        report.verdict,
-        report.score,
-        report.confidence,
-      ).catch(err => console.warn('[AnalysisService] Agent notify failed:', err.message))
+      try {
+        agentOutput = await agentSvc.notifyAnalysisComplete(
+          sessionId,
+          coinId,
+          report.verdict,
+          report.score,
+          report.confidence,
+        )
+      } catch (err: any) {
+        console.warn('[AnalysisService] Agent notify failed:', err.message)
+      }
     }
 
     console.log(`[AnalysisService] Done — verdict: ${report.verdict}, confidence: ${report.confidence}%`)
-    return analysis
+
+    // Return both the saved analysis and the agent output so the controller
+    // can send the rich chat response back to the frontend
+    return {
+      analysis,
+      agentOutput,
+    }
   }
 
   private async updateBehaviour(

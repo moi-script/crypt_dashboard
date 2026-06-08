@@ -1,10 +1,5 @@
 /**
- * agent.service.ts (fixed)
- *
- * Key fixes:
- * - Drastically simplified system prompt so free models don't generate broken JSON
- * - Robust JSON extraction and repair logic
- * - Emotion fields pre-filled in prompt template to reduce hallucination
+ * agent.service.ts  (updated — richer analysis output + expanded system prompt)
  */
 
 import {
@@ -24,12 +19,20 @@ import {
 } from '../agents/emotion.state'
 
 import { AgentSessionDoc, type IAgentSession } from '../models/agent.model'
-import { AnalysisDoc }       from '../models/analysis.model'
-import { CoinGeckoService }  from './coingecko.service'
+import { AnalysisDoc } from '../models/analysis.model'
+import { CoinGeckoService } from './coingecko.service'
+import OpenAI from 'openai'
 
 const cg = new CoinGeckoService()
-
 const sessionCache = new Map<string, AgentChatSession>()
+
+const apiKey = process.env.DEEPSEEK_API_KEY
+if (!apiKey) throw new Error('DEEPSEEK_API_KEY not set')
+
+const deepseek = new OpenAI({
+  baseURL: 'https://api.deepseek.com',
+  apiKey:  process.env.DEEPSEEK_API_KEY ?? '',
+})
 
 // ── Session helpers ───────────────────────────────────────────────────────────
 
@@ -148,7 +151,7 @@ async function buildMarketSnapshot(
   }
 }
 
-// ── JSON repair helper ────────────────────────────────────────────────────────
+// ── JSON repair helpers ───────────────────────────────────────────────────────
 
 function extractContent(raw: string): string | null {
   const match = raw.match(/"content"\s*:\s*"((?:[^"\\]|\\.)*)"/s)
@@ -157,42 +160,35 @@ function extractContent(raw: string): string | null {
 }
 
 function safeParseJSON(raw: string): {
-  content: string
-  emotion?: AgentEmotion
+  content:         string
+  emotion?:        AgentEmotion
   suggestAnalysis?: boolean
-  suggestAlert?: boolean
+  suggestAlert?:   boolean
 } | null {
-  // 1. Strip markdown fences
   let cleaned = raw.replace(/```json|```/g, '').trim()
 
-  // 2. Extract outermost JSON object
   const start = cleaned.indexOf('{')
   const end   = cleaned.lastIndexOf('}')
   if (start === -1 || end === -1) return null
   cleaned = cleaned.slice(start, end + 1)
 
-  // 3. Direct parse
-  try {
-    return JSON.parse(cleaned)
-  } catch { /* continue */ }
+  cleaned = cleaned.replace(/("(?:[^"\\]|\\.)*")/gs, (m) =>
+    m.replace(/\n/g, '\\n').replace(/\r/g, '\\r').replace(/\t/g, '\\t')
+  )
 
-  // 4. Fix common issues
+  try { return JSON.parse(cleaned) } catch { /* continue */ }
+
   try {
-    const fixed = cleaned
-      .replace(/("(?:[^"\\]|\\.)*")/gs, (m) =>
-        m.replace(/\n/g, '\\n').replace(/\r/g, '\\r')
-      )
-      .replace(/,\s*([}\]])/g, '$1')
+    const fixed = cleaned.replace(/,\s*([}\]])/g, '$1')
     return JSON.parse(fixed)
   } catch { /* continue */ }
 
-  // 5. Extract just content field as last resort
   const content = extractContent(cleaned)
   if (content) return { content }
   return null
 }
 
-// ── System prompt — minimal to avoid JSON truncation ─────────────────────────
+// ── System prompt ─────────────────────────────────────────────────────────────
 
 function buildSystemPrompt(
   emotion:      AgentEmotion,
@@ -201,7 +197,7 @@ function buildSystemPrompt(
   history:      AgentChatMessage[],
   lastAnalysis: any | null,
 ): string {
-  const recentMsgs = history.slice(-4).map(m =>
+  const recentMsgs = history.slice(-5, -1).map(m =>
     `${m.role === 'user' ? 'User' : 'You'}: ${m.content.slice(0, 100)}`
   ).join('\n')
 
@@ -214,37 +210,68 @@ function buildSystemPrompt(
     snapshot.lastAccurate === false ? 'Last prediction: WRONG'   : '',
   ].filter(Boolean).join(' | ')
 
+  // If the last analysis is recent (within 10 mins), inject its full data
+  const analysisBlock = lastAnalysis && (Date.now() - new Date(lastAnalysis.runAt).getTime() < 10 * 60 * 1000)
+    ? `\n=== FRESH ANALYSIS JUST RAN ===
+Verdict: ${lastAnalysis.verdict.toUpperCase()} | Score: ${lastAnalysis.score}/100 | Confidence: ${lastAnalysis.confidence}%
+Narrative: ${lastAnalysis.narrative}
+Key Points: ${(lastAnalysis.keyPoints ?? []).map((k: string, i: number) => `${i+1}. ${k}`).join(' | ')}
+Risks: ${(lastAnalysis.risks ?? []).slice(0,3).join(' | ')}
+Skills: ${(lastAnalysis.skills ?? []).map((s: any) => `${s.name}=${s.verdict}(${s.score})`).join(', ')}
+`
+    : ''
+
   const personality: Record<string, string> = {
-    happy:      'You are enthusiastic and upbeat. Use exclamations.',
-    depressed:  'You are somber and cautious. Keep it short.',
-    nervous:    'You hedge everything with maybe and I think.',
-    frustrated: 'You are blunt and self-critical about missed calls.',
-    shocked:    'You are dramatic about market moves.',
-    thinking:   'You are methodical and analytical.',
+    happy:      'Enthusiastic and upbeat. Use exclamations. You can go up to 5 sentences.',
+    depressed:  'Somber and cautious. You can be detailed but slightly pessimistic.',
+    nervous:    'Hedge with "maybe" and "I think". Mention uncertainties.',
+    frustrated: 'Blunt and self-critical about missed calls, but thorough.',
+    shocked:    'Dramatic about market moves. Very expressive.',
+    thinking:   'Methodical and deeply analytical. Walk through your reasoning.',
   }
 
-  // Pre-fill JSON template — model only replaces the content value
-  const jsonTemplate = JSON.stringify({
-    content:         "__REPLY__",
+  const sanitise = (s: string) => s.replace(/"/g, "'").replace(/\n/g, ' ').slice(0, 80)
+
+  const template = {
+    content: '__REPLY__',
     emotion: {
       emotion:   emotion.emotion,
       intensity: emotion.intensity,
-      reason:    emotion.reason,
+      reason:    sanitise(emotion.reason),
       asset:     `/emotions/${emotion.emotion}.png`,
-      message:   emotion.message,
+      message:   sanitise(emotion.message),
     },
     suggestAnalysis: false,
     suggestAlert:    false,
-  })
+  }
 
-  return `You are a crypto AI agent. Mood: ${emotion.emotion.toUpperCase()}.
-${personality[emotion.emotion] ?? ''}
-Market: ${marketSummary}
-${recentMsgs ? `Recent chat:\n${recentMsgs}` : ''}
+  return `You are a crypto AI agent. Current mood: ${emotion.emotion.toUpperCase()}.
+Personality: ${personality[emotion.emotion] ?? 'Neutral and helpful.'}
+Market context: ${marketSummary}
+${analysisBlock}
+${recentMsgs ? `Recent conversation:\n${recentMsgs}\n` : ''}
+INSTRUCTIONS:
+- Reply in character with your mood. Up to 5 sentences — be substantive, not just a one-liner.
+- If analysis data is present above, reference SPECIFIC numbers: the score, verdict, key points, and skill results.
+- You're an analyst with personality — share your actual opinion about what the data means.
+- After analysis, always mention: the verdict, the score, at least 2 key points, and 1-2 risks.
+- Replace __REPLY__ with your response text only. Do NOT add literal newlines inside the content string. Use \\n if needed.
+- Do NOT change any other field. Return the JSON exactly as structured below.
+- Return ONLY the JSON object. No markdown, no explanation, nothing else.
+- CRITICAL: If the user asks to run analysis, analyze, or check the market — set suggestAnalysis to true.
 
-Reply under 80 words in character with your mood.
-Output ONLY this JSON with __REPLY__ replaced by your response (no newlines in reply text, use \\n instead):
-${jsonTemplate}`
+${JSON.stringify(template, null, 0)}`
+}
+
+// ── Canned responses for automated triggers ───────────────────────────────────
+
+const ANALYSIS_CANNED: Record<string, string> = {
+  happy:      "On it! Crunching the numbers now — feeling good about this one!",
+  depressed:  "Running it... though I'm not sure it'll change much.",
+  nervous:    "Okay, maybe I'll find something useful this time. Scanning now...",
+  frustrated: "Running analysis again. Need to redeem myself after that last miss.",
+  shocked:    "Analyzing NOW — with moves like these I have to know what's happening!",
+  thinking:   "Initiating full analysis. Processing all available signals. Stand by.",
 }
 
 // ── Interfaces ────────────────────────────────────────────────────────────────
@@ -264,6 +291,22 @@ export interface ChatOutput {
   suggestAnalysis: boolean
   suggestAlert:    boolean
   history:         AgentChatMessage[]
+  // ── new: attached analysis report for rich rendering ──
+  analysisReport?: {
+    verdict:     string
+    score:       number
+    confidence:  number
+    narrative:   string
+    keyPoints:   string[]
+    risks:       string[]
+    skillsUsed:  string[]
+    skills:      { name: string; verdict: string; score: number; summary: string }[]
+    reasoning:   { step: number; phase: string; title: string; detail: string; score?: number; decision?: string }[]
+    coinName:    string
+    symbol:      string
+    priceAtRun:  number
+    runAt:       string
+  }
 }
 
 // ── Main service ──────────────────────────────────────────────────────────────
@@ -293,10 +336,22 @@ export class AgentService {
 
     session.messages.push({ role: 'user', content: message, ts: Date.now() })
 
-    const systemPrompt = buildSystemPrompt(emotion, snapshot, coinId, session.messages, lastAnalysis)
+    // ── Skip API call when analysis is running ────────────────────────────────
+    if (isAnalysing) {
+      const content = ANALYSIS_CANNED[emotion.emotion] ?? 'Running analysis, stand by...'
+      session.messages.push({ role: 'agent', content, emotion, ts: Date.now() })
+      if (session.messages.length > 20) session.messages = session.messages.slice(-20)
+      persistSession(session).catch(() => {})
+      return {
+        sessionId, content, emotion,
+        suggestAnalysis: false,
+        suggestAlert:    false,
+        history:         session.messages,
+      }
+    }
 
-    const apiKey = process.env.OPENROUTER_API_KEY
-    if (!apiKey) throw new Error('OPENROUTER_API_KEY not set')
+    // ── Normal chat — call DeepSeek ───────────────────────────────────────────
+    const systemPrompt = buildSystemPrompt(emotion, snapshot, coinId, session.messages, lastAnalysis)
 
     let content         = ''
     let responseEmotion = emotion
@@ -304,36 +359,19 @@ export class AgentService {
     let suggestAlert    = false
 
     try {
-      const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
-        method:  'POST',
-        headers: {
-          'Content-Type':  'application/json',
-          'Authorization': `Bearer ${apiKey}`,
-          'HTTP-Referer':  process.env.APP_URL ?? 'http://localhost:3000',
-          'X-Title':       'Crypto Agent',
-        },
-        body: JSON.stringify({
-          model:       'openrouter/free',
-          max_tokens:  350,
-          temperature: 0.7,
-          messages: [
-            { role: 'system', content: systemPrompt },
-            { role: 'user',   content: message },
-          ],
-        }),
+      const completion = await deepseek.chat.completions.create({
+        model:       'deepseek-v4-flash',
+        max_tokens:  800,   // bumped from 600 to allow richer responses
+        temperature: 0.7,
+        messages: [
+          { role: 'system', content: systemPrompt },
+          { role: 'user',   content: message },
+        ],
       })
 
-      if (!response.ok) {
-        const errText = await response.text()
-        throw new Error(`OpenRouter ${response.status}: ${errText.slice(0, 100)}`)
-      }
-
-      const json = await response.json() as {
-        choices: { message: { content: string } }[]
-      }
-
-      const raw = json.choices?.[0]?.message?.content ?? ''
-      console.log('[AgentService] Raw:', raw.slice(0, 150))
+      const raw = completion.choices?.[0]?.message?.content ?? ''
+      console.log('[AgentService] finish_reason:', completion.choices?.[0]?.finish_reason)
+      console.log('[AgentService] Raw:', raw)
 
       const parsed = safeParseJSON(raw)
 
@@ -354,20 +392,20 @@ export class AgentService {
     }
 
     session.messages.push({ role: 'agent', content, emotion: responseEmotion, ts: Date.now() })
-
-    if (session.messages.length > 20) {
-      session.messages = session.messages.slice(-20)
-    }
+    if (session.messages.length > 20) session.messages = session.messages.slice(-20)
 
     persistSession(session).catch(() => {})
 
     return {
       sessionId, content,
-      emotion: responseEmotion,
+      emotion:         responseEmotion,
       suggestAnalysis, suggestAlert,
-      history: session.messages,
+      history:         session.messages,
     }
   }
+
+  // ── Notify session after analysis completes ───────────────────────────────
+  // Now returns the full analysis object attached to the response
 
   async notifyAnalysisComplete(
     sessionId:  string,
@@ -375,24 +413,93 @@ export class AgentService {
     verdict:    string,
     score:      number,
     confidence: number,
-  ): Promise<void> {
+  ): Promise<ChatOutput> {
     const session = await loadOrCreateSession(sessionId, coinId)
-    const verdictMessages: Record<string, string> = {
-      strong_buy:  `Analysis complete! Very bullish — strong buy at ${confidence}% confidence. Score: +${score}/100.`,
-      buy:         `Done! Leaning bullish. Buy signal at ${confidence}% confidence. Score: +${score}/100.`,
-      neutral:     `Analysis done. Mixed signals — neutral. Score: ${score}/100.`,
-      sell:        `Analysis done. Concerning signs. Sell at ${confidence}% confidence. Score: ${score}/100.`,
-      strong_sell: `Analysis complete. Bearish — strong sell at ${confidence}% confidence. Score: ${score}/100.`,
+
+    // Fetch the full analysis doc that was just saved
+    const analysis = await AnalysisDoc.findOne({ coinId }).sort({ runAt: -1 }).lean()
+
+    // Build a rich, in-character narrative from the analysis data
+    const snapshot = await buildMarketSnapshot(coinId, false)
+    const emotion  = deriveEmotion(snapshot, sessionId)
+
+    // Compose a proper multi-sentence agent message with the full report
+    const verdictEmoji: Record<string, string> = {
+      strong_buy: '🚀', buy: '📈', neutral: '⚖️', sell: '📉', strong_sell: '💀',
     }
+    const emoji = verdictEmoji[verdict] ?? '📊'
+
+    let richContent = `${emoji} Analysis complete for ${analysis?.coinName ?? coinId.toUpperCase()}! `
+
+    if (analysis) {
+      richContent += `My verdict: **${verdict.replace('_', ' ').toUpperCase()}** with a score of ${score > 0 ? '+' : ''}${score}/100 at ${confidence}% confidence. `
+
+      if (analysis.narrative) {
+        richContent += `${analysis.narrative} `
+      }
+
+      if (analysis.keyPoints?.length) {
+        richContent += `Key findings: ${analysis.keyPoints.slice(0, 3).join(' • ')}. `
+      }
+
+      if (analysis.risks?.length) {
+        richContent += `Watch out for: ${analysis.risks.slice(0, 2).join('; ')}.`
+      }
+    } else {
+      richContent += `Verdict: ${verdict.replace('_', ' ').toUpperCase()}, score ${score > 0 ? '+' : ''}${score}/100, confidence ${confidence}%.`
+    }
+
     session.messages.push({
-      role: 'agent',
-      content: verdictMessages[verdict] ?? `Analysis complete. Verdict: ${verdict}.`,
-      emotion: session.currentEmotion,
-      ts: Date.now(),
+      role:    'agent',
+      content: richContent,
+      emotion: emotion,
+      ts:      Date.now(),
     })
+
     if (session.messages.length > 20) session.messages = session.messages.slice(-20)
     await persistSession(session)
+
+    // Build the analysisReport payload for rich frontend rendering
+    const analysisReport = analysis ? {
+      verdict:     analysis.verdict,
+      score:       analysis.score,
+      confidence:  analysis.confidence ?? 0,
+      narrative:   analysis.narrative,
+      keyPoints:   analysis.keyPoints ?? [],
+      risks:       analysis.risks ?? [],
+      skillsUsed:  analysis.skillsUsed ?? [],
+      skills:      (analysis.skills ?? []).map((s: any) => ({
+        name:    s.name,
+        verdict: s.verdict,
+        score:   s.score,
+        summary: s.summary,
+      })),
+      reasoning: (analysis.reasoning ?? []).map((r: any) => ({
+        step:     r.step,
+        phase:    r.phase,
+        title:    r.title,
+        detail:   r.detail,
+        score:    r.score,
+        decision: r.decision,
+      })),
+      coinName:   analysis.coinName,
+      symbol:     analysis.symbol,
+      priceAtRun: analysis.priceAtRun ?? 0,
+      runAt:      analysis.runAt instanceof Date ? analysis.runAt.toISOString() : String(analysis.runAt),
+    } : undefined
+
+    return {
+      sessionId,
+      content:         richContent,
+      emotion,
+      suggestAnalysis: false,
+      suggestAlert:    false,
+      history:         session.messages,
+      analysisReport,
+    }
   }
+
+  // ── Session helpers ───────────────────────────────────────────────────────
 
   async getSession(sessionId: string): Promise<AgentChatSession | null> {
     if (sessionCache.has(sessionId)) return sessionCache.get(sessionId)!
@@ -417,8 +524,10 @@ export class AgentService {
     await AgentSessionDoc.deleteOne({ sessionId })
   }
 
+  // ── Fallback responses ────────────────────────────────────────────────────
+
   private fallbackResponse(emotion: AgentEmotion, message: string): string {
-    const isGreeting = ['hi','hello','hey','how are you'].some(g =>
+    const isGreeting = ['hi', 'hello', 'hey', 'how are you'].some(g =>
       message.toLowerCase().includes(g)
     )
     if (isGreeting) {

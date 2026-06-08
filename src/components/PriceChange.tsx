@@ -1,6 +1,5 @@
-import { clsx, fmtPct } from "@/lib/format";
+import { fmtPct } from "@/lib/format";
 
-/** Coloured directional percentage with a triangle marker. */
 export function PriceChange({
   value,
   className,
@@ -13,22 +12,27 @@ export function PriceChange({
   size?: "sm" | "md" | "lg";
 }) {
   const up = value >= 0;
-  const sizes = {
-    sm: "text-xs",
-    md: "text-sm",
-    lg: "text-base",
-  } as const;
+  const fontSize = size === "sm" ? 11 : size === "md" ? 13 : 15;
 
   return (
     <span
-      className={clsx(
-        "font-mono tabular-nums inline-flex items-center gap-1",
-        sizes[size],
-        up ? "text-up" : "text-down",
-        className,
-      )}
+      className={className}
+      style={{
+        display: "inline-flex",
+        alignItems: "center",
+        gap: 3,
+        fontFamily: "var(--font-mono)",
+        fontSize,
+        fontWeight: 500,
+        fontVariantNumeric: "tabular-nums",
+        color: up ? "var(--up)" : "var(--down)",
+      }}
     >
-      {showArrow && <span aria-hidden>{up ? "▲" : "▼"}</span>}
+      {showArrow && (
+        <span style={{ fontSize: fontSize * 0.7, lineHeight: 1 }}>
+          {up ? "▲" : "▼"}
+        </span>
+      )}
       {fmtPct(value)}
     </span>
   );

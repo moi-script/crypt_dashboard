@@ -4,43 +4,101 @@ import { useParams } from "next/navigation";
 import Link from "next/link";
 import { AgentChat } from "@/components/AgentChat";
 
-/**
- * Standalone agent page at /agent or /agent/[coinId]
- * Can also be used as an embedded panel inside coin detail page.
- */
 export default function AgentView() {
   const params = useParams<{ coinId?: string }>();
   const coinId = params?.coinId ?? "bitcoin";
 
   return (
-    <div className="flex h-full flex-col">
+    <div style={{ display: "flex", flexDirection: "column", height: "100%", background: "rgb(2,6,9)" }}>
+
       {/* Breadcrumb */}
-      <div className="flex items-center gap-2 px-4 py-2 border-b border-line bg-panel/60 flex-shrink-0">
+      <div style={{
+        display: "flex",
+        alignItems: "center",
+        gap: 8,
+        padding: "12px 20px",
+        background: "rgb(4,11,20)",
+        borderBottom: "1px solid var(--border)",
+        flexShrink: 0,
+      }}>
         <Link
           href="/"
-          className="font-mono text-[10px] uppercase tracking-wider text-muted hover:text-up transition-colors"
+          style={{
+            fontFamily: "var(--font-display)",
+            fontSize: 12,
+            color: "var(--ink-muted)",
+            textDecoration: "none",
+            fontWeight: 500,
+            transition: "color 0.15s",
+          }}
+          onMouseEnter={e => (e.currentTarget as HTMLElement).style.color = "var(--ink-soft)"}
+          onMouseLeave={e => (e.currentTarget as HTMLElement).style.color = "var(--ink-muted)"}
         >
           Markets
         </Link>
-        <span className="font-mono text-[10px] text-faint">/</span>
+
+        <span style={{ color: "var(--ink-faint)", fontSize: 12 }}>›</span>
+
         {coinId !== "bitcoin" && (
           <>
             <Link
               href={`/coins/${coinId}`}
-              className="font-mono text-[10px] uppercase tracking-wider text-muted hover:text-up transition-colors"
+              style={{
+                fontFamily: "var(--font-display)",
+                fontSize: 12,
+                color: "var(--ink-muted)",
+                textDecoration: "none",
+                fontWeight: 500,
+                transition: "color 0.15s",
+              }}
+              onMouseEnter={e => (e.currentTarget as HTMLElement).style.color = "var(--ink-soft)"}
+              onMouseLeave={e => (e.currentTarget as HTMLElement).style.color = "var(--ink-muted)"}
             >
-              {coinId}
+              {coinId.charAt(0).toUpperCase() + coinId.slice(1)}
             </Link>
-            <span className="font-mono text-[10px] text-faint">/</span>
+            <span style={{ color: "var(--ink-faint)", fontSize: 12 }}>›</span>
           </>
         )}
-        <span className="font-mono text-[10px] uppercase tracking-wider text-ink-soft">
-          Agent
+
+        <span style={{
+          fontFamily: "var(--font-display)",
+          fontSize: 12,
+          color: "var(--ink)",
+          fontWeight: 600,
+        }}>
+          AI Agent
+        </span>
+
+        {/* Live pill */}
+        <span style={{
+          marginLeft: 4,
+          display: "inline-flex",
+          alignItems: "center",
+          gap: 5,
+          padding: "2px 8px",
+          borderRadius: 20,
+          background: "var(--up-glass)",
+          border: "1px solid var(--up-border)",
+        }}>
+          <span className="pulse" style={{
+            width: 6, height: 6, borderRadius: "50%",
+            background: "var(--up)",
+            color: "var(--up)",
+            display: "inline-block",
+          }} />
+          <span style={{
+            fontFamily: "var(--font-display)",
+            fontSize: 10,
+            fontWeight: 600,
+            color: "var(--up)",
+          }}>
+            Live
+          </span>
         </span>
       </div>
 
-      {/* Full-height chat */}
-      <div className="flex-1 min-h-0">
+      {/* Chat */}
+      <div style={{ flex: 1, minHeight: 0 }}>
         <AgentChat coinId={coinId} />
       </div>
     </div>

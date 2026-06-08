@@ -9,101 +9,179 @@ import { useDemoMode } from "@/controllers/useDemoMode";
 import { useAuth } from "@/controllers/useAuth";
 import { clsx } from "@/lib/format";
 
-interface NavItem {
-  href: string;
-  label: string;
-  icon: React.ReactNode;
-  match: (p: string) => boolean;
-}
+// ── SVG Icons ──────────────────────────────────────────────────────────────
 
-const I = {
+const Icons = {
   markets: (
-    <path d="M3 17l5-5 3 3 7-8M21 7h-4M21 7v4" strokeWidth="1.6" />
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className="w-[18px] h-[18px]">
+      <polyline points="22 12 18 12 15 21 9 3 6 12 2 12" />
+    </svg>
   ),
   portfolio: (
-    <path d="M3 7h18v12H3zM3 7l3-3h12l3 3M9 12h6" strokeWidth="1.6" />
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className="w-[18px] h-[18px]">
+      <rect x="2" y="3" width="20" height="14" rx="2" />
+      <line x1="8" y1="21" x2="16" y2="21" />
+      <line x1="12" y1="17" x2="12" y2="21" />
+    </svg>
   ),
   alerts: (
-    <path d="M6 9a6 6 0 1112 0c0 5 2 6 2 6H4s2-1 2-6M10 21a2 2 0 004 0" strokeWidth="1.6" />
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className="w-[18px] h-[18px]">
+      <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9" />
+      <path d="M13.73 21a2 2 0 0 1-3.46 0" />
+    </svg>
   ),
   agent: (
-  <path d="M12 2a5 5 0 015 5v2a5 5 0 01-10 0V7a5 5 0 015-5zM4 20c0-4 3.6-7 8-7s8 3 8 7" strokeWidth="1.6" />
-),
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className="w-[18px] h-[18px]">
+      <circle cx="12" cy="8" r="4" />
+      <path d="M4 20c0-4 3.6-7 8-7s8 3 8 7" />
+    </svg>
+  ),
   news: (
-    <path d="M4 5h13v14H4zM17 9h3v8a2 2 0 01-2 2M8 9h5M8 13h5M8 17h3" strokeWidth="1.6" />
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className="w-[18px] h-[18px]">
+      <path d="M4 22h16a2 2 0 0 0 2-2V4a2 2 0 0 0-2-2H8a2 2 0 0 0-2 2v16a2 2 0 0 0-2 2Zm0 0a2 2 0 0 1-2-2v-9c0-1.1.9-2 2-2h2" />
+      <line x1="9" y1="7" x2="15" y2="7" />
+      <line x1="9" y1="11" x2="15" y2="11" />
+      <line x1="9" y1="15" x2="13" y2="15" />
+    </svg>
   ),
 };
 
-const NAV: NavItem[] = [
-  { href: "/", label: "Markets", icon: I.markets, match: (p) => p === "/" || p.startsWith("/coins") },
-  { href: "/portfolio", label: "Portfolio", icon: I.portfolio, match: (p) => p.startsWith("/portfolio") },
-  { href: "/alerts", label: "Alerts", icon: I.alerts, match: (p) => p.startsWith("/alerts") },
-  { href: "/agent", label: "Agent", icon: I.agent, match: (p) => p.startsWith("/agent") },
-  { href: "/news", label: "News", icon: I.news, match: (p) => p.startsWith("/news") },
+const NAV = [
+  { href: "/",          label: "Markets",   icon: Icons.markets,   match: (p: string) => p === "/" || p.startsWith("/coins") },
+  { href: "/portfolio", label: "Portfolio", icon: Icons.portfolio, match: (p: string) => p.startsWith("/portfolio") },
+  { href: "/alerts",    label: "Alerts",    icon: Icons.alerts,    match: (p: string) => p.startsWith("/alerts") },
+  { href: "/agent",     label: "AI Agent",  icon: Icons.agent,     match: (p: string) => p.startsWith("/agent") },
+  { href: "/news",      label: "News",      icon: Icons.news,      match: (p: string) => p.startsWith("/news") },
 ];
 
-function SectionTitle({ pathname }: { pathname: string }) {
-  const item = NAV.find((n) => n.match(pathname));
-  const label = pathname.startsWith("/coins") ? "Markets / Detail" : item?.label ?? "Terminal";
-  return (
-    <span className="font-mono text-xs uppercase tracking-[0.2em] text-muted">
-      <span className="text-up">▌</span> {label}
-    </span>
-  );
-}
+// ── Account chip ──────────────────────────────────────────────────────────
 
 function AccountChip() {
   const { user, status, logout } = useAuth();
+
   if (status === "authed" && user) {
     return (
       <div className="flex items-center gap-2">
-        <span className="hidden font-mono text-xs text-ink-soft sm:inline">{user.email}</span>
-        <button
-          onClick={() => logout()}
-          className="border border-line px-2 py-1 font-mono text-[10px] uppercase tracking-wider text-muted transition-colors hover:border-down/50 hover:text-down"
+        <div
+          className="hidden sm:flex items-center gap-2 px-3 py-1.5 rounded-full text-[11px]"
+          style={{
+            background: "rgba(0,212,255,0.06)",
+            border: "1px solid rgba(0,212,255,0.15)",
+            color: "var(--ink-soft)",
+            fontFamily: "var(--font-mono)",
+          }}
         >
-          Sign out
+          <span
+            className="w-1.5 h-1.5 rounded-full pulse"
+            style={{ background: "var(--up)", boxShadow: "0 0 6px var(--up)", color: "var(--up)" }}
+          />
+          {user.email.split("@")[0]}
+        </div>
+        <button
+          onClick={logout}
+          className="px-3 py-1.5 rounded-full text-[10px] uppercase tracking-widest transition-all duration-200"
+          style={{
+            background: "transparent",
+            border: "1px solid rgba(255,85,114,0.2)",
+            color: "var(--ink-muted)",
+            fontFamily: "var(--font-mono)",
+          }}
+          onMouseEnter={e => {
+            (e.currentTarget as HTMLButtonElement).style.borderColor = "rgba(255,85,114,0.5)";
+            (e.currentTarget as HTMLButtonElement).style.color = "var(--down)";
+          }}
+          onMouseLeave={e => {
+            (e.currentTarget as HTMLButtonElement).style.borderColor = "rgba(255,85,114,0.2)";
+            (e.currentTarget as HTMLButtonElement).style.color = "var(--ink-muted)";
+          }}
+        >
+          Exit
         </button>
       </div>
     );
   }
+
   return (
     <Link
       href="/login"
-      className="border border-up/40 bg-up/10 px-3 py-1 font-mono text-[10px] uppercase tracking-wider text-up transition-colors hover:bg-up/20"
+      className="btn-shiny px-4 py-1.5 rounded-full text-[10px] uppercase tracking-widest transition-all duration-200"
+      style={{
+        background: "linear-gradient(135deg, rgba(0,212,255,0.15), rgba(0,212,255,0.08))",
+        border: "1px solid rgba(0,212,255,0.3)",
+        color: "var(--cyan)",
+        fontFamily: "var(--font-mono)",
+        boxShadow: "0 0 20px rgba(0,212,255,0.1)",
+      }}
     >
-      Sign in
+      Sign In →
     </Link>
   );
 }
+
+// ── App Layout ─────────────────────────────────────────────────────────────
 
 export function AppLayout({ children }: { children: React.ReactNode }) {
   const pathname = usePathname() || "/";
   const demo = useDemoMode();
   useLivePrices();
 
-  // Auth pages render standalone (no terminal chrome).
   if (pathname === "/login" || pathname === "/register") {
     return <>{children}</>;
   }
 
+  const currentItem = NAV.find(n => n.match(pathname));
+  const pageTitle = pathname.startsWith("/coins/") ? "Markets / Detail"
+    : pathname.startsWith("/agent/") ? "AI Agent"
+    : currentItem?.label ?? "Terminal";
+
   return (
-    <div className="flex h-screen flex-col bg-bg">
+    <div className="flex h-screen flex-col" style={{ background: "var(--bg)", position: "relative", zIndex: 1 }}>
+
+      {/* Ticker tape */}
       <TickerTape />
 
       <div className="flex min-h-0 flex-1">
-        {/* Sidebar rail */}
-        <aside className="flex w-16 shrink-0 flex-col items-center border-r border-line bg-panel py-3 md:w-56 md:items-stretch md:px-3">
-          <Link href="/" className="mb-6 flex items-center gap-2 px-2">
-            <span className="grid h-8 w-8 place-items-center border border-up/50 bg-up/10 font-mono text-sm font-bold text-up">
-              ₿
-            </span>
-            <span className="hidden font-mono text-sm font-bold tracking-tight text-ink md:block">
-              TERMINAL<span className="text-up">_</span>
-            </span>
+
+        {/* ── Sidebar ──────────────────────────────────────────────────── */}
+        <aside
+          className="flex w-16 md:w-60 shrink-0 flex-col border-r"
+          style={{
+            background: "linear-gradient(180deg, rgba(6,14,22,0.97) 0%, rgba(4,10,18,0.97) 100%)",
+            borderColor: "rgba(255,255,255,0.05)",
+            backdropFilter: "blur(20px)",
+          }}
+        >
+          {/* Logo */}
+          <Link
+            href="/"
+            className="flex items-center gap-3 px-4 py-5 mb-2"
+          >
+            <div
+              className="relative w-9 h-9 flex items-center justify-center rounded-xl shrink-0"
+              style={{
+                background: "linear-gradient(135deg, rgba(0,212,255,0.2), rgba(167,139,250,0.15))",
+                border: "1px solid rgba(0,212,255,0.25)",
+                boxShadow: "0 0 20px rgba(0,212,255,0.15)",
+              }}
+            >
+              <span
+                className="text-base font-bold"
+                style={{ fontFamily: "var(--font-mono)", color: "var(--cyan)" }}
+              >₿</span>
+            </div>
+            <div className="hidden md:block">
+              <div
+                className="text-sm font-bold tracking-tight"
+                style={{ fontFamily: "var(--font-display)", color: "var(--ink)" }}
+              >
+                CRPT<span style={{ color: "var(--cyan)" }}>X</span>
+              </div>
+              <div className="label" style={{ marginTop: 1 }}>Terminal v2</div>
+            </div>
           </Link>
 
-          <nav className="flex flex-1 flex-col gap-1">
+          {/* Nav */}
+          <nav className="flex flex-col gap-1 px-2 flex-1">
             {NAV.map((item) => {
               const active = item.match(pathname);
               return (
@@ -111,53 +189,125 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
                   key={item.href}
                   href={item.href}
                   className={clsx(
-                    "group relative flex items-center gap-3 px-2 py-2.5 font-mono text-xs uppercase tracking-wider transition-colors md:px-3",
-                    active ? "text-up" : "text-muted hover:text-ink",
+                    "relative flex items-center gap-3 px-3 py-2.5 rounded-xl transition-all duration-200",
+                    active ? "nav-active" : "",
                   )}
+                  style={{
+                    background: active
+                      ? "linear-gradient(135deg, rgba(0,212,255,0.1), rgba(167,139,250,0.06))"
+                      : "transparent",
+                    border: active
+                      ? "1px solid rgba(0,212,255,0.15)"
+                      : "1px solid transparent",
+                    color: active ? "var(--cyan)" : "var(--ink-muted)",
+                  }}
+                  onMouseEnter={e => {
+                    if (!active) {
+                      (e.currentTarget as HTMLAnchorElement).style.background = "rgba(255,255,255,0.04)";
+                      (e.currentTarget as HTMLAnchorElement).style.color = "var(--ink-soft)";
+                    }
+                  }}
+                  onMouseLeave={e => {
+                    if (!active) {
+                      (e.currentTarget as HTMLAnchorElement).style.background = "transparent";
+                      (e.currentTarget as HTMLAnchorElement).style.color = "var(--ink-muted)";
+                    }
+                  }}
                 >
-                  {active && (
-                    <span className="absolute left-0 top-1/2 h-5 w-0.5 -translate-y-1/2 bg-up" style={{ boxShadow: "0 0 8px var(--color-up)" }} />
-                  )}
-                  <svg
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    className="h-5 w-5 shrink-0"
-                    strokeLinecap="square"
-                    strokeLinejoin="miter"
+                  <span className="shrink-0">{item.icon}</span>
+                  <span
+                    className="hidden md:block text-xs font-medium"
+                    style={{ fontFamily: "var(--font-mono)", letterSpacing: "0.05em" }}
                   >
-                    {item.icon}
-                  </svg>
-                  <span className="hidden md:block">{item.label}</span>
+                    {item.label}
+                  </span>
+                  {active && item.label === "AI Agent" && (
+                    <span
+                      className="hidden md:block ml-auto text-[8px] px-1.5 py-0.5 rounded-full"
+                      style={{
+                        background: "rgba(0,212,255,0.15)",
+                        color: "var(--cyan)",
+                        fontFamily: "var(--font-mono)",
+                        letterSpacing: "0.1em",
+                      }}
+                    >
+                      LIVE
+                    </span>
+                  )}
                 </Link>
               );
             })}
           </nav>
 
-          <div className="mt-auto hidden px-2 md:block">
-            <div className="flex items-center gap-2 font-mono text-[10px] uppercase tracking-wider text-faint">
-              <span className={clsx("h-1.5 w-1.5 rounded-full", demo ? "bg-warn" : "bg-up")} style={{ boxShadow: "0 0 6px currentColor" }} />
-              {demo ? "demo feed" : "live feed"}
+          {/* Feed status */}
+          <div className="px-4 py-4 hidden md:block">
+            <div
+              className="flex items-center gap-2 px-3 py-2 rounded-lg"
+              style={{ background: "rgba(255,255,255,0.02)", border: "1px solid rgba(255,255,255,0.04)" }}
+            >
+              <span
+                className="w-1.5 h-1.5 rounded-full pulse"
+                style={{
+                  background: demo ? "var(--warn)" : "var(--up)",
+                  color: demo ? "var(--warn)" : "var(--up)",
+                  boxShadow: `0 0 6px ${demo ? "var(--warn)" : "var(--up)"}`,
+                }}
+              />
+              <span className="label">{demo ? "Demo Feed" : "Live Feed"}</span>
             </div>
           </div>
         </aside>
 
-        {/* Main column */}
+        {/* ── Main column ──────────────────────────────────────────────── */}
         <div className="flex min-w-0 flex-1 flex-col">
-          <header className="flex h-12 shrink-0 items-center justify-between border-b border-line bg-panel/60 px-4 backdrop-blur">
-            <SectionTitle pathname={pathname} />
-            <div className="flex items-center gap-4">
+
+          {/* Header */}
+          <header
+            className="flex h-14 shrink-0 items-center justify-between px-5 border-b"
+            style={{
+              background: "rgba(4,10,18,0.85)",
+              borderColor: "rgba(255,255,255,0.05)",
+              backdropFilter: "blur(20px)",
+            }}
+          >
+            {/* Breadcrumb */}
+            <div className="flex items-center gap-3">
+              <div
+                className="w-1 h-5 rounded-full"
+                style={{ background: "var(--cyan)", boxShadow: "0 0 8px var(--cyan)" }}
+              />
+              <span
+                className="text-xs font-semibold tracking-widest uppercase"
+                style={{ fontFamily: "var(--font-display)", color: "var(--ink-soft)" }}
+              >
+                {pageTitle}
+              </span>
               {demo && (
-                <span className="border border-warn/40 bg-warn/10 px-2 py-0.5 font-mono text-[10px] uppercase tracking-wider text-warn">
-                  demo data
+                <span
+                  className="px-2 py-0.5 rounded text-[9px] uppercase tracking-widest"
+                  style={{
+                    background: "rgba(255,176,32,0.1)",
+                    border: "1px solid rgba(255,176,32,0.25)",
+                    color: "var(--warn)",
+                    fontFamily: "var(--font-mono)",
+                  }}
+                >
+                  Demo
                 </span>
               )}
+            </div>
+
+            {/* Right */}
+            <div className="flex items-center gap-4">
               <Clock />
               <AccountChip />
             </div>
           </header>
 
-          <main className="min-h-0 flex-1 overflow-y-auto">{children}</main>
+          {/* Content */}
+          <main className="min-h-0 flex-1 overflow-y-auto" style={{ position: "relative", zIndex: 1 }}>
+            {children}
+          </main>
         </div>
       </div>
     </div>

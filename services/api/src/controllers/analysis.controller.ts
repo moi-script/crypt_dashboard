@@ -1,8 +1,11 @@
 /**
  * analysis.controller.ts  (updated)
  *
- * Now accepts optional sessionId in body so the agent
- * gets notified after analysis completes.
+ * POST /api/analysis/:coinId/run now returns:
+ *   { analysis, agentOutput }
+ *
+ * agentOutput is the ChatOutput from notifyAnalysisComplete — it includes
+ * the full analysisReport payload for rich frontend rendering.
  */
 
 import { Request, Response, NextFunction } from 'express'
@@ -19,11 +22,11 @@ export async function runAnalysis(req: Request, res: Response, next: NextFunctio
       return res.status(400).json({ error: 'coinId is required' })
     }
 
-    // sessionId is optional — if provided, agent gets notified after analysis
     const { sessionId } = req.body ?? {}
+    const result = await svc.runAnalysis(coinId as string, sessionId)
 
-    const analysis = await svc.runAnalysis(coinId as string, sessionId)
-    res.json(analysis)
+    // result is now { analysis, agentOutput }
+    res.json(result)
   } catch (err) {
     next(err)
   }

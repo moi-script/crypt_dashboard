@@ -9,32 +9,45 @@
  */
 
 import type { OrchestratorResult } from './orchestrator'
-import type { SkillResult }        from '../models/analysis.model'
-
+import type { SkillResult } from '../models/analysis.model'
+import OpenAI from 'openai'
 // ── OpenRouter config ─────────────────────────────────────────────────────
 
-const OPENROUTER_API_URL = 'https://openrouter.ai/api/v1/chat/completions'
-const OPENROUTER_MODEL   = 'openrouter/auto'   // routes to a free model automatically
+
+
+
+const OPENROUTER_MODEL = 'deepseek-v4-flash'   // routes to a free model automatically
+
+
+const apiKey = process.env.DEEPSEEK_API_KEY
+if (!apiKey) throw new Error('OPENROUTER_API_KEY not set')
+
+const deepseek = new OpenAI({
+  baseURL: 'https://api.deepseek.com',
+  apiKey: process.env.DEEPSEEK_API_KEY ?? '',
+})
+
+
 
 export interface GeneratedReport {
-  verdict:        'strong_buy' | 'buy' | 'neutral' | 'sell' | 'strong_sell'
-  confidence:     number       // 0-100
-  score:          number       // -100 to +100
-  narrative:      string       // full paragraph reasoning
-  keyPoints:      string[]     // 3-5 bullet points
-  risks:          string[]     // 2-4 risk factors
-  imagePrompt:    string       // prompt for AI image generation
+  verdict: 'strong_buy' | 'buy' | 'neutral' | 'sell' | 'strong_sell'
+  confidence: number       // 0-100
+  score: number       // -100 to +100
+  narrative: string       // full paragraph reasoning
+  keyPoints: string[]     // 3-5 bullet points
+  risks: string[]     // 2-4 risk factors
+  imagePrompt: string       // prompt for AI image generation
   behaviourNotes: string       // notes about this coin's character/patterns
 }
 
 // ── Compute weighted score from skills ────────────────────────────────────
 
 const SKILL_WEIGHTS: Record<string, number> = {
-  trend:      0.30,
-  momentum:   0.25,
+  trend: 0.30,
+  momentum: 0.25,
   volatility: 0.20,
-  sentiment:  0.15,
-  pattern:    0.10,
+  sentiment: 0.15,
+  pattern: 0.10,
 }
 
 function computeWeightedScore(skills: SkillResult[]): number {
@@ -42,15 +55,15 @@ function computeWeightedScore(skills: SkillResult[]): number {
   let weightSum = 0
   for (const skill of skills) {
     const w = SKILL_WEIGHTS[skill.name] ?? 0.1
-    total     += skill.score * w
+    total += skill.score * w
     weightSum += w
   }
   return weightSum > 0 ? Math.round(total / weightSum) : 0
 }
 
 function scoreToVerdict(score: number): GeneratedReport['verdict'] {
-  if (score >= 60)  return 'strong_buy'
-  if (score >= 25)  return 'buy'
+  if (score >= 60) return 'strong_buy'
+  if (score >= 25) return 'buy'
   if (score <= -60) return 'strong_sell'
   if (score <= -25) return 'sell'
   return 'neutral'
@@ -125,45 +138,26 @@ Rules:
 - behaviourNotes: observations about this specific coin's tendencies based on data patterns`
 
   try {
-    const apiKey = process.env.OPENROUTER_API_KEY
-    if (!apiKey) throw new Error('OPENROUTER_API_KEY environment variable is not set')
 
-    const response = await fetch(OPENROUTER_API_URL, {
-      method:  'POST',
-      headers: {
-        'Content-Type':  'application/json',
-        'Authorization': `Bearer ${apiKey}`,
-        // Optional but recommended by OpenRouter for rankings/analytics
-        'HTTP-Referer':  process.env.APP_URL ?? 'http://localhost:3000',
-        'X-Title':       'Crypto Analysis Agent',
-      },
-      body: JSON.stringify({
-        model:      OPENROUTER_MODEL,
-        max_tokens: 1200,
-        messages:   [{ role: 'user', content: prompt }],
-      }),
+    const completion = await deepseek.chat.completions.create({
+      model: OPENROUTER_MODEL,
+      max_tokens: 1200,
+      messages: [{ role: 'user', content: prompt }],
     })
 
-    if (!response.ok) {
-      const errText = await response.text()
-      throw new Error(`OpenRouter API error ${response.status}: ${errText}`)
-    }
-
-    const json = await response.json() as {
-      choices: { message: { content: string } }[]
-    }
-
-    const text = (json.choices?.[0]?.message?.content ?? '')
+    const text = (completion.choices?.[0]?.message?.content ?? '')
       .replace(/```json|```/g, '')
       .trim()
 
     const parsed = JSON.parse(text) as GeneratedReport
 
+    console.log("Parse reports ::", parsed);
+
     // Sanitise
-    parsed.confidence  = Math.max(0,    Math.min(100, parsed.confidence))
-    parsed.score       = Math.max(-100, Math.min(100, parsed.score))
-    parsed.keyPoints   = Array.isArray(parsed.keyPoints) ? parsed.keyPoints : []
-    parsed.risks       = Array.isArray(parsed.risks)     ? parsed.risks     : []
+    parsed.confidence = Math.max(0, Math.min(100, parsed.confidence))
+    parsed.score = Math.max(-100, Math.min(100, parsed.score))
+    parsed.keyPoints = Array.isArray(parsed.keyPoints) ? parsed.keyPoints : []
+    parsed.risks = Array.isArray(parsed.risks) ? parsed.risks : []
 
     return parsed
 
@@ -172,13 +166,13 @@ Rules:
 
     // Fallback: use computed score, generate basic report
     return {
-      verdict:        prelimVerdict,
-      confidence:     40,
-      score:          weightedScore,
-      narrative:      `Analysis based on ${data.skills.length} technical skills. Score: ${weightedScore}/100. ${data.skills.map(s => s.summary).join(' ')}`,
-      keyPoints:      data.skills.map(s => `${s.name}: ${s.verdict} (${s.score})`),
-      risks:          ['AI report generation unavailable — interpret raw skill scores directly.'],
-      imagePrompt:    `abstract crypto market visualization for ${data.coinName}`,
+      verdict: prelimVerdict,
+      confidence: 40,
+      score: weightedScore,
+      narrative: `Analysis based on ${data.skills.length} technical skills. Score: ${weightedScore}/100. ${data.skills.map(s => s.summary).join(' ')}`,
+      keyPoints: data.skills.map(s => `${s.name}: ${s.verdict} (${s.score})`),
+      risks: ['AI report generation unavailable — interpret raw skill scores directly.'],
+      imagePrompt: `abstract crypto market visualization for ${data.coinName}`,
       behaviourNotes: '',
     }
   }
@@ -191,26 +185,26 @@ Rules:
 import type { ReasoningStep } from '../models/analysis.model'
 
 export function buildFinalReasoningSteps(
-  report:      GeneratedReport,
-  startStep:   number,
+  report: GeneratedReport,
+  startStep: number,
 ): ReasoningStep[] {
   const steps: ReasoningStep[] = []
   let n = startStep
 
   // Verdict step
   steps.push({
-    step:     ++n,
-    phase:    'verdict',
-    title:    `Final verdict: ${report.verdict.replace('_', ' ').toUpperCase()}`,
-    detail:   report.narrative,
-    score:    report.score,
+    step: ++n,
+    phase: 'verdict',
+    title: `Final verdict: ${report.verdict.replace('_', ' ').toUpperCase()}`,
+    detail: report.narrative,
+    score: report.score,
     decision: `Confidence: ${report.confidence}%. Score: ${report.score > 0 ? '+' : ''}${report.score}/100.`,
   })
 
   // Key points as individual reasoning steps
   for (const point of report.keyPoints) {
     steps.push({
-      step:  ++n,
+      step: ++n,
       phase: 'verdict',
       title: 'Key finding',
       detail: point,
@@ -220,10 +214,10 @@ export function buildFinalReasoningSteps(
   // Risks
   if (report.risks.length > 0) {
     steps.push({
-      step:     ++n,
-      phase:    'verdict',
-      title:    `${report.risks.length} risk factor${report.risks.length > 1 ? 's' : ''} identified`,
-      detail:   report.risks.map((r, i) => `${i + 1}. ${r}`).join('\n'),
+      step: ++n,
+      phase: 'verdict',
+      title: `${report.risks.length} risk factor${report.risks.length > 1 ? 's' : ''} identified`,
+      detail: report.risks.map((r, i) => `${i + 1}. ${r}`).join('\n'),
       decision: 'Factor these risks into any position sizing decisions.',
     })
   }

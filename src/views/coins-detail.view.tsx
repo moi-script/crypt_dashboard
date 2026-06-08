@@ -6,9 +6,7 @@ import { useParams } from "next/navigation";
 import { CandlestickChart } from "@/components/CandlestickChart";
 import { RangeTabs } from "@/components/RangeTabs";
 import { SignalBadge } from "@/components/SignalBadge";
-import { PriceChange } from "@/components/PriceChange";
 import { CoinAvatar } from "@/components/CoinAvatar";
-import { Panel } from "@/components/Panel";
 import { NewsCard } from "@/components/NewsCard";
 import { Modal } from "@/components/Modal";
 import { useCoinDetail, useIndicators, useOHLCV } from "@/controllers/useCoinDetail";
@@ -17,48 +15,52 @@ import { useAuth } from "@/controllers/useAuth";
 import { useUpsertHolding } from "@/controllers/usePortfolio";
 import { useCreateAlert } from "@/controllers/useAlerts";
 import { computeSignal } from "@/lib/signals";
-import { clsx, fmtCompact, fmtPrice } from "@/lib/format";
+import { fmtCompact, fmtPrice, fmtPct, fmtUSD } from "@/lib/format";
 import type { OHLCVRange } from "@/models/coin.model";
 import type { AlertCondition } from "@/models/alert.model";
 
+const inputStyle = { width: "100%", padding: "10px 14px", borderRadius: 10, background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.08)", fontFamily: "var(--font-mono)", fontSize: 12, color: "var(--ink)", outline: "none", transition: "all 0.2s" };
+
 function RsiGauge({ value }: { value: number }) {
-  const zone = value < 30 ? "text-up" : value > 70 ? "text-down" : "text-warn";
+  const pct  = Math.min(100, Math.max(0, value));
+  const col  = value < 30 ? "var(--up)" : value > 70 ? "var(--down)" : "var(--warn)";
   return (
     <div>
-      <div className="flex items-baseline justify-between">
-        <span className="font-mono text-[10px] uppercase tracking-wider text-muted">RSI-14</span>
-        <span className={clsx("font-mono text-sm tabular-nums", zone)}>{value.toFixed(1)}</span>
+      <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", marginBottom: 6 }}>
+        <span className="label" style={{ color: "var(--ink-muted)" }}>RSI-14</span>
+        <span style={{ fontFamily: "var(--font-display)", fontSize: 14, fontWeight: 700, color: col }}>{value.toFixed(1)}</span>
       </div>
-      <div className="relative mt-1.5 h-1.5 w-full bg-line">
-        <div className="absolute inset-y-0 left-[30%] w-px bg-faint" />
-        <div className="absolute inset-y-0 left-[70%] w-px bg-faint" />
-        <div
-          className="absolute top-1/2 h-3 w-1 -translate-y-1/2 bg-ink"
-          style={{ left: `calc(${Math.min(100, Math.max(0, value))}% - 2px)` }}
-        />
+      <div style={{ position: "relative", height: 6, background: "rgba(255,255,255,0.05)", borderRadius: 3, overflow: "hidden" }}>
+        <div style={{ position: "absolute", inset: "0 auto 0 30%", width: 1, background: "rgba(255,255,255,0.1)" }} />
+        <div style={{ position: "absolute", inset: "0 auto 0 70%", width: 1, background: "rgba(255,255,255,0.1)" }} />
+        <div style={{ position: "absolute", top: 0, bottom: 0, left: `${pct}%`, width: 3, background: col, borderRadius: 2, boxShadow: `0 0 6px ${col}`, transform: "translateX(-1px)" }} />
       </div>
     </div>
   );
 }
 
-function IndicatorRow({ label, value }: { label: string; value: string }) {
+function IndRow({ label, value }: { label: string; value: string }) {
   return (
-    <div className="flex items-center justify-between border-b border-line/60 px-3 py-2 last:border-0">
-      <span className="font-mono text-[11px] uppercase tracking-wide text-muted">{label}</span>
-      <span className="font-mono text-xs tabular-nums text-ink-soft">{value}</span>
+    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "9px 16px", borderBottom: "1px solid rgba(255,255,255,0.03)" }}>
+      <span style={{ fontFamily: "var(--font-mono)", fontSize: 10, textTransform: "uppercase", letterSpacing: "0.12em", color: "var(--ink-muted)" }}>{label}</span>
+      <span style={{ fontFamily: "var(--font-mono)", fontSize: 12, color: "var(--ink-soft)" }}>{value}</span>
     </div>
   );
 }
 
-// Stat strip data defined outside component to avoid recreating on every render
-const STAT_LABELS = ["24h Volume", "Market Cap", "MACD", "Signal Score"] as const;
+function AuthGate() {
+  return (
+    <div style={{ textAlign: "center" }}>
+      <p style={{ fontFamily: "var(--font-mono)", fontSize: 12, color: "var(--ink-muted)", marginBottom: 14 }}>Sign in to use this action.</p>
+      <Link href="/login" style={{ display: "inline-block", padding: "10px 20px", borderRadius: 10, fontFamily: "var(--font-mono)", fontSize: 10, textTransform: "uppercase", letterSpacing: "0.15em", color: "var(--cyan)", background: "rgba(0,212,255,0.08)", border: "1px solid rgba(0,212,255,0.22)", textDecoration: "none" }}>Sign in →</Link>
+    </div>
+  );
+}
 
 export default function CoinDetailView() {
   const params = useParams<{ id: string }>();
-  // Sanitise the id — useParams can return "undefined" as a string during SSR hydration
   const id = params?.id && params.id !== "undefined" ? params.id : "";
 
-  // ── All hooks must be called unconditionally (Rules of Hooks) ──────────────
   const [range, setRange] = useState<OHLCVRange>("1D");
   const [modal, setModal] = useState<"none" | "hold" | "alert">("none");
 
@@ -70,7 +72,6 @@ export default function CoinDetailView() {
   const latest = indicators?.[indicators.length - 1];
   const signal = useMemo(() => computeSignal(latest, coin?.price), [latest, coin?.price]);
 
-  // ── Guard render — after all hooks ────────────────────────────────────────
   if (!id) return null;
 
   const stats = [
@@ -81,206 +82,150 @@ export default function CoinDetailView() {
   ];
 
   return (
-    <div className="mx-auto max-w-[1400px] p-4 md:p-6">
-      <Link
-        href="/"
-        className="mb-4 inline-flex items-center gap-1.5 font-mono text-[11px] uppercase tracking-wider text-muted transition-colors hover:text-up"
-      >
-        ← markets
-      </Link>
+    <div style={{ padding: 20, maxWidth: 1400, margin: "0 auto", display: "flex", flexDirection: "column", gap: 20 }}>
 
-      {/* Header */}
-      <div className="mb-5 flex flex-wrap items-center justify-between gap-4">
-        <div className="flex items-center gap-4">
-          <CoinAvatar src={coin?.image} symbol={coin?.symbol ?? id.slice(0, 3)} size={48} />
+      {/* back link */}
+      <Link href="/" className="fade-up fade-up-1" style={{ display: "inline-flex", alignItems: "center", gap: 6, fontFamily: "var(--font-mono)", fontSize: 10, textTransform: "uppercase", letterSpacing: "0.15em", color: "var(--ink-muted)", textDecoration: "none", transition: "color 0.15s" }}
+        onMouseEnter={e => (e.currentTarget.style.color = "var(--cyan)")}
+        onMouseLeave={e => (e.currentTarget.style.color = "var(--ink-muted)")}
+      >← Markets</Link>
+
+      {/* header */}
+      <div className="fade-up fade-up-2" style={{ display: "flex", flexWrap: "wrap", alignItems: "center", justifyContent: "space-between", gap: 16 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
+          <CoinAvatar src={coin?.image} symbol={coin?.symbol ?? id.slice(0, 3)} size={52} />
           <div>
-            <div className="flex items-center gap-2">
-              <h1 className="font-mono text-2xl font-bold tracking-tight text-ink">
-                {coin?.name ?? id}
-              </h1>
-              <span className="border border-line bg-elev px-1.5 py-0.5 font-mono text-[10px] uppercase tracking-wider text-muted">
-                {coin?.symbol ?? "—"}
-              </span>
-              {coin?.rank && (
-                <span className="font-mono text-[10px] text-faint">RANK #{coin.rank}</span>
-              )}
+            <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+              <h1 style={{ fontFamily: "var(--font-display)", fontSize: 24, fontWeight: 800, color: "var(--ink)", letterSpacing: "-0.02em" }}>{coin?.name ?? id}</h1>
+              <span style={{ fontFamily: "var(--font-mono)", fontSize: 9, textTransform: "uppercase", letterSpacing: "0.15em", color: "var(--cyan)", background: "rgba(0,212,255,0.08)", border: "1px solid rgba(0,212,255,0.18)", padding: "3px 8px", borderRadius: 6 }}>{coin?.symbol ?? "—"}</span>
+              {coin?.rank && <span style={{ fontFamily: "var(--font-mono)", fontSize: 9, color: "var(--ink-faint)" }}>RANK #{coin.rank}</span>}
             </div>
-            <div className="mt-1 flex items-baseline gap-3">
-              <span className="font-mono text-3xl font-bold tabular-nums text-ink">
-                {coin ? `$${fmtPrice(coin.price)}` : <span className="text-muted">———</span>}
+            <div style={{ display: "flex", alignItems: "baseline", gap: 12, marginTop: 6 }}>
+              <span style={{ fontFamily: "var(--font-display)", fontSize: 30, fontWeight: 800, color: "var(--ink)" }}>
+                {coin ? `$${fmtPrice(coin.price)}` : <span style={{ color: "var(--ink-muted)" }}>———</span>}
               </span>
-              {coin && <PriceChange value={coin.change24h} size="lg" />}
+              {coin && (
+                <span style={{ fontFamily: "var(--font-mono)", fontSize: 14, fontWeight: 600, color: coin.change24h >= 0 ? "var(--up)" : "var(--down)", display: "inline-flex", alignItems: "center", gap: 4 }}>
+                  <span style={{ fontSize: 9 }}>{coin.change24h >= 0 ? "▲" : "▼"}</span>
+                  {fmtPct(coin.change24h, { sign: false })}
+                </span>
+              )}
             </div>
           </div>
         </div>
 
-        <div className="flex items-center gap-2">
+        <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
           <SignalBadge verdict={signal.verdict} size="lg" />
-          <button
-            onClick={() => setModal("hold")}
-            className="border border-up/40 bg-up/10 px-3 py-2 font-mono text-[11px] uppercase tracking-wider text-up transition-colors hover:bg-up/20"
-          >
+          <button onClick={() => setModal("hold")} className="btn-shiny" style={{ padding: "10px 16px", borderRadius: 10, fontFamily: "var(--font-mono)", fontSize: 10, textTransform: "uppercase", letterSpacing: "0.12em", color: "var(--up)", background: "rgba(0,229,160,0.08)", border: "1px solid rgba(0,229,160,0.22)", cursor: "pointer", transition: "all 0.2s" }}>
             + Portfolio
           </button>
-          <button
-            onClick={() => setModal("alert")}
-            className="border border-line px-3 py-2 font-mono text-[11px] uppercase tracking-wider text-ink-soft transition-colors hover:border-warn/50 hover:text-warn"
-          >
+          <button onClick={() => setModal("alert")} style={{ padding: "10px 16px", borderRadius: 10, fontFamily: "var(--font-mono)", fontSize: 10, textTransform: "uppercase", letterSpacing: "0.12em", color: "var(--warn)", background: "rgba(255,176,32,0.06)", border: "1px solid rgba(255,176,32,0.2)", cursor: "pointer", transition: "all 0.2s" }}>
             ⊕ Alert
           </button>
         </div>
       </div>
 
-      {/* Stat strip — each item needs a unique key */}
-      <div className="mb-4 grid grid-cols-2 gap-px overflow-hidden border border-line bg-line md:grid-cols-4">
-        {stats.map((s) => (
-          <div key={s.l} className="bg-panel px-4 py-3">
-            <div className="font-mono text-[10px] uppercase tracking-wider text-muted">{s.l}</div>
-            <div className="mt-0.5 font-mono text-sm tabular-nums text-ink">{s.v}</div>
+      {/* stat strip */}
+      <div className="fade-up fade-up-3" style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 2, overflow: "hidden", borderRadius: 12, border: "1px solid rgba(255,255,255,0.052)" }}>
+        {stats.map(s => (
+          <div key={s.l} style={{ background: "rgba(10,20,34,0.95)", padding: "12px 16px" }}>
+            <div className="label" style={{ color: "var(--ink-muted)", marginBottom: 4 }}>{s.l}</div>
+            <div style={{ fontFamily: "var(--font-mono)", fontSize: 14, fontWeight: 600, color: "var(--ink)" }}>{s.v}</div>
           </div>
         ))}
       </div>
 
-      <div className="grid gap-4 lg:grid-cols-3">
-        {/* Chart */}
-        <Panel
-          className="lg:col-span-2"
-          title={<span className="text-ink-soft">Candles · {coin?.symbol ?? id}</span>}
-          right={<RangeTabs value={range} onChange={setRange} />}
-          ticks
-        >
-          <div className="p-2">
-            <CandlestickChart
-              data={ohlcv ?? []}
-              loading={ohlcvLoading || coinLoading}
-              height={400}
-            />
-          </div>
-        </Panel>
-
-        {/* Signal + indicators */}
-        <div className="flex flex-col gap-4">
-          <Panel title="Technical Read" ticks>
-            <div className="space-y-3 p-3">
-              <div className="flex items-center justify-between">
-                <SignalBadge verdict={signal.verdict} size="lg" />
-                <span
-                  className={clsx(
-                    "font-mono text-lg tabular-nums",
-                    signal.score >= 0 ? "text-up" : "text-down",
-                  )}
-                >
-                  {signal.score > 0 ? "+" : ""}
-                  {signal.score}
-                </span>
+      {/* chart + indicators */}
+      <div className="fade-up fade-up-4" style={{ display: "grid", gap: 16, gridTemplateColumns: "1fr", ...(typeof window !== "undefined" && window.innerWidth >= 1024 ? { gridTemplateColumns: "2fr 1fr" } : {}) }}>
+        <div className="lg:col-span-2" style={{ gridColumn: "1 / -1" }}>
+          <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr", gap: 16 }}>
+            {/* chart */}
+            <div className="rounded-xl overflow-hidden" style={{ background: "linear-gradient(180deg, rgba(10,20,34,0.95), rgba(5,12,22,0.98))", border: "1px solid rgba(255,255,255,0.052)" }}>
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "10px 14px", borderBottom: "1px solid rgba(255,255,255,0.04)", background: "rgba(255,255,255,0.01)" }}>
+                <span style={{ fontFamily: "var(--font-mono)", fontSize: 10, color: "var(--ink-soft)" }}>Candles · {coin?.symbol ?? id}</span>
+                <RangeTabs value={range} onChange={setRange} />
               </div>
-              {latest && <RsiGauge value={latest.rsi14} />}
-              <ul className="space-y-1.5 pt-1">
-                {signal.reasons.map((r, i) => (
-                  // label is unique per signal result; use label as key
-                  <li key={`${r.label}-${i}`} className="flex items-center gap-2 font-mono text-[11px]">
-                    <span
-                      className={clsx(
-                        r.bias === "bull" ? "text-up" : r.bias === "bear" ? "text-down" : "text-faint",
-                      )}
-                    >
-                      {r.bias === "bull" ? "▲" : r.bias === "bear" ? "▼" : "■"}
-                    </span>
-                    <span className="text-ink-soft">{r.label}</span>
-                  </li>
-                ))}
-              </ul>
+              <div style={{ padding: 8 }}>
+                <CandlestickChart data={ohlcv ?? []} loading={ohlcvLoading || coinLoading} height={380} />
+              </div>
             </div>
-          </Panel>
 
-          <Panel title="Indicators" bodyClassName="" ticks>
-            {latest ? (
-              <>
-                <IndicatorRow label="SMA-20"    value={`$${fmtPrice(latest.sma20)}`} />
-                <IndicatorRow label="EMA-50"    value={`$${fmtPrice(latest.ema50)}`} />
-                <IndicatorRow label="MACD"      value={latest.macd.toFixed(3)} />
-                <IndicatorRow label="Signal"    value={latest.signal.toFixed(3)} />
-                <IndicatorRow label="BB Upper"  value={`$${fmtPrice(latest.bbUpper)}`} />
-                <IndicatorRow label="BB Lower"  value={`$${fmtPrice(latest.bbLower)}`} />
-              </>
-            ) : (
-              <div className="p-3">
-                {Array.from({ length: 6 }).map((_, i) => (
-                  <div key={`skeleton-${i}`} className="skeleton my-1.5 h-4 w-full" />
-                ))}
+            {/* signal + indicators */}
+            <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+              {/* technical read */}
+              <div className="rounded-xl overflow-hidden" style={{ background: "linear-gradient(145deg, rgba(10,20,34,0.95), rgba(5,12,22,0.98))", border: "1px solid rgba(255,255,255,0.052)" }}>
+                <div style={{ padding: "10px 14px", borderBottom: "1px solid rgba(255,255,255,0.04)", background: "rgba(255,255,255,0.01)" }}>
+                  <span style={{ fontFamily: "var(--font-mono)", fontSize: 10, textTransform: "uppercase", letterSpacing: "0.15em", color: "var(--ink-muted)" }}>Technical Read</span>
+                </div>
+                <div style={{ padding: 14, display: "flex", flexDirection: "column", gap: 14 }}>
+                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                    <SignalBadge verdict={signal.verdict} size="lg" />
+                    <span style={{ fontFamily: "var(--font-display)", fontSize: 18, fontWeight: 700, color: signal.score >= 0 ? "var(--up)" : "var(--down)" }}>
+                      {signal.score > 0 ? "+" : ""}{signal.score}
+                    </span>
+                  </div>
+                  {latest && <RsiGauge value={latest.rsi14} />}
+                  <ul style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                    {signal.reasons.map((r, i) => (
+                      <li key={`${r.label}-${i}`} style={{ display: "flex", alignItems: "center", gap: 8, fontFamily: "var(--font-mono)", fontSize: 10 }}>
+                        <span style={{ color: r.bias === "bull" ? "var(--up)" : r.bias === "bear" ? "var(--down)" : "var(--ink-faint)", fontSize: 7 }}>
+                          {r.bias === "bull" ? "▲" : r.bias === "bear" ? "▼" : "■"}
+                        </span>
+                        <span style={{ color: "var(--ink-muted)" }}>{r.label}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
               </div>
-            )}
-          </Panel>
+
+              {/* indicators */}
+              <div className="rounded-xl overflow-hidden" style={{ background: "linear-gradient(145deg, rgba(10,20,34,0.95), rgba(5,12,22,0.98))", border: "1px solid rgba(255,255,255,0.052)" }}>
+                <div style={{ padding: "10px 14px", borderBottom: "1px solid rgba(255,255,255,0.04)", background: "rgba(255,255,255,0.01)" }}>
+                  <span style={{ fontFamily: "var(--font-mono)", fontSize: 10, textTransform: "uppercase", letterSpacing: "0.15em", color: "var(--ink-muted)" }}>Indicators</span>
+                </div>
+                {latest ? (
+                  <>
+                    <IndRow label="SMA-20"   value={`$${fmtPrice(latest.sma20)}`} />
+                    <IndRow label="EMA-50"   value={`$${fmtPrice(latest.ema50)}`} />
+                    <IndRow label="MACD"     value={latest.macd.toFixed(3)} />
+                    <IndRow label="Signal"   value={latest.signal.toFixed(3)} />
+                    <IndRow label="BB Upper" value={`$${fmtPrice(latest.bbUpper)}`} />
+                    <IndRow label="BB Lower" value={`$${fmtPrice(latest.bbLower)}`} />
+                  </>
+                ) : (
+                  <div style={{ padding: 14, display: "flex", flexDirection: "column", gap: 8 }}>
+                    {Array.from({ length: 6 }).map((_, i) => <div key={i} className="skeleton" style={{ height: 16, borderRadius: 4 }} />)}
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
         </div>
       </div>
 
-      {/* News */}
-      <Panel
-        className="mt-4"
-        title={<span className="text-ink-soft">Related Headlines</span>}
-        ticks
-      >
-        {news?.length ? (
-          news.map((a) => (<div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(200px, 1fr))", gap: "12px" }}>
-  {news.map((a) => <NewsCard key={a.id} article={a} />)}
-</div>))
-        ) : (
-          <p className="px-4 py-6 text-center font-mono text-xs text-muted">
-            No recent headlines mention {coin?.symbol ?? id}.
-          </p>
-        )}
-      </Panel>
+      {/* news */}
+      {(news?.length ?? 0) > 0 && (
+        <div className="fade-up fade-up-5 rounded-xl overflow-hidden" style={{ background: "linear-gradient(180deg, rgba(10,20,34,0.94), rgba(5,12,22,0.98))", border: "1px solid rgba(255,255,255,0.052)" }}>
+          <div style={{ padding: "10px 16px", borderBottom: "1px solid rgba(255,255,255,0.04)", background: "rgba(255,255,255,0.012)" }}>
+            <span style={{ fontFamily: "var(--font-display)", fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.12em", color: "var(--ink-soft)" }}>Related Headlines</span>
+          </div>
+          <div style={{ padding: 16, display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))", gap: 12 }}>
+            {news!.map(a => <NewsCard key={a.id} article={a} />)}
+          </div>
+        </div>
+      )}
 
-      {modal === "hold" && coin && (
-        <HoldingModal
-          coinId={id}
-          symbol={coin.symbol}
-          price={coin.price}
-          onClose={() => setModal("none")}
-        />
-      )}
-      {modal === "alert" && coin && (
-        <AlertModal
-          coinId={id}
-          symbol={coin.symbol}
-          price={coin.price}
-          onClose={() => setModal("none")}
-        />
-      )}
+      {/* modals */}
+      {modal === "hold" && coin && <HoldingModal coinId={id} symbol={coin.symbol} price={coin.price} onClose={() => setModal("none")} />}
+      {modal === "alert" && coin && <AlertModal coinId={id} symbol={coin.symbol} price={coin.price} onClose={() => setModal("none")} />}
     </div>
   );
 }
 
-/* ── Quick-action modals ──────────────────────────────────────────────────── */
-
-function AuthGate() {
-  return (
-    <div className="text-center">
-      <p className="mb-3 text-sm text-muted">Sign in to use this action.</p>
-      <Link
-        href="/login"
-        className="inline-block border border-up/40 bg-up/10 px-4 py-2 font-mono text-xs uppercase tracking-wider text-up hover:bg-up/20"
-      >
-        Sign in →
-      </Link>
-    </div>
-  );
-}
-
-function HoldingModal({
-  coinId,
-  symbol,
-  price,
-  onClose,
-}: {
-  coinId: string;
-  symbol: string;
-  price: number;
-  onClose: () => void;
-}) {
+function HoldingModal({ coinId, symbol, price, onClose }: { coinId: string; symbol: string; price: number; onClose: () => void }) {
   const { status } = useAuth();
   const upsert = useUpsertHolding();
-  const [qty, setQty] = useState("");
+  const [qty,  setQty]  = useState("");
   const [cost, setCost] = useState(price.toFixed(2));
 
   const submit = async (e: React.FormEvent) => {
@@ -290,37 +235,33 @@ function HoldingModal({
   };
 
   return (
-    <Modal open onClose={onClose} title={`Add ${symbol} to portfolio`}>
-      {status !== "authed" ? (
-        <AuthGate />
-      ) : (
-        <form onSubmit={submit} className="space-y-3">
-          <Field label="Quantity" value={qty} onChange={setQty} placeholder="0.00" autoFocus />
-          <Field label="Avg cost (USD)" value={cost} onChange={setCost} placeholder="0.00" />
-          <button
-            type="submit"
-            disabled={!qty || upsert.isPending}
-            className="w-full border border-up/40 bg-up/10 py-2 font-mono text-xs uppercase tracking-wider text-up transition-colors hover:bg-up/20 disabled:opacity-40"
-          >
-            {upsert.isPending ? "Saving…" : "Save holding"}
-          </button>
+    <Modal open onClose={onClose} title={`Add ${symbol} to Portfolio`}>
+      {status !== "authed" ? <AuthGate /> : (
+        <form onSubmit={submit} style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+          <div>
+            <label className="label" style={{ display: "block", marginBottom: 6, color: "var(--ink-muted)" }}>Quantity</label>
+            <input type="number" step="any" value={qty} autoFocus onChange={e => setQty(e.target.value)} placeholder="0.00" style={inputStyle}
+              onFocus={e => { e.currentTarget.style.borderColor = "rgba(0,212,255,0.3)"; e.currentTarget.style.boxShadow = "0 0 0 3px rgba(0,212,255,0.07)"; }}
+              onBlur={e => { e.currentTarget.style.borderColor = "rgba(255,255,255,0.08)"; e.currentTarget.style.boxShadow = "none"; }}
+            />
+          </div>
+          <div>
+            <label className="label" style={{ display: "block", marginBottom: 6, color: "var(--ink-muted)" }}>Avg Cost (USD)</label>
+            <input type="number" step="any" value={cost} onChange={e => setCost(e.target.value)} placeholder="0.00" style={inputStyle}
+              onFocus={e => { e.currentTarget.style.borderColor = "rgba(0,212,255,0.3)"; e.currentTarget.style.boxShadow = "0 0 0 3px rgba(0,212,255,0.07)"; }}
+              onBlur={e => { e.currentTarget.style.borderColor = "rgba(255,255,255,0.08)"; e.currentTarget.style.boxShadow = "none"; }}
+            />
+          </div>
+          <button type="submit" disabled={!qty || upsert.isPending} className="btn-shiny"
+            style={{ width: "100%", padding: "12px", borderRadius: 10, fontFamily: "var(--font-mono)", fontSize: 10, textTransform: "uppercase", letterSpacing: "0.15em", color: "var(--up)", background: "rgba(0,229,160,0.09)", border: "1px solid rgba(0,229,160,0.24)", cursor: "pointer", opacity: (!qty || upsert.isPending) ? 0.5 : 1, transition: "all 0.2s" }}
+          >{upsert.isPending ? "Saving…" : "Save Holding"}</button>
         </form>
       )}
     </Modal>
   );
 }
 
-function AlertModal({
-  coinId,
-  symbol,
-  price,
-  onClose,
-}: {
-  coinId: string;
-  symbol: string;
-  price: number;
-  onClose: () => void;
-}) {
+function AlertModal({ coinId, symbol, price, onClose }: { coinId: string; symbol: string; price: number; onClose: () => void }) {
   const { status } = useAuth();
   const create = useCreateAlert();
   const [condition, setCondition] = useState<AlertCondition>("above");
@@ -334,79 +275,30 @@ function AlertModal({
 
   return (
     <Modal open onClose={onClose} title={`Alert on ${symbol}`}>
-      {status !== "authed" ? (
-        <AuthGate />
-      ) : (
-        <form onSubmit={submit} className="space-y-3">
+      {status !== "authed" ? <AuthGate /> : (
+        <form onSubmit={submit} style={{ display: "flex", flexDirection: "column", gap: 14 }}>
           <div>
-            <label className="mb-1 block font-mono text-[10px] uppercase tracking-wider text-muted">
-              Condition
-            </label>
-            <div className="grid grid-cols-3 gap-1">
-              {(["above", "below", "pct_change"] as AlertCondition[]).map((c) => (
-                <button
-                  key={c}
-                  type="button"
-                  onClick={() => setCondition(c)}
-                  className={clsx(
-                    "border py-1.5 font-mono text-[10px] uppercase tracking-wider transition-colors",
-                    condition === c
-                      ? "border-up/40 bg-up/10 text-up"
-                      : "border-line text-muted hover:text-ink",
-                  )}
-                >
+            <label className="label" style={{ display: "block", marginBottom: 6, color: "var(--ink-muted)" }}>Condition</label>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 6 }}>
+              {(["above", "below", "pct_change"] as AlertCondition[]).map(c => (
+                <button key={c} type="button" onClick={() => setCondition(c)} style={{ padding: "8px", borderRadius: 8, fontFamily: "var(--font-mono)", fontSize: 9, textTransform: "uppercase", letterSpacing: "0.1em", cursor: "pointer", transition: "all 0.15s", background: condition === c ? "rgba(0,212,255,0.1)" : "rgba(255,255,255,0.03)", border: `1px solid ${condition === c ? "rgba(0,212,255,0.28)" : "rgba(255,255,255,0.07)"}`, color: condition === c ? "var(--cyan)" : "var(--ink-muted)" }}>
                   {c === "pct_change" ? "± %" : c}
                 </button>
               ))}
             </div>
           </div>
-          <Field
-            label={condition === "pct_change" ? "Percent (%)" : "Threshold (USD)"}
-            value={threshold}
-            onChange={setThreshold}
-            placeholder="0.00"
-          />
-          <button
-            type="submit"
-            disabled={!threshold || create.isPending}
-            className="w-full border border-warn/40 bg-warn/10 py-2 font-mono text-xs uppercase tracking-wider text-warn transition-colors hover:bg-warn/20 disabled:opacity-40"
-          >
-            {create.isPending ? "Creating…" : "Create alert"}
-          </button>
+          <div>
+            <label className="label" style={{ display: "block", marginBottom: 6, color: "var(--ink-muted)" }}>{condition === "pct_change" ? "Percent (%)" : "Threshold (USD)"}</label>
+            <input type="number" step="any" value={threshold} onChange={e => setThreshold(e.target.value)} placeholder="0.00" style={inputStyle}
+              onFocus={e => { e.currentTarget.style.borderColor = "rgba(0,212,255,0.3)"; e.currentTarget.style.boxShadow = "0 0 0 3px rgba(0,212,255,0.07)"; }}
+              onBlur={e => { e.currentTarget.style.borderColor = "rgba(255,255,255,0.08)"; e.currentTarget.style.boxShadow = "none"; }}
+            />
+          </div>
+          <button type="submit" disabled={!threshold || create.isPending} className="btn-shiny"
+            style={{ width: "100%", padding: "12px", borderRadius: 10, fontFamily: "var(--font-mono)", fontSize: 10, textTransform: "uppercase", letterSpacing: "0.15em", color: "var(--warn)", background: "rgba(255,176,32,0.08)", border: "1px solid rgba(255,176,32,0.24)", cursor: "pointer", opacity: (!threshold || create.isPending) ? 0.5 : 1, transition: "all 0.2s" }}
+          >{create.isPending ? "Creating…" : "Create Alert"}</button>
         </form>
       )}
     </Modal>
-  );
-}
-
-function Field({
-  label,
-  value,
-  onChange,
-  placeholder,
-  autoFocus,
-}: {
-  label: string;
-  value: string;
-  onChange: (v: string) => void;
-  placeholder?: string;
-  autoFocus?: boolean;
-}) {
-  return (
-    <div>
-      <label className="mb-1 block font-mono text-[10px] uppercase tracking-wider text-muted">
-        {label}
-      </label>
-      <input
-        type="number"
-        step="any"
-        inputMode="decimal"
-        value={value}
-        autoFocus={autoFocus}
-        onChange={(e) => onChange(e.target.value)}
-        placeholder={placeholder}
-        className="w-full border border-line bg-void px-3 py-2 font-mono text-sm text-ink outline-none transition-colors focus:border-up/50"
-      />
-    </div>
   );
 }

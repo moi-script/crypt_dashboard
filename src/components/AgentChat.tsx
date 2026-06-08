@@ -2,10 +2,9 @@
 
 import { useState, useRef, useEffect, useCallback } from "react";
 import { apiClient } from "@/services/api.client";
-import { clsx } from "@/lib/format";
+import { ReportBubble, type AnalysisReport } from "@/components/ReportBubble";
 
-// ── Types ─────────────────────────────────────────────────────────────────────
-
+// ── Types ──────────────────────────────────────────────────────────────────
 type EmotionType = "happy" | "depressed" | "nervous" | "frustrated" | "shocked" | "thinking";
 
 interface AgentEmotion {
@@ -16,11 +15,13 @@ interface AgentEmotion {
   message:   string;
 }
 
+
 interface ChatMessage {
   role:    "user" | "agent";
   content: string;
   emotion?: AgentEmotion;
   ts:      number;
+  report?: AnalysisReport;   // ← attached for rich rendering
 }
 
 interface ChatResponse {
@@ -30,365 +31,346 @@ interface ChatResponse {
   suggestAnalysis: boolean;
   suggestAlert:    boolean;
   history:         ChatMessage[];
+  analysisReport?: AnalysisReport;
 }
 
-// ── Emotion config ────────────────────────────────────────────────────────────
+interface RunAnalysisResponse {
+  analysis:    Record<string, any>;
+  agentOutput: ChatResponse | null;
+}
 
-const EMOTION_CONFIG: Record<EmotionType, {
-  color:     string;
-  glow:      string;
-  border:    string;
-  label:     string;
-  bgPulse:   string;
-  scanline:  string;
+// ── Emotion palette ──────────────────────────────────────────────────────────
+const MOOD: Record<EmotionType, {
+  accent: string; softBg: string; textColor: string; label: string; emoji: string;
 }> = {
-  happy: {
-    color:    "#00e08a",
-    glow:     "rgba(0,224,138,0.4)",
-    border:   "rgba(0,224,138,0.6)",
-    label:    "HAPPY",
-    bgPulse:  "rgba(0,224,138,0.05)",
-    scanline: "rgba(0,224,138,0.03)",
-  },
-  depressed: {
-    color:    "#36b6ff",
-    glow:     "rgba(54,182,255,0.3)",
-    border:   "rgba(54,182,255,0.5)",
-    label:    "DEPRESSED",
-    bgPulse:  "rgba(54,182,255,0.04)",
-    scanline: "rgba(54,182,255,0.03)",
-  },
-  nervous: {
-    color:    "#ffb020",
-    glow:     "rgba(255,176,32,0.35)",
-    border:   "rgba(255,176,32,0.55)",
-    label:    "NERVOUS",
-    bgPulse:  "rgba(255,176,32,0.05)",
-    scanline: "rgba(255,176,32,0.03)",
-  },
-  frustrated: {
-    color:    "#ff4d5e",
-    glow:     "rgba(255,77,94,0.4)",
-    border:   "rgba(255,77,94,0.6)",
-    label:    "FRUSTRATED",
-    bgPulse:  "rgba(255,77,94,0.05)",
-    scanline: "rgba(255,77,94,0.03)",
-  },
-  shocked: {
-    color:    "#b388ff",
-    glow:     "rgba(179,136,255,0.45)",
-    border:   "rgba(179,136,255,0.65)",
-    label:    "SHOCKED",
-    bgPulse:  "rgba(179,136,255,0.06)",
-    scanline: "rgba(179,136,255,0.03)",
-  },
-  thinking: {
-    color:    "#6b7785",
-    glow:     "rgba(107,119,133,0.3)",
-    border:   "rgba(107,119,133,0.5)",
-    label:    "THINKING",
-    bgPulse:  "rgba(107,119,133,0.04)",
-    scanline: "rgba(107,119,133,0.02)",
-  },
+  happy:      { accent: "#00e5a0", softBg: "rgba(0,229,160,0.08)",   textColor: "var(--up)",      label: "Feeling good!",    emoji: "😊" },
+  depressed:  { accent: "#36b6ff", softBg: "rgba(54,182,255,0.08)",  textColor: "#60a5fa",         label: "A bit down...",    emoji: "😔" },
+  nervous:    { accent: "#ffb020", softBg: "rgba(255,176,32,0.08)",  textColor: "var(--warn)",     label: "A little nervous", emoji: "😬" },
+  frustrated: { accent: "#ff5572", softBg: "rgba(255,85,114,0.08)",  textColor: "var(--down)",     label: "Frustrated",       emoji: "😤" },
+  shocked:    { accent: "#a78bfa", softBg: "rgba(167,139,250,0.08)", textColor: "var(--violet)",   label: "Shocked!",         emoji: "😲" },
+  thinking:   { accent: "#94a3b8", softBg: "rgba(148,163,184,0.06)", textColor: "var(--ink-soft)", label: "Thinking...",      emoji: "🤔" },
 };
 
-// ── Quick prompt suggestions ──────────────────────────────────────────────────
 
-const QUICK_PROMPTS = [
+
+const PROMPTS = [
   "How are you feeling about the market today?",
-  "Should I buy Bitcoin right now?",
-  "What's your analysis on Ethereum?",
+  "Should I buy right now?",
+  "What risks should I be aware of?",
   "Is this a good time to sell?",
-  "What are the biggest risks right now?",
   "Run a full analysis for me",
 ];
 
-// ── Helpers ───────────────────────────────────────────────────────────────────
-
-function generateSessionId(): string {
-  return `session-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+function sid() { return `s-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`; }
+function tLabel(t: number) {
+  return new Date(t).toLocaleTimeString("en-GB", { hour12: false, hour: "2-digit", minute: "2-digit" });
 }
 
-function timeLabel(ts: number): string {
-  return new Date(ts).toLocaleTimeString("en-GB", {
-    hour12: false,
-    hour: "2-digit",
-    minute: "2-digit",
-    second: "2-digit",
-  });
-}
-
-// ── Typing indicator ──────────────────────────────────────────────────────────
-
+// ── Typing dots ──────────────────────────────────────────────────────────────
 function TypingDots({ color }: { color: string }) {
   return (
-    <span className="inline-flex items-center gap-1">
-      {[0, 1, 2].map((i) => (
-        <span
-          key={i}
-          className="inline-block h-1.5 w-1.5 rounded-full animate-bounce"
-          style={{
-            backgroundColor: color,
-            animationDelay: `${i * 0.15}s`,
-            animationDuration: "0.8s",
-          }}
-        />
+    <span style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
+      {[0, 1, 2].map(i => (
+        <span key={i} className="animate-bounce" style={{
+          width: 6, height: 6, borderRadius: "50%",
+          background: color, display: "inline-block",
+          animationDelay: `${i * 0.18}s`, animationDuration: "0.8s",
+        }} />
       ))}
     </span>
   );
 }
 
-// ── Emotion avatar panel ──────────────────────────────────────────────────────
-
-function EmotionAvatar({
-  emotion,
-  coinId,
-}: {
-  emotion: AgentEmotion | null;
-  coinId:  string;
-}) {
-  const cfg = emotion ? EMOTION_CONFIG[emotion.emotion] : EMOTION_CONFIG.thinking;
-  const [imgError, setImgError] = useState(false);
-
-  // Reset error when emotion changes
-  useEffect(() => setImgError(false), [emotion?.asset]);
+// ── Message bubble ────────────────────────────────────────────────────────────
+function Bubble({ msg, cur }: { msg: ChatMessage; cur: AgentEmotion | null }) {
+  const isUser = msg.role === "user";
+  const emo    = msg.emotion ?? cur;
+  const mood   = emo ? MOOD[emo.emotion] : MOOD.thinking;
 
   return (
-    <div className="flex flex-col gap-3">
+    <div style={{
+      display: "flex",
+      gap: 10,
+      flexDirection: isUser ? "row-reverse" : "row",
+      alignItems: "flex-start",
+    }}>
+      {!isUser && (
+        <div style={{
+          width: 28, height: 28, borderRadius: "50%",
+          background: mood.softBg,
+          display: "flex", alignItems: "center", justifyContent: "center",
+          fontSize: 14, flexShrink: 0, marginTop: 2,
+        }}>
+          {mood.emoji}
+        </div>
+      )}
 
-      {/* Avatar frame */}
-      <div
-        className="relative overflow-hidden"
-        style={{
-          border: `1px solid ${cfg.border}`,
-          boxShadow: `0 0 24px ${cfg.glow}, inset 0 0 24px ${cfg.bgPulse}`,
-        }}
-      >
-        {/* Scanline overlay */}
-        <div
-          className="pointer-events-none absolute inset-0 z-10"
-          style={{
-            backgroundImage: `repeating-linear-gradient(
-              0deg,
-              ${cfg.scanline} 0px,
-              ${cfg.scanline} 1px,
-              transparent 1px,
-              transparent 3px
-            )`,
-          }}
-        />
+      <div style={{
+        display: "flex",
+        flexDirection: "column",
+        gap: 3,
+        maxWidth: "80%",
+        alignItems: isUser ? "flex-end" : "flex-start",
+        width: msg.report ? "100%" : undefined,
+      }}>
+        {/* Text bubble */}
+        <div style={{
+          padding: "10px 14px",
+          fontSize: 13,
+          lineHeight: 1.65,
+          fontFamily: "var(--font-display)",
+          fontWeight: 400,
+          ...(isUser
+            ? {
+                background: "rgb(12,24,42)",
+                color: "var(--ink)",
+                borderRadius: "18px 18px 4px 18px",
+                border: "1px solid var(--border-bright)",
+              }
+            : {
+                background: "rgb(8,18,32)",
+                color: "var(--ink-soft)",
+                borderRadius: "18px 18px 18px 4px",
+                border: "1px solid var(--border)",
+                boxShadow: "0 2px 8px rgba(0,0,0,0.2)",
+              }
+          ),
+        }}>
+          {msg.content}
+        </div>
 
-        {/* Corner brackets */}
-        {["tl","tr","bl","br"].map((pos) => (
-          <span
-            key={pos}
-            className="absolute z-20 h-3 w-3"
-            style={{
-              top:    pos.startsWith("t") ? 6  : "auto",
-              bottom: pos.startsWith("b") ? 6  : "auto",
-              left:   pos.endsWith("l")   ? 6  : "auto",
-              right:  pos.endsWith("r")   ? 6  : "auto",
-              borderTop:    pos.startsWith("t") ? `1px solid ${cfg.color}` : "none",
-              borderBottom: pos.startsWith("b") ? `1px solid ${cfg.color}` : "none",
-              borderLeft:   pos.endsWith("l")   ? `1px solid ${cfg.color}` : "none",
-              borderRight:  pos.endsWith("r")   ? `1px solid ${cfg.color}` : "none",
-            }}
-          />
-        ))}
+        {/* Rich report card — only for agent messages that carry one */}
+        {!isUser && msg.report && (
+          <div style={{ width: "100%", marginTop: 6 }}>
+            <ReportBubble report={msg.report} />
+          </div>
+        )}
 
-        {/* Emotion image */}
-        <div className="relative aspect-square w-full bg-void overflow-hidden">
-          {!imgError && emotion?.asset ? (
+        <span style={{
+          fontSize: 10,
+          color: "var(--ink-faint)",
+          fontFamily: "var(--font-mono)",
+          padding: "0 4px",
+        }}>
+          {tLabel(msg.ts)}
+        </span>
+      </div>
+    </div>
+  );
+}
+
+// ── Avatar panel ─────────────────────────────────────────────────────────────
+function AvatarPanel({
+  emotion, coinId, loading, onRunAnalysis,
+}: {
+  emotion: AgentEmotion | null;
+  coinId: string;
+  loading: boolean;
+  onRunAnalysis: () => void;
+}) {
+  const mood = emotion ? MOOD[emotion.emotion] : MOOD.thinking;
+  const [imgErr, setImgErr] = useState(false);
+  useEffect(() => setImgErr(false), [emotion?.asset]);
+
+  return (
+    <div style={{
+      width: 220,
+      flexShrink: 0,
+      display: "flex",
+      flexDirection: "column",
+      background: "rgb(4,11,20)",
+      borderRight: "1px solid var(--border)",
+      transition: "background 0.4s ease",
+    }}>
+      <div style={{ height: 3, background: mood.accent, transition: "background 0.5s ease", flexShrink: 0 }} />
+
+      <div style={{
+        padding: "24px 18px 16px",
+        display: "flex",
+        flexDirection: "column",
+        alignItems: "center",
+        gap: 12,
+        flex: 1,
+      }}>
+        <div style={{
+          width: 116, height: 116, borderRadius: "50%",
+          overflow: "hidden",
+          background: mood.softBg,
+          boxShadow: `0 8px 32px ${mood.accent}28, 0 0 0 1px ${mood.accent}18`,
+          transition: "box-shadow 0.5s ease, background 0.5s ease",
+          flexShrink: 0,
+          display: "flex", alignItems: "center", justifyContent: "center",
+        }}>
+          {!imgErr && emotion?.asset ? (
             // eslint-disable-next-line @next/next/no-img-element
             <img
               src={emotion.asset}
               alt={emotion.emotion}
-              className="h-full w-full object-cover transition-opacity duration-500"
-              onError={() => setImgError(true)}
+              style={{ width: "100%", height: "100%", objectFit: "cover", transition: "opacity 0.4s" }}
+              onError={() => setImgErr(true)}
             />
           ) : (
-            /* Placeholder when no image / error */
-            <div
-              className="flex h-full w-full flex-col items-center justify-center gap-2"
-              style={{ background: `radial-gradient(circle at center, ${cfg.bgPulse} 0%, transparent 70%)` }}
-            >
-              <span className="font-mono text-5xl select-none" style={{ color: cfg.color, filter: `drop-shadow(0 0 12px ${cfg.glow})` }}>
-                {emotion?.emotion === "happy"      ? "◉" :
-                 emotion?.emotion === "depressed"  ? "◎" :
-                 emotion?.emotion === "nervous"    ? "◈" :
-                 emotion?.emotion === "frustrated" ? "◆" :
-                 emotion?.emotion === "shocked"    ? "◇" :
-                                                    "◌"}
-              </span>
-              <span className="font-mono text-[9px] uppercase tracking-[0.3em]" style={{ color: cfg.color, opacity: 0.6 }}>
-                {emotion?.emotion ?? "idle"}
-              </span>
-            </div>
+            <span style={{ fontSize: 50, lineHeight: 1, userSelect: "none" }}>{mood.emoji}</span>
           )}
         </div>
 
-        {/* Emotion label bar */}
-        <div
-          className="px-3 py-1.5 flex items-center justify-between"
-          style={{ background: `linear-gradient(90deg, ${cfg.bgPulse} 0%, transparent 100%)`, borderTop: `1px solid ${cfg.border}` }}
-        >
-          <span className="font-mono text-[9px] uppercase tracking-[0.25em]" style={{ color: cfg.color }}>
-            ● {cfg.label}
-          </span>
-          {emotion && (
-            <span className="font-mono text-[9px] uppercase tracking-wider" style={{ color: cfg.color, opacity: 0.5 }}>
-              {emotion.intensity}
-            </span>
-          )}
-        </div>
-      </div>
+        <span style={{
+          display: "inline-block",
+          padding: "4px 12px",
+          borderRadius: 20,
+          background: mood.softBg,
+          color: mood.textColor,
+          fontSize: 11,
+          fontWeight: 600,
+          fontFamily: "var(--font-display)",
+          transition: "all 0.4s ease",
+          border: `1px solid ${mood.accent}30`,
+        }}>
+          {mood.label}
+        </span>
 
-      {/* Status panel */}
-      <div
-        className="p-3 space-y-2"
-        style={{ border: `1px solid ${cfg.border}`, background: `${cfg.bgPulse}` }}
-      >
-        <div className="font-mono text-[9px] uppercase tracking-[0.2em] text-muted">
-          Agent // {coinId.toUpperCase()}
-        </div>
-        {emotion ? (
-          <>
-            <p className="font-mono text-[11px] leading-relaxed" style={{ color: cfg.color }}>
+        <p style={{
+          fontSize: 11, color: "var(--ink-muted)", fontFamily: "var(--font-mono)",
+          textAlign: "center", lineHeight: 1.4, margin: 0,
+        }}>
+          Watching <span style={{ color: "var(--ink-soft)", fontWeight: 600 }}>{coinId.toUpperCase()}</span>
+        </p>
+
+        {emotion && (
+          <div style={{
+            width: "100%", padding: "10px 12px", borderRadius: 12,
+            background: mood.softBg, border: `1px solid ${mood.accent}20`,
+            transition: "all 0.4s ease",
+          }}>
+            <p style={{
+              fontSize: 11, lineHeight: 1.6, color: "var(--ink-soft)",
+              fontFamily: "var(--font-mono)", margin: 0, fontStyle: "italic",
+            }}>
               "{emotion.message}"
             </p>
-            <div className="font-mono text-[9px] text-faint leading-relaxed">
-              {emotion.reason}
+          </div>
+        )}
+
+        {emotion && (
+          <div style={{ display: "flex", alignItems: "center", gap: 6, width: "100%" }}>
+            <span style={{ fontSize: 10, color: "var(--ink-muted)", fontFamily: "var(--font-mono)", flexShrink: 0 }}>
+              intensity
+            </span>
+            <div style={{ display: "flex", gap: 5, marginLeft: "auto" }}>
+              {[1, 2, 3].map(n => {
+                const filled =
+                  n === 1 ||
+                  (n === 2 && (emotion.intensity === "medium" || emotion.intensity === "high")) ||
+                  (n === 3 && emotion.intensity === "high");
+                return (
+                  <div key={n} style={{
+                    width: 8, height: 8, borderRadius: "50%",
+                    background: filled ? mood.accent : "var(--border-bright)",
+                    transition: "background 0.3s ease",
+                  }} />
+                );
+              })}
             </div>
-          </>
-        ) : (
-          <p className="font-mono text-[11px] text-muted">
-            Initialising agent...
-          </p>
-        )}
-      </div>
-
-      {/* Intensity meter */}
-      {emotion && (
-        <div className="space-y-1">
-          <div className="flex justify-between font-mono text-[9px] uppercase tracking-wider text-faint">
-            <span>Intensity</span>
-            <span style={{ color: cfg.color }}>{emotion.intensity.toUpperCase()}</span>
-          </div>
-          <div className="h-1 w-full bg-void overflow-hidden" style={{ border: `1px solid ${cfg.border}` }}>
-            <div
-              className="h-full transition-all duration-700"
-              style={{
-                width: emotion.intensity === "low" ? "33%" : emotion.intensity === "medium" ? "66%" : "100%",
-                background: `linear-gradient(90deg, ${cfg.color}88, ${cfg.color})`,
-                boxShadow: `0 0 8px ${cfg.glow}`,
-              }}
-            />
-          </div>
-        </div>
-      )}
-    </div>
-  );
-}
-
-// ── Message bubble ────────────────────────────────────────────────────────────
-
-function MessageBubble({
-  message,
-  emotion,
-}: {
-  message: ChatMessage;
-  emotion: AgentEmotion | null;
-}) {
-  const isUser  = message.role === "user";
-  const msgEmo  = message.emotion ?? emotion;
-  const cfg     = msgEmo ? EMOTION_CONFIG[msgEmo.emotion] : EMOTION_CONFIG.thinking;
-
-  return (
-    <div className={clsx("flex gap-3 group", isUser && "flex-row-reverse")}>
-
-      {/* Role indicator */}
-      <div className="flex-shrink-0 mt-1">
-        {isUser ? (
-          <div className="h-6 w-6 grid place-items-center border border-line bg-elev font-mono text-[8px] uppercase tracking-wider text-muted">
-            YOU
-          </div>
-        ) : (
-          <div
-            className="h-6 w-6 grid place-items-center font-mono text-[8px]"
-            style={{ border: `1px solid ${cfg.border}`, color: cfg.color, background: cfg.bgPulse }}
-          >
-            AI
           </div>
         )}
       </div>
 
-      {/* Bubble */}
-      <div className={clsx("flex-1 space-y-1", isUser && "items-end flex flex-col")}>
-        <div
-          className={clsx(
-            "inline-block max-w-[85%] px-3 py-2.5 font-mono text-[12px] leading-relaxed",
-            isUser
-              ? "bg-elev border border-line text-ink"
-              : "text-ink-soft",
-          )}
-          style={!isUser ? {
-            border:     `1px solid ${cfg.border}`,
-            background: cfg.bgPulse,
-            boxShadow:  `0 0 12px ${cfg.glow}20`,
-          } : {}}
+      <div style={{ padding: "12px 16px 20px", flexShrink: 0 }}>
+        <button
+          onClick={onRunAnalysis}
+          disabled={loading}
+          style={{
+            width: "100%",
+            padding: "10px 0",
+            borderRadius: 12,
+            fontSize: 12,
+            fontWeight: 600,
+            fontFamily: "var(--font-display)",
+            color: loading ? "var(--ink-muted)" : "#020609",
+            background: loading ? "rgb(12,24,42)" : mood.accent,
+            border: "none",
+            cursor: loading ? "not-allowed" : "pointer",
+            transition: "all 0.3s ease",
+            letterSpacing: "0.02em",
+            opacity: loading ? 0.6 : 1,
+          }}
+          onMouseEnter={e => { if (!loading) (e.currentTarget as HTMLElement).style.opacity = "0.85"; }}
+          onMouseLeave={e => { (e.currentTarget as HTMLElement).style.opacity = loading ? "0.6" : "1"; }}
         >
-          {/* Agent emotion tag */}
-          {!isUser && message.emotion && (
-            <div
-              className="mb-1.5 font-mono text-[9px] uppercase tracking-[0.2em]"
-              style={{ color: cfg.color, opacity: 0.7 }}
-            >
-              [{EMOTION_CONFIG[message.emotion.emotion].label}]
-            </div>
-          )}
-          {message.content}
-        </div>
-
-        {/* Timestamp */}
-        <div className="font-mono text-[9px] text-faint px-1">
-          {timeLabel(message.ts)}
-        </div>
+          {loading ? "Working..." : "▶ Run Analysis"}
+        </button>
       </div>
     </div>
   );
 }
 
-// ── Main Agent Chat component ─────────────────────────────────────────────────
-
+// ── Main AgentChat ─────────────────────────────────────────────────────────────
 export function AgentChat({ coinId = "bitcoin" }: { coinId?: string }) {
-  const [sessionId]    = useState(() => generateSessionId());
-  const [messages,  setMessages]  = useState<ChatMessage[]>([]);
-  const [emotion,   setEmotion]   = useState<AgentEmotion | null>(null);
-  const [input,     setInput]     = useState("");
-  const [loading,   setLoading]   = useState(false);
-  const [error,     setError]     = useState<string | null>(null);
+  const [sessionId]              = useState(sid);
+  const [messages, setMessages]  = useState<ChatMessage[]>([]);
+  const [emotion,  setEmotion]   = useState<AgentEmotion | null>(null);
+  const [input,    setInput]     = useState("");
+  const [loading,  setLoading]   = useState(false);
+  const [error,    setError]     = useState<string | null>(null);
   const [showPrompts, setShowPrompts] = useState(true);
 
-  const messagesEndRef = useRef<HTMLDivElement>(null);
-  const inputRef       = useRef<HTMLTextAreaElement>(null);
+  const endRef   = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLTextAreaElement>(null);
+  const mood = emotion ? MOOD[emotion.emotion] : MOOD.thinking;
 
-  const cfg = emotion ? EMOTION_CONFIG[emotion.emotion] : EMOTION_CONFIG.thinking;
-
-  // Scroll to bottom on new messages
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+    endRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages, loading]);
 
-  const sendMessage = useCallback(async (text: string) => {
+  const runAnalysis = useCallback(async () => {
+    setLoading(true);
+    setShowPrompts(false);
+    setError(null);
+
+    // 1. Notify agent analysis is starting (canned "thinking" message)
+    try {
+      const startRes = await apiClient.post<ChatResponse>("/agent/chat", {
+        sessionId, message: "Running analysis...", coinId, isAnalysing: true,
+      });
+      setEmotion(startRes.emotion);
+      setMessages(startRes.history);
+    } catch { /* non-fatal */ }
+
+    try {
+      // 2. Run the actual analysis — returns { analysis, agentOutput }
+      const result = await apiClient.post<RunAnalysisResponse>(`/analysis/${coinId}/run`, { sessionId });
+
+      const agentOut = result.agentOutput;
+      if (agentOut) {
+        setEmotion(agentOut.emotion);
+
+        // Attach the analysisReport to the last agent message so ReportBubble renders
+        const history: ChatMessage[] = agentOut.history.map((m, i) => {
+          if (i === agentOut.history.length - 1 && m.role === "agent" && agentOut.analysisReport) {
+            return { ...m, report: agentOut.analysisReport };
+          }
+          return m;
+        });
+        setMessages(history);
+      }
+    } catch (e: any) {
+      setError(e.message ?? "Analysis failed");
+    } finally {
+      setLoading(false);
+      inputRef.current?.focus();
+    }
+  }, [sessionId, coinId]);
+
+  const send = useCallback(async (text: string) => {
     if (!text.trim() || loading) return;
 
-    const userMsg: ChatMessage = {
-      role:    "user",
-      content: text.trim(),
-      ts:      Date.now(),
-    };
+    const analysisKeywords = ["run analysis", "analyze", "analyse", "run it", "check market", "full analysis"];
+    if (analysisKeywords.some(k => text.toLowerCase().includes(k))) {
+      await runAnalysis();
+      return;
+    }
 
-    setMessages(prev => [...prev, userMsg]);
+    setMessages(p => [...p, { role: "user", content: text.trim(), ts: Date.now() }]);
     setInput("");
     setLoading(true);
     setError(null);
@@ -396,303 +378,264 @@ export function AgentChat({ coinId = "bitcoin" }: { coinId?: string }) {
 
     try {
       const res = await apiClient.post<ChatResponse>("/agent/chat", {
-        sessionId,
-        message: text.trim(),
-        coinId,
+        sessionId, message: text.trim(), coinId,
       });
-
       setEmotion(res.emotion);
       setMessages(res.history);
 
-      // If analysis suggested, add a system-style hint
       if (res.suggestAnalysis) {
-        setMessages(prev => [
-          ...prev,
-          {
-            role:    "agent",
-            content: "💡 Tip: I can run a full technical analysis on this coin. Just say 'run analysis' or click the button below.",
-            emotion: res.emotion,
-            ts:      Date.now() + 1,
-          },
-        ]);
+        await runAnalysis();
+        return;
       }
-    } catch (err: any) {
-      setError(err.message ?? "Connection failed");
-      // Remove optimistic user message on error
-      setMessages(prev => prev.slice(0, -1));
+    } catch (e: any) {
+      setError(e.message ?? "Something went wrong");
+      setMessages(p => p.slice(0, -1));
     } finally {
       setLoading(false);
       inputRef.current?.focus();
     }
-  }, [loading, sessionId, coinId]);
-
-  const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
-    if (e.key === "Enter" && !e.shiftKey) {
-      e.preventDefault();
-      sendMessage(input);
-    }
-  };
-
-  const runAnalysis = async () => {
-    try {
-      setLoading(true);
-      // Notify agent we're analysing
-      await apiClient.post("/agent/chat", {
-        sessionId,
-        message:     "Running analysis now...",
-        coinId,
-        isAnalysing: true,
-      });
-      // Trigger actual analysis
-      await apiClient.post(`/analysis/${coinId}/run`, { sessionId });
-      // Fetch updated response
-      const res = await apiClient.post<ChatResponse>("/agent/chat", {
-        sessionId,
-        message: "Analysis complete. What did you find?",
-        coinId,
-      });
-      setEmotion(res.emotion);
-      setMessages(res.history);
-    } catch (err: any) {
-      setError(err.message ?? "Analysis failed");
-    } finally {
-      setLoading(false);
-    }
-  };
+  }, [loading, sessionId, coinId, runAnalysis]);
 
   return (
-    <div
-      className="flex h-full min-h-0 overflow-hidden"
-      style={{ fontFamily: "'JetBrains Mono', 'Fira Code', monospace" }}
-    >
+    <div style={{ display: "flex", height: "100%", minHeight: 0, background: "rgb(2,6,9)" }}>
 
-      {/* ── LEFT — Emotion avatar ─────────────────────────────────────────── */}
-      <div
-        className="w-52 flex-shrink-0 flex flex-col gap-0 border-r overflow-y-auto"
-        style={{
-          borderColor: cfg.border,
-          background:  `linear-gradient(180deg, #0a0e14 0%, #0d1117 100%)`,
-        }}
-      >
+      {/* ── Left: avatar ─────────────────────────────────────────────── */}
+      <AvatarPanel
+        emotion={emotion}
+        coinId={coinId}
+        loading={loading}
+        onRunAnalysis={runAnalysis}
+      />
+
+      {/* ── Right: chat ──────────────────────────────────────────────── */}
+      <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column" }}>
+
         {/* Header */}
-        <div
-          className="px-3 py-2 flex items-center gap-2 border-b"
-          style={{ borderColor: cfg.border, background: cfg.bgPulse }}
-        >
-          <span
-            className="h-1.5 w-1.5 rounded-full animate-pulse"
-            style={{ background: cfg.color, boxShadow: `0 0 6px ${cfg.color}` }}
-          />
-          <span className="font-mono text-[9px] uppercase tracking-[0.25em]" style={{ color: cfg.color }}>
-            Agent Status
-          </span>
-        </div>
-
-        <div className="p-3 flex-1">
-          <EmotionAvatar emotion={emotion} coinId={coinId} />
-        </div>
-
-        {/* Run analysis button */}
-        <div className="p-3 border-t" style={{ borderColor: cfg.border }}>
-          <button
-            onClick={runAnalysis}
-            disabled={loading}
-            className="w-full py-2 font-mono text-[9px] uppercase tracking-[0.2em] transition-all disabled:opacity-40"
-            style={{
-              border:     `1px solid ${cfg.border}`,
-              color:      cfg.color,
-              background: cfg.bgPulse,
-            }}
-            onMouseEnter={e => {
-              (e.currentTarget as HTMLButtonElement).style.boxShadow = `0 0 12px ${cfg.glow}`;
-            }}
-            onMouseLeave={e => {
-              (e.currentTarget as HTMLButtonElement).style.boxShadow = "none";
-            }}
-          >
-            {loading ? "Processing..." : "▶ Run Analysis"}
-          </button>
-        </div>
-      </div>
-
-      {/* ── RIGHT — Chat area ─────────────────────────────────────────────── */}
-      <div className="flex flex-1 flex-col min-w-0 bg-bg">
-
-        {/* Chat header */}
-        <div
-          className="flex items-center justify-between px-4 py-2.5 border-b flex-shrink-0"
-          style={{ borderColor: cfg.border, background: `linear-gradient(90deg, ${cfg.bgPulse}, transparent)` }}
-        >
-          <div className="flex items-center gap-3">
-            <div className="flex items-center gap-1.5">
-              <span className="h-1 w-1 rounded-full" style={{ background: cfg.color, boxShadow: `0 0 4px ${cfg.color}` }} />
-              <span className="h-1 w-1 rounded-full bg-line" />
-              <span className="h-1 w-1 rounded-full bg-line" />
-            </div>
-            <span className="font-mono text-[10px] uppercase tracking-[0.2em] text-muted">
-              AGENT // {coinId.toUpperCase()} TERMINAL
+        <div style={{
+          padding: "12px 20px",
+          borderBottom: "1px solid var(--border)",
+          background: "rgb(4,11,20)",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+          flexShrink: 0,
+        }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+            <div style={{
+              width: 8, height: 8, borderRadius: "50%",
+              background: mood.accent,
+              boxShadow: `0 0 0 3px ${mood.accent}20`,
+              transition: "all 0.4s ease",
+              flexShrink: 0,
+            }} />
+            <span style={{
+              fontFamily: "var(--font-display)",
+              fontSize: 14, fontWeight: 600, color: "var(--ink)",
+            }}>
+              {coinId.charAt(0).toUpperCase() + coinId.slice(1)} Agent
             </span>
           </div>
-          <div className="flex items-center gap-2">
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
             {emotion && (
-              <span
-                className="font-mono text-[9px] uppercase tracking-wider px-2 py-0.5 border"
-                style={{ color: cfg.color, borderColor: cfg.border, background: cfg.bgPulse }}
-              >
-                {cfg.label}
+              <span style={{
+                padding: "3px 10px", borderRadius: 20,
+                background: mood.softBg, color: mood.textColor,
+                fontSize: 11, fontWeight: 500, fontFamily: "var(--font-display)",
+                border: `1px solid ${mood.accent}25`, transition: "all 0.4s ease",
+              }}>
+                {mood.emoji} {mood.label}
               </span>
             )}
-            <span className="font-mono text-[9px] text-faint">
-              {messages.length} msg{messages.length !== 1 ? "s" : ""}
+            <span style={{ fontSize: 11, color: "var(--ink-faint)", fontFamily: "var(--font-mono)" }}>
+              {messages.length} messages
             </span>
           </div>
         </div>
 
-        {/* Messages area */}
-        <div className="flex-1 overflow-y-auto p-4 space-y-4 min-h-0">
+        {/* Messages */}
+        <div style={{
+          flex: 1, overflowY: "auto",
+          padding: "20px 20px 8px",
+          display: "flex", flexDirection: "column", gap: 16,
+          minHeight: 0,
+        }}>
 
-          {/* Welcome / empty state */}
+          {/* Empty / welcome */}
           {messages.length === 0 && !loading && (
-            <div className="flex flex-col items-center justify-center h-full gap-6 py-8">
-              <div className="text-center space-y-2">
-                <div
-                  className="font-mono text-xs uppercase tracking-[0.3em] mb-1"
-                  style={{ color: cfg.color }}
-                >
-                  ◈ Agent Online
-                </div>
-                <p className="font-mono text-[11px] text-muted max-w-xs text-center leading-relaxed">
-                  I analyse market conditions and respond based on how the data makes me feel.
-                  Ask me anything about {coinId.toUpperCase()}.
+            <div style={{
+              display: "flex", flexDirection: "column",
+              alignItems: "center", justifyContent: "center",
+              height: "100%", gap: 12, textAlign: "center", opacity: 0.8,
+            }}>
+              <span style={{ fontSize: 48, lineHeight: 1 }}>{mood.emoji}</span>
+              <div>
+                <p style={{
+                  fontFamily: "var(--font-display)", fontSize: 16,
+                  fontWeight: 600, color: "var(--ink)", margin: "0 0 6px",
+                }}>
+                  Hey! I'm your market agent.
+                </p>
+                <p style={{
+                  fontFamily: "var(--font-display)", fontSize: 13,
+                  color: "var(--ink-muted)", lineHeight: 1.6,
+                  maxWidth: 260, margin: 0,
+                }}>
+                  Ask me anything about {coinId.toUpperCase()} — I'll give you my honest take.
                 </p>
               </div>
-
-              {/* Decorative line */}
-              <div className="w-16 h-px" style={{ background: `linear-gradient(90deg, transparent, ${cfg.color}, transparent)` }} />
             </div>
           )}
 
-          {/* Quick prompts — shown until first message */}
+          {/* Quick prompts */}
           {showPrompts && messages.length === 0 && (
-            <div className="space-y-2">
-              <div className="font-mono text-[9px] uppercase tracking-[0.2em] text-faint px-1 mb-3">
-                // Suggested prompts
+            <div style={{ display: "flex", flexDirection: "column", gap: 8, marginTop: 8 }}>
+              <p style={{
+                fontFamily: "var(--font-mono)", fontSize: 10,
+                color: "var(--ink-muted)", fontWeight: 500,
+                textTransform: "uppercase", letterSpacing: "0.12em", marginBottom: 2,
+              }}>
+                Try asking...
+              </p>
+              <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                {PROMPTS.map((p, i) => (
+                  <button
+                    key={i}
+                    onClick={() => send(p)}
+                    style={{
+                      textAlign: "left", padding: "10px 14px",
+                      borderRadius: 12, fontSize: 13,
+                      fontFamily: "var(--font-display)", fontWeight: 400,
+                      color: "var(--ink-soft)", background: "rgb(8,18,32)",
+                      border: "1px solid var(--border)", cursor: "pointer",
+                      transition: "all 0.15s ease", width: "100%", lineHeight: 1.4,
+                    }}
+                    onMouseEnter={e => {
+                      (e.currentTarget as HTMLElement).style.borderColor = mood.accent;
+                      (e.currentTarget as HTMLElement).style.color = "var(--ink)";
+                      (e.currentTarget as HTMLElement).style.background = mood.softBg;
+                    }}
+                    onMouseLeave={e => {
+                      (e.currentTarget as HTMLElement).style.borderColor = "var(--border)";
+                      (e.currentTarget as HTMLElement).style.color = "var(--ink-soft)";
+                      (e.currentTarget as HTMLElement).style.background = "rgb(8,18,32)";
+                    }}
+                  >
+                    {p}
+                  </button>
+                ))}
               </div>
-              {QUICK_PROMPTS.map((prompt, i) => (
-                <button
-                  key={i}
-                  onClick={() => sendMessage(prompt)}
-                  className="w-full text-left px-3 py-2 font-mono text-[11px] text-muted transition-all group"
-                  style={{ border: "1px solid rgba(107,119,133,0.2)" }}
-                  onMouseEnter={e => {
-                    (e.currentTarget as HTMLButtonElement).style.borderColor = cfg.border;
-                    (e.currentTarget as HTMLButtonElement).style.color = cfg.color;
-                    (e.currentTarget as HTMLButtonElement).style.background = cfg.bgPulse;
-                  }}
-                  onMouseLeave={e => {
-                    (e.currentTarget as HTMLButtonElement).style.borderColor = "rgba(107,119,133,0.2)";
-                    (e.currentTarget as HTMLButtonElement).style.color = "";
-                    (e.currentTarget as HTMLButtonElement).style.background = "";
-                  }}
-                >
-                  <span className="text-faint mr-2">{String(i + 1).padStart(2, "0")}.</span>
-                  {prompt}
-                </button>
-              ))}
             </div>
           )}
 
-          {/* Message list */}
-          {messages.map((msg, i) => (
-            <MessageBubble key={`${msg.ts}-${i}`} message={msg} emotion={emotion} />
+          {/* Messages */}
+          {messages.map((m, i) => (
+            <Bubble key={`${m.ts}-${i}`} msg={m} cur={emotion} />
           ))}
 
           {/* Typing indicator */}
           {loading && (
-            <div className="flex gap-3">
-              <div
-                className="h-6 w-6 grid place-items-center font-mono text-[8px] flex-shrink-0 mt-1"
-                style={{ border: `1px solid ${cfg.border}`, color: cfg.color, background: cfg.bgPulse }}
-              >
-                AI
+            <div style={{ display: "flex", gap: 10, alignItems: "flex-end" }}>
+              <div style={{
+                width: 28, height: 28, borderRadius: "50%",
+                background: mood.softBg,
+                display: "flex", alignItems: "center", justifyContent: "center",
+                fontSize: 14, flexShrink: 0,
+              }}>
+                {mood.emoji}
               </div>
-              <div
-                className="px-3 py-2.5 inline-flex items-center gap-2"
-                style={{ border: `1px solid ${cfg.border}`, background: cfg.bgPulse }}
-              >
-                <span className="font-mono text-[10px]" style={{ color: cfg.color, opacity: 0.6 }}>
-                  thinking
-                </span>
-                <TypingDots color={cfg.color} />
+              <div style={{
+                padding: "12px 16px",
+                background: "rgb(8,18,32)",
+                border: "1px solid var(--border)",
+                borderRadius: "18px 18px 18px 4px",
+                boxShadow: "0 2px 8px rgba(0,0,0,0.2)",
+                display: "flex", alignItems: "center", gap: 6,
+              }}>
+                <TypingDots color={mood.accent} />
               </div>
             </div>
           )}
 
           {/* Error */}
           {error && (
-            <div className="px-3 py-2 border border-down/40 bg-down/5 font-mono text-[11px] text-down">
-              ✕ {error}
+            <div style={{
+              padding: "10px 14px", borderRadius: 12,
+              background: "var(--down-glass, rgba(255,85,114,0.07))",
+              border: "1px solid var(--down-border, rgba(255,85,114,0.2))",
+              fontSize: 13, color: "var(--down)", fontFamily: "var(--font-display)",
+            }}>
+              {error}
             </div>
           )}
 
-          <div ref={messagesEndRef} />
+          <div ref={endRef} />
         </div>
 
-        {/* ── Input area ──────────────────────────────────────────────────── */}
-        <div
-          className="flex-shrink-0 border-t p-3 space-y-2"
-          style={{ borderColor: cfg.border, background: `linear-gradient(0deg, ${cfg.bgPulse}, transparent)` }}
-        >
-          {/* Quick re-prompts after conversation starts */}
-          {messages.length > 0 && (
-            <div className="flex flex-wrap gap-1.5">
-              {["How are you?", "Run analysis", "What's the risk?", "Buy or sell?"].map((p) => (
-                <button
-                  key={p}
-                  onClick={() => sendMessage(p)}
-                  disabled={loading}
-                  className="px-2 py-1 font-mono text-[9px] uppercase tracking-wider text-faint transition-all disabled:opacity-30"
-                  style={{ border: "1px solid rgba(107,119,133,0.2)" }}
-                  onMouseEnter={e => {
-                    (e.currentTarget as HTMLButtonElement).style.borderColor = cfg.border;
-                    (e.currentTarget as HTMLButtonElement).style.color = cfg.color;
-                  }}
-                  onMouseLeave={e => {
-                    (e.currentTarget as HTMLButtonElement).style.borderColor = "rgba(107,119,133,0.2)";
-                    (e.currentTarget as HTMLButtonElement).style.color = "";
-                  }}
-                >
-                  {p}
-                </button>
-              ))}
-            </div>
-          )}
+        {/* Quick chips */}
+        {messages.length > 0 && (
+          <div style={{
+            padding: "8px 20px 0",
+            display: "flex", flexWrap: "wrap", gap: 6,
+            background: "rgb(2,6,9)",
+          }}>
+            {["How are you?", "Run analysis", "Biggest risks?", "Buy or sell?"].map(p => (
+              <button
+                key={p}
+                onClick={() => send(p)}
+                disabled={loading}
+                style={{
+                  padding: "5px 12px", borderRadius: 20, fontSize: 11,
+                  fontFamily: "var(--font-display)", fontWeight: 500,
+                  color: "var(--ink-muted)", background: "rgb(8,18,32)",
+                  border: "1px solid var(--border)",
+                  cursor: loading ? "not-allowed" : "pointer",
+                  transition: "all 0.15s ease",
+                  opacity: loading ? 0.5 : 1,
+                }}
+                onMouseEnter={e => {
+                  if (!loading) {
+                    (e.currentTarget as HTMLElement).style.borderColor = mood.accent;
+                    (e.currentTarget as HTMLElement).style.color = "var(--ink)";
+                    (e.currentTarget as HTMLElement).style.background = mood.softBg;
+                  }
+                }}
+                onMouseLeave={e => {
+                  (e.currentTarget as HTMLElement).style.borderColor = "var(--border)";
+                  (e.currentTarget as HTMLElement).style.color = "var(--ink-muted)";
+                  (e.currentTarget as HTMLElement).style.background = "rgb(8,18,32)";
+                }}
+              >
+                {p}
+              </button>
+            ))}
+          </div>
+        )}
 
-          {/* Text input */}
-          <div
-            className="flex gap-2 items-end"
-            style={{
-              border:     `1px solid ${cfg.border}`,
-              boxShadow:  `0 0 8px ${cfg.glow}20`,
-              background: "rgba(10,14,20,0.8)",
-            }}
-          >
-            <div className="flex-shrink-0 px-3 py-2.5 font-mono text-[10px]" style={{ color: cfg.color, opacity: 0.5 }}>
-              $
-            </div>
+        {/* Input */}
+        <div style={{ padding: "12px 16px 16px", background: "rgb(2,6,9)", flexShrink: 0 }}>
+          <div style={{
+            display: "flex", alignItems: "flex-end", gap: 8,
+            background: "rgb(8,18,32)", border: "1.5px solid var(--border)",
+            borderRadius: 16, padding: "4px 4px 4px 16px",
+            transition: "border-color 0.2s ease",
+          }}>
             <textarea
               ref={inputRef}
               value={input}
               onChange={e => setInput(e.target.value)}
-              onKeyDown={handleKeyDown}
+              onKeyDown={e => {
+                if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(input); }
+              }}
+              onFocus={e => { (e.currentTarget.parentElement as HTMLElement).style.borderColor = mood.accent; }}
+              onBlur={e => { (e.currentTarget.parentElement as HTMLElement).style.borderColor = "var(--border)"; }}
               disabled={loading}
-              placeholder={`Message the agent about ${coinId}...`}
+              placeholder={`Ask about ${coinId}...`}
               rows={1}
-              className="flex-1 resize-none bg-transparent py-2.5 pr-2 font-mono text-[12px] text-ink outline-none placeholder:text-faint disabled:opacity-50"
               style={{
-                minHeight: "40px",
-                maxHeight: "120px",
-                overflow:  "hidden",
+                flex: 1, resize: "none", background: "transparent",
+                padding: "10px 0", fontSize: 14, color: "var(--ink)",
+                fontFamily: "var(--font-display)", outline: "none",
+                minHeight: 42, maxHeight: 120, lineHeight: 1.5, border: "none",
               }}
               onInput={e => {
                 const el = e.currentTarget;
@@ -701,29 +644,35 @@ export function AgentChat({ coinId = "bitcoin" }: { coinId?: string }) {
               }}
             />
             <button
-              onClick={() => sendMessage(input)}
+              onClick={() => send(input)}
               disabled={!input.trim() || loading}
-              className="flex-shrink-0 px-3 py-2.5 font-mono text-[10px] uppercase tracking-wider transition-all disabled:opacity-30"
-              style={{ color: cfg.color }}
+              style={{
+                width: 38, height: 38, borderRadius: 12, flexShrink: 0,
+                background: !input.trim() || loading ? "rgb(12,24,42)" : mood.accent,
+                border: "none",
+                cursor: !input.trim() || loading ? "not-allowed" : "pointer",
+                display: "flex", alignItems: "center", justifyContent: "center",
+                transition: "all 0.2s ease",
+                color: !input.trim() || loading ? "var(--ink-muted)" : "#020609",
+                fontSize: 16,
+                opacity: !input.trim() || loading ? 0.5 : 1,
+              }}
               onMouseEnter={e => {
-                if (!e.currentTarget.disabled) {
-                  (e.currentTarget as HTMLButtonElement).style.background = cfg.bgPulse;
-                }
+                if (input.trim() && !loading) (e.currentTarget as HTMLElement).style.opacity = "0.85";
               }}
               onMouseLeave={e => {
-                (e.currentTarget as HTMLButtonElement).style.background = "";
+                (e.currentTarget as HTMLElement).style.opacity = !input.trim() || loading ? "0.5" : "1";
               }}
             >
-              SEND ↵
+              ↑
             </button>
           </div>
-
-          <div className="flex justify-between font-mono text-[9px] text-faint px-1">
-            <span>↵ send · shift+↵ newline</span>
-            <span style={{ color: cfg.color, opacity: 0.5 }}>
-              session: {sessionId.slice(-8)}
-            </span>
-          </div>
+          <p style={{
+            marginTop: 6, fontSize: 10,
+            color: "var(--ink-faint)", fontFamily: "var(--font-mono)", textAlign: "center",
+          }}>
+            ↵ send · shift+↵ new line
+          </p>
         </div>
       </div>
     </div>

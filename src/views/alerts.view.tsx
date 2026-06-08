@@ -5,30 +5,26 @@ import { ProtectedRoute } from "@/components/ProtectedRoute";
 import { Panel } from "@/components/Panel";
 import { StatCard } from "@/components/StatCard";
 import { AlertCard } from "@/components/AlertCard";
-import {
-  useAlerts,
-  useCreateAlert,
-  useDeleteAlert,
-  useToggleAlert,
-} from "@/controllers/useAlerts";
+import { useAlerts, useCreateAlert, useDeleteAlert, useToggleAlert } from "@/controllers/useAlerts";
 import { useCoinList } from "@/controllers/useCoinList";
-import { clsx } from "@/lib/format";
 import type { AlertCondition } from "@/models/alert.model";
+
+const inputStyle = { width: "100%", padding: "10px 14px", borderRadius: 10, background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.08)", fontFamily: "var(--font-mono)", fontSize: 12, color: "var(--ink)", outline: "none", transition: "all 0.2s" };
 
 function AlertsInner() {
   const { data: alerts, isLoading } = useAlerts();
   const { data: coins } = useCoinList();
   const create = useCreateAlert();
   const toggle = useToggleAlert();
-  const del = useDeleteAlert();
+  const del    = useDeleteAlert();
 
-  const [coinId, setCoinId] = useState("bitcoin");
+  const [coinId,    setCoinId]    = useState("bitcoin");
   const [condition, setCondition] = useState<AlertCondition>("above");
   const [threshold, setThreshold] = useState("");
 
-  const list = alerts ?? [];
-  const active = list.filter((a) => a.active).length;
-  const triggered = list.filter((a) => a.triggered).length;
+  const list      = alerts ?? [];
+  const active    = list.filter(a => a.active).length;
+  const triggered = list.filter(a => a.triggered).length;
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -36,105 +32,108 @@ function AlertsInner() {
     setThreshold("");
   };
 
+  const condBtn = (c: AlertCondition, label: string) => (
+    <button
+      key={c}
+      type="button"
+      onClick={() => setCondition(c)}
+      style={{
+        padding: "8px 14px", borderRadius: 8, fontFamily: "var(--font-mono)", fontSize: 10,
+        textTransform: "uppercase", letterSpacing: "0.12em", cursor: "pointer", transition: "all 0.15s",
+        background: condition === c ? "rgba(0,212,255,0.1)" : "rgba(255,255,255,0.03)",
+        border: `1px solid ${condition === c ? "rgba(0,212,255,0.3)" : "rgba(255,255,255,0.07)"}`,
+        color: condition === c ? "var(--cyan)" : "var(--ink-muted)",
+      }}
+    >{label}</button>
+  );
+
   return (
-    <div className="mx-auto max-w-[1000px] p-4 md:p-6">
-      <div className="mb-5">
-        <h1 className="font-mono text-2xl font-bold tracking-tight text-ink">Alerts</h1>
-        <p className="mt-0.5 text-sm text-muted">Get notified when the market crosses your levels</p>
+    <div style={{ padding: 20, maxWidth: 960, margin: "0 auto", display: "flex", flexDirection: "column", gap: 20 }}>
+      {/* title */}
+      <div className="fade-up fade-up-1">
+        <h1 style={{ fontFamily: "var(--font-display)", fontSize: 26, fontWeight: 800, color: "var(--ink)", letterSpacing: "-0.03em" }}>Alerts</h1>
+        <p style={{ fontFamily: "var(--font-mono)", fontSize: 11, color: "var(--ink-muted)", marginTop: 4 }}>Get notified when the market crosses your price levels</p>
       </div>
 
-      <div className="mb-5 grid grid-cols-3 gap-3">
-        <StatCard label="Active" value={active} accent="up" />
-        <StatCard label="Triggered" value={triggered} accent="warn" />
-        <StatCard label="Total" value={list.length} />
+      {/* stats */}
+      <div className="fade-up fade-up-2" style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 14 }}>
+        <StatCard label="Active"    value={active}      accent="up" />
+        <StatCard label="Triggered" value={triggered}   accent="warn" />
+        <StatCard label="Total"     value={list.length} />
       </div>
 
-      {/* Create */}
-      <Panel className="mb-5" title="New Alert" ticks>
-        <form onSubmit={submit} className="flex flex-wrap items-end gap-3 p-4">
-          <div className="min-w-[140px] flex-1">
-            <label className="mb-1 block font-mono text-[10px] uppercase tracking-wider text-muted">Asset</label>
-            <select
-              value={coinId}
-              onChange={(e) => setCoinId(e.target.value)}
-              className="w-full border border-line bg-void px-3 py-2 font-mono text-sm text-ink outline-none focus:border-up/50"
+      {/* create form */}
+      <div className="fade-up fade-up-3 rounded-xl overflow-hidden" style={{ background: "linear-gradient(145deg, rgba(10,20,34,0.94), rgba(5,12,22,0.98))", border: "1px solid rgba(0,212,255,0.1)", boxShadow: "0 4px 24px rgba(0,0,0,0.3)" }}>
+        <div style={{ padding: "10px 16px", borderBottom: "1px solid rgba(0,212,255,0.08)", background: "rgba(0,212,255,0.04)", display: "flex", alignItems: "center", gap: 8 }}>
+          <div style={{ width: 2, height: 14, borderRadius: 1, background: "var(--cyan)", boxShadow: "0 0 8px var(--cyan)" }} />
+          <span style={{ fontFamily: "var(--font-display)", fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.12em", color: "var(--cyan)" }}>New Alert</span>
+        </div>
+        <form onSubmit={submit} style={{ padding: 16, display: "flex", flexWrap: "wrap", gap: 14, alignItems: "flex-end" }}>
+          {/* asset */}
+          <div style={{ flex: "1 1 140px" }}>
+            <label className="label" style={{ display: "block", marginBottom: 6, color: "var(--ink-muted)" }}>Asset</label>
+            <select value={coinId} onChange={e => setCoinId(e.target.value)} style={inputStyle}
+              onFocus={e => e.currentTarget.style.borderColor = "rgba(0,212,255,0.3)"}
+              onBlur={e => e.currentTarget.style.borderColor = "rgba(255,255,255,0.08)"}
             >
-              {(coins ?? []).map((c) => (
-                <option key={c.id} value={c.id} className="bg-panel">
-                  {c.symbol} — {c.id}
-                </option>
-              ))}
+              {(coins ?? []).map(c => <option key={c.id} value={c.id}>{c.symbol} — {c.id}</option>)}
             </select>
           </div>
+          {/* condition */}
           <div>
-            <label className="mb-1 block font-mono text-[10px] uppercase tracking-wider text-muted">Condition</label>
-            <div className="flex">
-              {(["above", "below", "pct_change"] as AlertCondition[]).map((c) => (
-                <button
-                  key={c}
-                  type="button"
-                  onClick={() => setCondition(c)}
-                  className={clsx(
-                    "border px-3 py-2 font-mono text-[10px] uppercase tracking-wider transition-colors",
-                    condition === c ? "border-up/40 bg-up/10 text-up" : "border-line text-muted hover:text-ink",
-                  )}
-                >
-                  {c === "pct_change" ? "±%" : c}
-                </button>
-              ))}
+            <label className="label" style={{ display: "block", marginBottom: 6, color: "var(--ink-muted)" }}>Condition</label>
+            <div style={{ display: "flex", gap: 4 }}>
+              {condBtn("above", "Above")} {condBtn("below", "Below")} {condBtn("pct_change", "±%")}
             </div>
           </div>
-          <div className="min-w-[120px] flex-1">
-            <label className="mb-1 block font-mono text-[10px] uppercase tracking-wider text-muted">
+          {/* threshold */}
+          <div style={{ flex: "1 1 120px" }}>
+            <label className="label" style={{ display: "block", marginBottom: 6, color: "var(--ink-muted)" }}>
               {condition === "pct_change" ? "Percent" : "Threshold ($)"}
             </label>
-            <input
-              type="number" step="any" value={threshold} required
-              onChange={(e) => setThreshold(e.target.value)} placeholder="0.00"
-              className="w-full border border-line bg-void px-3 py-2 font-mono text-sm text-ink outline-none focus:border-up/50"
+            <input type="number" step="any" value={threshold} required onChange={e => setThreshold(e.target.value)} placeholder="0.00" style={inputStyle}
+              onFocus={e => e.currentTarget.style.borderColor = "rgba(0,212,255,0.3)"}
+              onBlur={e => e.currentTarget.style.borderColor = "rgba(255,255,255,0.08)"}
             />
           </div>
+          {/* submit */}
           <button
-            type="submit"
-            disabled={create.isPending}
-            className="border border-up/40 bg-up/10 px-4 py-2 font-mono text-xs uppercase tracking-wider text-up transition-colors hover:bg-up/20 disabled:opacity-40"
+            type="submit" disabled={create.isPending}
+            className="btn-shiny"
+            style={{ padding: "10px 20px", borderRadius: 10, fontFamily: "var(--font-mono)", fontSize: 10, textTransform: "uppercase", letterSpacing: "0.15em", color: "var(--up)", background: "rgba(0,229,160,0.08)", border: "1px solid rgba(0,229,160,0.22)", cursor: "pointer", opacity: create.isPending ? 0.5 : 1, transition: "all 0.2s" }}
+            onMouseEnter={e => { (e.currentTarget as HTMLElement).style.boxShadow = "0 0 16px rgba(0,229,160,0.2)"; }}
+            onMouseLeave={e => { (e.currentTarget as HTMLElement).style.boxShadow = "none"; }}
           >
-            {create.isPending ? "…" : "Arm"}
+            {create.isPending ? "…" : "Arm Alert"}
           </button>
         </form>
-      </Panel>
+      </div>
 
-      {/* List */}
-      <div className="space-y-2">
-        {isLoading ? (
-          Array.from({ length: 3 }).map((_, i) => <div key={i} className="skeleton h-16" />)
-        ) : list.length ? (
-          list.map((a) => (
-            <AlertCard
-              key={a.id}
-              alert={a}
-              coin={coins?.find((c) => c.id === a.coinId)}
-              onToggle={(id, activeNext) => toggle.mutate({ id, active: activeNext })}
-              onDelete={(id) => del.mutate(id)}
-              busy={toggle.isPending || del.isPending}
-            />
-          ))
-        ) : (
-          <Panel ticks>
-            <p className="px-4 py-10 text-center font-mono text-xs text-muted">
+      {/* list */}
+      <div className="fade-up fade-up-4" style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+        {isLoading
+          ? Array.from({ length: 3 }).map((_, i) => <div key={i} className="skeleton" style={{ height: 60, borderRadius: 12 }} />)
+          : list.length
+          ? list.map(a => (
+              <AlertCard
+                key={a.id} alert={a}
+                coin={coins?.find(c => c.id === a.coinId)}
+                onToggle={(id, active) => toggle.mutate({ id, active })}
+                onDelete={id => del.mutate(id)}
+                busy={toggle.isPending || del.isPending}
+              />
+            ))
+          : (
+            <div style={{ textAlign: "center", padding: "40px 20px", borderRadius: 12, background: "rgba(255,255,255,0.02)", border: "1px solid rgba(255,255,255,0.04)", fontFamily: "var(--font-mono)", fontSize: 11, color: "var(--ink-muted)" }}>
               No alerts armed. Create one above to start monitoring.
-            </p>
-          </Panel>
-        )}
+            </div>
+          )
+        }
       </div>
     </div>
   );
 }
 
 export default function AlertsView() {
-  return (
-    <ProtectedRoute>
-      <AlertsInner />
-    </ProtectedRoute>
-  );
+  return <ProtectedRoute><AlertsInner /></ProtectedRoute>;
 }

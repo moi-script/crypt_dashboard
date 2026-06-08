@@ -1,23 +1,22 @@
 import type { Metadata, Viewport } from "next";
-import { IBM_Plex_Sans, JetBrains_Mono } from "next/font/google";
 import "./globals.css";
 import { Providers } from "@/components/Providers";
 import { AppLayout } from "@/views/app-shell";
+import { Syne, JetBrains_Mono } from "next/font/google";
 
-const plex = IBM_Plex_Sans({
+const syne = Syne({
   subsets: ["latin"],
-  weight: ["400", "500", "600", "700"],
-  variable: "--font-plex",
+  weight: ["400", "500", "600", "700", "800"],
+  variable: "--font-display",
   display: "swap",
 });
 
 const jb = JetBrains_Mono({
   subsets: ["latin"],
   weight: ["400", "500", "700"],
-  variable: "--font-jb",
+  variable: "--font-mono",
   display: "swap",
 });
-
 export const metadata: Metadata = {
   title: "TERMINAL // crypto desk",
   description:
@@ -36,7 +35,7 @@ export default function RootLayout({
   children: React.ReactNode;
 }) {
   return (
-    <html lang="en" className={`${plex.variable} ${jb.variable}`}>
+    <html lang="en" className={`${syne.variable} ${jb.variable}`}>
       <body>
         <Providers>
           <AppLayout>{children}</AppLayout>
