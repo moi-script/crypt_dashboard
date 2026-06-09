@@ -19,28 +19,28 @@ export default function AgentView() {
         display: "flex",
         alignItems: "center",
         gap: 8,
-        padding: "12px 20px",
+        padding: "13px 20px",
         background: "rgb(4,11,20)",
-        borderBottom: "1px solid var(--border)",
+        borderBottom: "1px solid rgba(255,255,255,0.07)",
         flexShrink: 0,
       }}>
         <Link
           href="/"
           style={{
             fontFamily: "var(--font-display)",
-            fontSize: 12,
-            color: "var(--ink-muted)",
+            fontSize: 13,
+            color: "rgba(255,255,255,0.4)",
             textDecoration: "none",
             fontWeight: 500,
             transition: "color 0.15s",
           }}
-          onMouseEnter={e => (e.currentTarget as HTMLElement).style.color = "var(--ink-soft)"}
-          onMouseLeave={e => (e.currentTarget as HTMLElement).style.color = "var(--ink-muted)"}
+          onMouseEnter={e => (e.currentTarget as HTMLElement).style.color = "rgba(255,255,255,0.7)"}
+          onMouseLeave={e => (e.currentTarget as HTMLElement).style.color = "rgba(255,255,255,0.4)"}
         >
           Markets
         </Link>
 
-        <span style={{ color: "var(--ink-faint)", fontSize: 12 }}>›</span>
+        <span style={{ color: "rgba(255,255,255,0.2)", fontSize: 13 }}>›</span>
 
         {coinId !== "bitcoin" && (
           <>
@@ -48,25 +48,25 @@ export default function AgentView() {
               href={`/coins/${coinId}`}
               style={{
                 fontFamily: "var(--font-display)",
-                fontSize: 12,
-                color: "var(--ink-muted)",
+                fontSize: 13,
+                color: "rgba(255,255,255,0.4)",
                 textDecoration: "none",
                 fontWeight: 500,
                 transition: "color 0.15s",
               }}
-              onMouseEnter={e => (e.currentTarget as HTMLElement).style.color = "var(--ink-soft)"}
-              onMouseLeave={e => (e.currentTarget as HTMLElement).style.color = "var(--ink-muted)"}
+              onMouseEnter={e => (e.currentTarget as HTMLElement).style.color = "rgba(255,255,255,0.7)"}
+              onMouseLeave={e => (e.currentTarget as HTMLElement).style.color = "rgba(255,255,255,0.4)"}
             >
               {coinId.charAt(0).toUpperCase() + coinId.slice(1)}
             </Link>
-            <span style={{ color: "var(--ink-faint)", fontSize: 12 }}>›</span>
+            <span style={{ color: "rgba(255,255,255,0.2)", fontSize: 13 }}>›</span>
           </>
         )}
 
         <span style={{
           fontFamily: "var(--font-display)",
-          fontSize: 12,
-          color: "var(--ink)",
+          fontSize: 13,
+          color: "rgba(255,255,255,0.88)",
           fontWeight: 600,
         }}>
           AI Agent
@@ -78,20 +78,19 @@ export default function AgentView() {
           display: "inline-flex",
           alignItems: "center",
           gap: 5,
-          padding: "2px 8px",
+          padding: "3px 10px",
           borderRadius: 20,
           background: "var(--up-glass)",
           border: "1px solid var(--up-border)",
         }}>
           <span className="pulse" style={{
-            width: 6, height: 6, borderRadius: "50%",
+            width: 7, height: 7, borderRadius: "50%",
             background: "var(--up)",
-            color: "var(--up)",
             display: "inline-block",
           }} />
           <span style={{
             fontFamily: "var(--font-display)",
-            fontSize: 10,
+            fontSize: 11,
             fontWeight: 600,
             color: "var(--up)",
           }}>

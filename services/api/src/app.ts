@@ -10,15 +10,18 @@ import { initWebSocket } from './websocket/wsServer'
 import { connectDB } from './config/db'
 import { connectRedis } from './config/redis'
 import { connectSubscriber } from './websocket/redisSubscriber'
-import morgan from 'morgan';
+import morgan from 'morgan'
+
+import agentRunRoutes                          from './routes/agentRun.routes'
+import positionRoutes                          from './routes/position.routes'
+import { opportunityRouter }                   from './routes/position.routes'
+import { startScheduler, isSchedulerRunning }  from './agents/loop/scheduler'
+
 const app = express()
 const server = http.createServer(app)
-import './config/env'
+
 console.log('OpenRouter key loaded:', !!process.env.OPENROUTER_API_KEY)
-// WEB_URL may list multiple allowed origins separated by commas
-// (e.g. "http://localhost:3000,http://localhost:3001"). Split into an array so
-// the cors middleware matches each one exactly instead of treating the whole
-// comma-joined string as a single origin.
+
 const allowedOrigins = (process.env.WEB_URL ?? '')
   .split(',')
   .map((o) => o.trim())
@@ -27,14 +30,16 @@ const allowedOrigins = (process.env.WEB_URL ?? '')
 app.use(cors({ origin: allowedOrigins }))
 app.use(express.json())
 app.use(morgan('dev'))
-// Auth has its own stricter limiter applied inside auth.routes.ts
-// so we exclude /api/auth from the general limiter
-app.use('/api/coins',     apiLimiter)
-app.use('/api/alerts',    apiLimiter)
-app.use('/api/news',      apiLimiter)
-app.use('/api/portfolio', apiLimiter)
 
-// CoinGecko-backed data endpoints (all other /api prefixes served by coinGeckoRouter)
+// ── Rate limiters ─────────────────────────────────────────────────────────────
+app.use('/api/coins',         apiLimiter)
+app.use('/api/alerts',        apiLimiter)
+app.use('/api/news',          apiLimiter)
+app.use('/api/portfolio',     apiLimiter)
+app.use('/api/agent-runs',    apiLimiter)
+app.use('/api/positions',     apiLimiter)
+app.use('/api/opportunities', apiLimiter)
+
 app.use(
   [
     '/api/simple', '/api/categories', '/api/exchanges', '/api/derivatives',
@@ -44,10 +49,12 @@ app.use(
   apiLimiter,
 )
 
-// Mount CoinGecko router first so its specific paths (e.g. /coins/list, /coins/markets)
-// resolve before the generic /coins/:id route inside ./routes.
+// ── Route mounts ──────────────────────────────────────────────────────────────
 app.use('/api', coinGeckoRouter)
 app.use('/api', routes)
+app.use('/api/agent-runs',    agentRunRoutes)
+app.use('/api/positions',     positionRoutes)
+app.use('/api/opportunities', opportunityRouter)
 app.use(errorHandler)
 
 initWebSocket(server)
@@ -56,6 +63,12 @@ async function start() {
   await connectDB()
   await connectRedis()
   await connectSubscriber()
+
+  // Guard: prevents double-start on hot-reload
+  if (!isSchedulerRunning()) {
+    startScheduler()
+  }
+
   server.listen(4000, () => console.log('API ready on :4000'))
 }
 

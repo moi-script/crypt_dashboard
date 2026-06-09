@@ -37,12 +37,12 @@ export interface AgentChatSession {
 // ── Emotion asset map — swap paths once real assets are ready ─────────────────
 
 export const EMOTION_ASSETS: Record<EmotionType, string> = {
-  happy:      '/emotions/happy.gif',
-  depressed:  '/emotions/depressed.gif',
-  nervous:    '/emotions/nervous.gif',
-  frustrated: '/emotions/frustrated.gif',
-  shocked:    '/emotions/shocked.gif',
-  thinking:   '/emotions/thinking.gif',
+  happy:      '/emotions/happy.png',
+  depressed:  '/emotions/depressed.png',
+  nervous:    '/emotions/nervous.png',
+  frustrated: '/emotions/frustrated.png',
+  shocked:    '/emotions/shocked.png',
+  thinking:   '/emotions/thinking.png',
 }
 
 //  happy:      { gif: '/emotions/happy.gif',      video: '/emotions/happy.mp4' },
