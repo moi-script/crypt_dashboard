@@ -11,6 +11,7 @@ import { connectDB } from './config/db'
 import { connectRedis } from './config/redis'
 import { connectSubscriber } from './websocket/redisSubscriber'
 import morgan from 'morgan'
+import paperWalletRoutes from './routes/paperWallet.routes'
 
 import agentRunRoutes                          from './routes/agentRun.routes'
 import positionRoutes                          from './routes/position.routes'
@@ -39,7 +40,7 @@ app.use('/api/portfolio',     apiLimiter)
 app.use('/api/agent-runs',    apiLimiter)
 app.use('/api/positions',     apiLimiter)
 app.use('/api/opportunities', apiLimiter)
-
+// app.use('/api/paper-wallet', apiLimiter)
 app.use(
   [
     '/api/simple', '/api/categories', '/api/exchanges', '/api/derivatives',
@@ -55,6 +56,7 @@ app.use('/api', routes)
 app.use('/api/agent-runs',    agentRunRoutes)
 app.use('/api/positions',     positionRoutes)
 app.use('/api/opportunities', opportunityRouter)
+app.use('/api/paper-wallet', paperWalletRoutes)
 app.use(errorHandler)
 
 initWebSocket(server)

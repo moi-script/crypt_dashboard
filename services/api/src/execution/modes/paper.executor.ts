@@ -1,30 +1,32 @@
 /**
- * paper.executor.ts
+ * paper.executor.ts  (updated)
  *
  * Simulates trade execution against live market prices.
- * No real money, no API keys, no side effects beyond writing to MongoDB.
+ * Now records every fill to the PaperWallet and TradeTransaction collections,
+ * giving the agent a real persistent balance and trade history.
  *
  * Simulates:
  *   - Slippage (proportional to trade size / estimated liquidity)
  *   - Exchange fee (0.1% default)
  *   - Fill price (live price ± simulated slippage)
- *   - PnL tracking
+ *   - PnL tracking via paperWallet.service
  */
 
 import type { Intent, TradeIntent, AlertIntent, ExecutionResult } from '../../agents/loop/loop.types'
+import { recordTrade, getOrCreateWallet }                        from '../../services/paperWallet.service'
 
 const BASE_URL      = process.env.API_BASE_URL ?? 'http://localhost:4000'
 const PAPER_FEE_PCT = 0.001  // 0.1% simulated fee
 
 // Symbol → CoinGecko ID mapping for price lookups
 const SYMBOL_TO_ID: Record<string, string> = {
-  BTC:    'bitcoin',
-  ETH:    'ethereum',
-  WETH:   'ethereum',
-  USDC:   'usd-coin',
-  USDT:   'tether',
-  DAI:    'dai',
-  WBTC:   'wrapped-bitcoin',
+  BTC:      'bitcoin',
+  ETH:      'ethereum',
+  WETH:     'ethereum',
+  USDC:     'usd-coin',
+  USDT:     'tether',
+  DAI:      'dai',
+  WBTC:     'wrapped-bitcoin',
   'USDC.e': 'usd-coin',
 }
 
@@ -40,12 +42,22 @@ async function getLivePrice(symbol: string): Promise<number> {
 }
 
 function simulateSlippage(amountUsd: number, maxSlippageBps: number): number {
-  // Slippage grows with size — simple linear model
   const baseSlippagePct = Math.min(maxSlippageBps / 10_000, (amountUsd / 1_000_000) * 0.01)
   return baseSlippagePct
 }
 
-export async function executePaper(intent: Intent): Promise<ExecutionResult> {
+// Carries the agent context so the trade recorder can attach metadata
+export interface PaperExecutorContext {
+  runId:      string
+  strategy:   string
+  rationale:  string
+  confidence: number
+}
+
+export async function executePaper(
+  intent: Intent,
+  agentCtx?: PaperExecutorContext,
+): Promise<ExecutionResult> {
   const now = new Date()
 
   if (intent.type === 'no_action') {
@@ -54,53 +66,90 @@ export async function executePaper(intent: Intent): Promise<ExecutionResult> {
 
   if (intent.type === 'set_alert') {
     const alert = intent as AlertIntent
-    // In paper mode, set_alert just logs — the real alert creation goes through the alert service
     try {
       await fetch(`${BASE_URL}/api/alerts`, {
         method:  'POST',
         headers: { 'Content-Type': 'application/json' },
-        // Note: auth would be needed in production — paper mode uses system token
         body: JSON.stringify({
           coinId:    alert.coinId,
           condition: alert.condition,
           threshold: alert.threshold,
         }),
       })
-    } catch { /* ignore — alert creation failure doesn't block the run */ }
+    } catch { /* ignore — alert failure doesn't block the run */ }
 
-    return {
-      status:        'filled',
-      executedAt:    now,
-      simulatedPnlUsd: 0,
-    }
+    return { status: 'filled', executedAt: now, simulatedPnlUsd: 0 }
   }
 
   if (intent.type === 'propose_trade') {
     const trade = intent as TradeIntent
 
     try {
+      // ── 1. Check wallet has enough balance ─────────────────────────────────
+      const wallet = await getOrCreateWallet()
+      const tokenInBal = wallet.balances.find(
+        b => b.symbol.toUpperCase() === trade.tokenIn.toUpperCase()
+      )
+
+      if (!tokenInBal || tokenInBal.valueUsd < trade.amountUsd) {
+        const available = tokenInBal?.valueUsd ?? 0
+        console.warn(
+          `[PaperExecutor] Insufficient ${trade.tokenIn} balance: need $${trade.amountUsd.toFixed(2)}, have $${available.toFixed(2)}`
+        )
+        return {
+          status:       'rejected',
+          errorMessage: `Insufficient ${trade.tokenIn} balance ($${available.toFixed(2)} available, $${trade.amountUsd.toFixed(2)} required)`,
+          executedAt:   now,
+        }
+      }
+
+      // ── 2. Get live prices ─────────────────────────────────────────────────
       const [inPrice, outPrice] = await Promise.all([
         getLivePrice(trade.tokenIn),
         getLivePrice(trade.tokenOut),
       ])
 
-      const slippage     = simulateSlippage(trade.amountUsd, trade.maxSlippageBps)
+      // ── 3. Simulate execution ──────────────────────────────────────────────
+      const slippage     = simulateSlippage(trade.amountUsd, trade.maxSlippageBps ?? 50)
       const fee          = trade.amountUsd * PAPER_FEE_PCT
       const netAmountUsd = trade.amountUsd * (1 - slippage) - fee
       const outAmount    = netAmountUsd / outPrice
+      const orderId      = `paper-${Date.now()}`
 
       console.log(
-        `[PaperExecutor] FILL: ${trade.tokenIn}→${trade.tokenOut} $${trade.amountUsd} ` +
-        `@ slippage=${(slippage * 100).toFixed(3)}% fee=$${fee.toFixed(4)} out=${outAmount.toFixed(6)} ${trade.tokenOut}`
+        `[PaperExecutor] FILL: ${trade.tokenIn}→${trade.tokenOut} ` +
+        `$${trade.amountUsd.toFixed(2)} @ slippage=${(slippage * 100).toFixed(3)}% ` +
+        `fee=$${fee.toFixed(4)} out=${outAmount.toFixed(6)} ${trade.tokenOut}`
       )
+
+      // ── 4. Record to wallet + trade history ────────────────────────────────
+      try {
+        await recordTrade({
+          runId:           agentCtx?.runId    ?? `run-paper-${Date.now()}`,
+          orderId,
+          tokenIn:         trade.tokenIn,
+          tokenOut:        trade.tokenOut,
+          amountUsd:       trade.amountUsd,
+          filledAmountUsd: netAmountUsd,
+          entryPrice:      outPrice,
+          feesUsd:         fee,
+          slippagePct:     slippage * 100,
+          strategy:        agentCtx?.strategy   ?? 'manual',
+          rationale:       agentCtx?.rationale  ?? trade.rationale,
+          confidence:      agentCtx?.confidence ?? 0,
+        })
+      } catch (recordErr: any) {
+        // Recording failure must NOT block the execution result
+        console.warn('[PaperExecutor] Failed to record trade to wallet:', recordErr.message)
+      }
 
       return {
         status:          'filled',
-        orderId:         `paper-${Date.now()}`,
+        orderId,
         filledAmountUsd: netAmountUsd,
         entryPrice:      outPrice,
         feesUsd:         fee,
-        simulatedPnlUsd: 0,  // PnL calculated when position is closed
+        simulatedPnlUsd: 0,  // closed PnL computed by wallet service on sell
         executedAt:      now,
       }
     } catch (err: any) {

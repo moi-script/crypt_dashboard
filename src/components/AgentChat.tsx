@@ -14,7 +14,7 @@ import {
   type PnlSummary,
   type Opportunity,
 } from "@/services/agent.service.frontend";
-
+import { PaperWalletDashboard } from "@/components/PaperWalletDashboard";
 // ── Types ─────────────────────────────────────────────────────────────────────
 type EmotionType = AgentEmotion["emotion"];
 
@@ -131,8 +131,8 @@ function IntentBadge({ type }: { type: string }) {
 }
 
 // ── Agent Dashboard panel ─────────────────────────────────────────────────────
-type DashTab = "runs" | "positions" | "opportunities" | "config";
-
+// type DashTab = "runs" | "positions" | "opportunities" | "config";
+type DashTab = "runs" | "positions" | "opportunities" | "config" | "wallet";
 function AgentDashboard({ accentColor }: { accentColor: string }) {
   const [tab,          setTab]          = useState<DashTab>("runs");
   const [runs,         setRuns]         = useState<AgentRun[]>([]);
@@ -194,13 +194,13 @@ function AgentDashboard({ accentColor }: { accentColor: string }) {
     } catch { /* ignore */ } finally { setTriggering(false); }
   };
 
-  const DASH_TABS: { id: DashTab; label: string }[] = [
-    { id: "runs",          label: "Runs"     },
-    { id: "positions",     label: "Positions"},
-    { id: "opportunities", label: "Signals"  },
-    { id: "config",        label: "Config"   },
-  ];
-
+const DASH_TABS: { id: DashTab; label: string }[] = [
+  { id: "runs",          label: "Runs"     },
+  { id: "positions",     label: "Positions"},
+  { id: "opportunities", label: "Signals"  },
+  { id: "config",        label: "Config"   },
+  { id: "wallet",        label: "Wallet"   }, // ← add this
+];
   const pnlColor = (v: number) => v >= 0 ? "#00e5a0" : "#ff5572";
 
   const emptyMsg = (msg: string) => (
@@ -513,6 +513,14 @@ function AgentDashboard({ accentColor }: { accentColor: string }) {
             {!loading && opps.length === 0 && emptyMsg("No active signals — agent will populate these on next tick.")}
           </div>
         )}
+
+        {/* ── WALLET TAB ────────────────────────────────────────────── */}
+
+        {tab === "wallet" && (
+  <div style={{ margin: "-16px" }}>  {/* bleed to edges, dashboard handles own padding */}
+    <PaperWalletDashboard accentColor={accentColor} />
+  </div>
+)}
 
         {/* ── CONFIG TAB ────────────────────────────────────────────── */}
         {tab === "config" && (
