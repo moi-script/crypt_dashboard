@@ -13,6 +13,12 @@ marketRegime.model.ts
 chartAnalysis.model.ts
 multiTimeframe.builder.ts
 chartAnalysis.routes.ts
-orderBlock.routes.ts
-orderBlock.service.ts
-regimeDetector.service.ts
+orderBlock.routes.ts #
+orderBlock.service.ts #
+regimeDetector.service.ts #
+
+
+=======================
+
+
+DONE session 

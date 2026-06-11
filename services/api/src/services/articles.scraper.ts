@@ -6,11 +6,18 @@
  * Step 3 — parse the batch response back into per-article results
  */
 
-import axios from 'axios'
 import * as cheerio from 'cheerio'
-import Anthropic from '@anthropic-ai/sdk'
+import axios from 'axios'
+import OpenAI from 'openai'
 
-const client = new Anthropic()
+const apiKey = process.env.DEEPSEEK_API_KEY
+if (!apiKey) throw new Error('DEEPSEEK_API_KEY not set')
+
+const deepseek = new OpenAI({
+  baseURL: 'https://api.deepseek.com',
+  apiKey,
+})
+
 
 // ── Site-specific selectors ────────────────────────────────────────────────
 
@@ -121,15 +128,12 @@ export interface ArticleAnalysis {
   sentiment: number  // -1.0 (bearish) to +1.0 (bullish)
   coins:     string[] // CoinGecko coin IDs e.g. ["bitcoin", "ethereum"]
 }
-
 export async function analyseAll(
   scraped: ScrapeResult[],
 ): Promise<ArticleAnalysis[]> {
-  // Only analyse articles where scraping succeeded
   const analysable = scraped.filter(s => s.content)
 
   if (analysable.length === 0) {
-    // Return neutral defaults for everything
     return scraped.map(s => ({
       url:       s.url,
       summary:   s.title,
@@ -138,7 +142,6 @@ export async function analyseAll(
     }))
   }
 
-  // Build one big prompt with all articles numbered
   const articlesBlock = analysable.map((s, i) =>
     `--- ARTICLE ${i + 1} ---
 URL: ${s.url}
@@ -167,38 +170,35 @@ Rules:
 - coins: CoinGecko coin IDs mentioned (e.g. "bitcoin", "ethereum", "solana"). Empty array [] if none.`
 
   try {
-    const response = await client.messages.create({
-      model:      'claude-sonnet-4-20250514',
-      max_tokens: 4096,
-      messages:   [{ role: 'user', content: prompt }],
+    const completion = await deepseek.chat.completions.create({
+      model:       'deepseek-v4-flash',   // same model as agent.service.ts
+      max_tokens:  4096,
+      temperature: 0.3,                   // lower temp for structured JSON output
+      messages: [
+        { role: 'user', content: prompt },
+      ],
     })
 
-    const text = response.content
-      .filter(b => b.type === 'text')
-      .map(b => b.text)
-      .join('')
-      .replace(/```json|```/g, '')
-      .trim()
+    const raw = completion.choices?.[0]?.message?.content ?? ''
+
+    // Strip markdown fences if the model wraps in ```json ... ```
+    const text = raw.replace(/```json|```/g, '').trim()
 
     const parsed = JSON.parse(text) as ArticleAnalysis[]
 
-    // Build a URL → analysis map for fast lookup
     const analysisMap = new Map(parsed.map(a => [a.url, a]))
 
-    // Return results for ALL scraped articles (including failed scrapes)
     return scraped.map(s => {
       const analysis = analysisMap.get(s.url)
       if (analysis) {
         analysis.sentiment = Math.max(-1, Math.min(1, analysis.sentiment))
         return analysis
       }
-      // Scrape failed — return neutral default
       return { url: s.url, summary: s.title, sentiment: 0, coins: [] }
     })
 
   } catch (err: any) {
-    console.warn('[Scraper] Claude batch analysis failed:', err.message)
-    // Return neutral defaults for everything on failure
+    console.warn('[Scraper] DeepSeek batch analysis failed:', err.message)
     return scraped.map(s => ({
       url:       s.url,
       summary:   s.title,

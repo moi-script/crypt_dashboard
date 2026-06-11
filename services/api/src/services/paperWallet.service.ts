@@ -89,7 +89,7 @@ export async function recordTrade(input: RecordTradeInput): Promise<ITradeTransa
   const side = STABLE_TOKENS.has(tokenInSymbol) ? 'buy' : 'sell'
 
   // ── Update balances ──────────────────────────────────────────────────────────
-  const balances = [...wallet.balances.map(b => ({ ...b.toObject?.() ?? b }))]
+  const balances = [...wallet.balances.map(b => ({ ...(b as any).toObject?.() ?? b }))]
 
   // Debit tokenIn
   const inIdx = balances.findIndex(b => b.symbol.toUpperCase() === tokenInSymbol)

@@ -13,14 +13,36 @@
  */
 
 import OpenAI from 'openai'
-// import { nanoid } from 'nanoid'
-// import { generateMyId } from '@/utils/nanoid';
 
 import { agentConfig }                    from '../../config/agent.config'
-import { buildAgentSystemPrompt }         from './prompts/agent.system.prompt';
-import { getToolSchemas, dispatch, isActTool, isReadTool } from '../tools/tool.registry'
+import { buildAgentSystemPrompt }         from './prompts/agent.system.prompt'
+import { getToolSchemas, dispatch, isActTool, isReadTool, clearCandleCache } from '../tools/tool.registry'
 import type { Decision, Intent, LoopContext }              from '../loop/loop.types'
 import type { ToolCall, ToolContext }                      from '../tools/tool.types'
+import { MarketRegime }                                    from '../chartAnalysis.types'
+
+// ─── Regime → Skills routing table ───────────────────────────
+// Imported from regimeDetector.prompt.ts where REGIME_TO_SKILLS is defined,
+// but duplicated here for direct use without the prompt file's other exports.
+const REGIME_TO_SKILLS: Record<string, string[]> = {
+  trending_up:      ['smartMoney', 'elliott', 'multiTimeframe', 'fibonacci'],
+  trending_down:    ['smartMoney', 'elliott', 'multiTimeframe', 'fibonacci'],
+  ranging:          ['wyckoff', 'pivots', 'fibonacci', 'harmonics', 'smartMoney'],
+  accumulation:     ['wyckoff', 'smartMoney', 'fibonacci', 'structure'],
+  distribution:     ['wyckoff', 'smartMoney', 'harmonics', 'structure'],
+  price_discovery:  ['fibonacci', 'elliott', 'smartMoney', 'multiTimeframe'],
+};
+
+/**
+ * Returns the ordered list of skills that should run for a given market regime.
+ * Called by orchestrator.ts before the skill execution loop.
+ *
+ * @param regime - The detected MarketRegime for the current coin/timeframe
+ * @returns string[] - Skill names in priority order for this regime
+ */
+export function selectSkillsForRegime(regime: MarketRegime): string[] {
+  return REGIME_TO_SKILLS[regime] ?? ['smartMoney', 'structure', 'fibonacci'];
+}
 
 const MAX_READ_ITERATIONS = 5
 
@@ -40,9 +62,13 @@ type Message =
 // ── Main function ─────────────────────────────────────────────────────────────
 
 export async function runPolicyEngine(
-  ctx:        LoopContext,
+  ctx:                    LoopContext,
   strategyContextSummary: string,
 ): Promise<Decision> {
+  // Clear the candle cache at the start of each policy engine run
+  // so tool calls in this run start fresh but share within the run
+  clearCandleCache()
+
   const toolCtx: ToolContext = {
     strategy: ctx.strategy,
     dryRun:   agentConfig.mode === 'paper',
@@ -67,7 +93,7 @@ export async function runPolicyEngine(
     { role: 'user',   content: strategyContextSummary },
   ]
 
-  const toolSchemas = getToolSchemas()
+  const toolSchemas  = getToolSchemas()
   const toolCallTrace: string[] = []
   let intent: Intent | null = null
 
@@ -76,7 +102,7 @@ export async function runPolicyEngine(
     const completion = await deepseek.chat.completions.create({
       model:       'deepseek-chat',
       max_tokens:  1200,
-      temperature: 0.3,   // lower temp for more deterministic decisions
+      temperature: 0.3,
       messages:    messages as any,
       tools:       toolSchemas.map(s => ({ type: 'function' as const, function: s })),
       tool_choice: 'auto',
@@ -87,14 +113,12 @@ export async function runPolicyEngine(
 
     if (!msg) break
 
-    // Append assistant message
     messages.push({
       role:       'assistant',
       content:    msg.content ?? null,
       tool_calls: msg.tool_calls ?? undefined,
     })
 
-    // No tool calls — model produced text (means no_action implicitly)
     if (!msg.tool_calls || msg.tool_calls.length === 0) {
       intent = {
         type:      'no_action',
@@ -103,10 +127,8 @@ export async function runPolicyEngine(
       break
     }
 
-    // Process each tool call in this message
     let foundActTool = false
     for (const tc of msg.tool_calls) {
-
       if (tc.type !== 'function') continue;
 
       const call: ToolCall = {
@@ -118,7 +140,6 @@ export async function runPolicyEngine(
       toolCallTrace.push(call.name)
 
       if (isActTool(call.name)) {
-        // Act tool → dispatch to get the intent object, stop looping
         const result = await dispatch(call, toolCtx)
         if (!result.isError) {
           intent = result.output as Intent
@@ -126,11 +147,10 @@ export async function runPolicyEngine(
           console.warn('[PolicyEngine] Act tool error:', result.errorMessage)
           intent = { type: 'no_action', rationale: `Act tool failed: ${result.errorMessage}` }
         }
-        // Append tool result so the conversation is complete
         messages.push({
-          role:        'tool',
+          role:         'tool',
           tool_call_id: call.id,
-          content:     JSON.stringify(result.output ?? { error: result.errorMessage }),
+          content:      JSON.stringify(result.output ?? { error: result.errorMessage }),
         })
         foundActTool = true
         break
@@ -139,16 +159,15 @@ export async function runPolicyEngine(
       if (isReadTool(call.name)) {
         const result = await dispatch(call, toolCtx)
         messages.push({
-          role:        'tool',
+          role:         'tool',
           tool_call_id: call.id,
-          content:     JSON.stringify(result.output ?? { error: result.errorMessage }),
+          content:      JSON.stringify(result.output ?? { error: result.errorMessage }),
         })
       }
     }
 
     if (foundActTool) break
 
-    // Safety valve — if we've hit max iterations without an act tool
     if (iteration >= MAX_READ_ITERATIONS) {
       console.warn('[PolicyEngine] Reached max read iterations without act tool — defaulting to no_action')
       intent = {
@@ -158,17 +177,15 @@ export async function runPolicyEngine(
     }
   }
 
-  // Fallback
   if (!intent) {
     intent = { type: 'no_action', rationale: 'Policy engine loop ended without a decision.' }
   }
 
-  // Extract rationale and confidence from the intent
   const rationale  = 'rationale' in intent ? intent.rationale : ''
   const confidence =
-    intent.type === 'no_action'    ? 90 :   // no_action is usually high-confidence
+    intent.type === 'no_action'     ? 90 :
     intent.type === 'propose_trade' ? 65 :
-    intent.type === 'set_alert'    ? 80 :
+    intent.type === 'set_alert'     ? 80 :
     70
 
   return {

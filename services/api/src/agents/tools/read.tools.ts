@@ -10,8 +10,16 @@
  */
 
 import type { RegisteredTool, ToolContext } from './tool.types'
-
 // ── get_price ─────────────────────────────────────────────────────────────────
+interface CoinResponse {
+  name: string
+  volume24h?: number
+  marketCap?: number
+  price?: number
+  high24h?: number
+  low24h?: number
+}
+
 
 const getPriceTool: RegisteredTool = {
   category: 'read',
@@ -38,12 +46,12 @@ const getPriceTool: RegisteredTool = {
         `${BASE}/api/simple/price?ids=${coinIds.join(',')}&vs=usd`,
       )
       if (!res.ok) throw new Error(`HTTP ${res.status}`)
-      const data = await res.json()
+      const data = await res.json() as Record<string, { usd?: number; usd_24h_change?: number; usd_market_cap?: number }>
       return coinIds.map(id => ({
         coinId: id,
-        priceUsd:  data[id]?.usd              ?? null,
-        change24h: data[id]?.usd_24h_change   ?? null,
-        marketCap: data[id]?.usd_market_cap   ?? null,
+        priceUsd: data[id]?.usd ?? null,
+        change24h: data[id]?.usd_24h_change ?? null,
+        marketCap: data[id]?.usd_market_cap ?? null,
       }))
     } catch (err: any) {
       return { error: err.message, coinIds }
@@ -80,13 +88,13 @@ const getYieldsTool: RegisteredTool = {
     },
   },
   handler: async (args, _ctx: ToolContext) => {
-    const asset    = (args.asset as string).toUpperCase()
-    const minTvl   = (args.minTvlUsd as number) ?? 5_000_000
-    const limit    = (args.limit    as number)  ?? 20
-    const BASE     = process.env.DEFILLAMA_BASE_URL ?? 'https://yields.llama.fi'
+    const asset = (args.asset as string).toUpperCase()
+    const minTvl = (args.minTvlUsd as number) ?? 5_000_000
+    const limit = (args.limit as number) ?? 20
+    const BASE = process.env.DEFILLAMA_BASE_URL ?? 'https://yields.llama.fi'
 
     try {
-      const res  = await fetch(`${BASE}/pools`)
+      const res = await fetch(`${BASE}/pools`)
       if (!res.ok) throw new Error(`DefiLlama HTTP ${res.status}`)
       const data = (await res.json()) as { data: any[] }
 
@@ -101,13 +109,13 @@ const getYieldsTool: RegisteredTool = {
         .sort((a: any, b: any) => (b.apy ?? 0) - (a.apy ?? 0))
         .slice(0, limit)
         .map((p: any) => ({
-          pool:     p.pool,
+          pool: p.pool,
           protocol: p.project,
-          chain:    p.chain,
-          symbol:   p.symbol,
-          apyPct:   parseFloat((p.apy ?? 0).toFixed(2)),
-          tvlUsd:   p.tvlUsd,
-          apyBase:  p.apyBase,
+          chain: p.chain,
+          symbol: p.symbol,
+          apyPct: parseFloat((p.apy ?? 0).toFixed(2)),
+          tvlUsd: p.tvlUsd,
+          apyBase: p.apyBase,
           apyReward: p.apyReward,
         }))
 
@@ -140,19 +148,19 @@ const getTokenVolumeTool: RegisteredTool = {
   },
   handler: async (args, _ctx: ToolContext) => {
     const coinId = args.coinId as string
-    const BASE   = process.env.API_BASE_URL ?? 'http://localhost:4000'
+    const BASE = process.env.API_BASE_URL ?? 'http://localhost:4000'
     try {
-      const res  = await fetch(`${BASE}/api/coins/${coinId}`)
+      const res = await fetch(`${BASE}/api/coins/${coinId}`)
       if (!res.ok) throw new Error(`HTTP ${res.status}`)
-      const coin = await res.json()
+      const coin = await res.json() as CoinResponse
       return {
         coinId,
-        name:         coin.name,
+        name: coin.name,
         volume24hUsd: coin.volume24h ?? 0,
         marketCapUsd: coin.marketCap ?? 0,
-        priceUsd:     coin.price     ?? 0,
-        high24h:      coin.high24h   ?? 0,
-        low24h:       coin.low24h    ?? 0,
+        priceUsd: coin.price ?? 0,
+        high24h: coin.high24h ?? 0,
+        low24h: coin.low24h ?? 0,
       }
     } catch (err: any) {
       return { error: err.message, coinId }
@@ -187,16 +195,16 @@ const getWalletStateTool: RegisteredTool = {
     try {
       const [paperPos, dailyPnl] = await Promise.allSettled([
         includePositions
-          ? fetch(`${BASE}/api/positions?mode=paper`).then(r => r.json())
+          ? fetch(`${BASE}/api/positions?mode=paper`).then(r => r.json() as Promise<any[]>)
           : Promise.resolve([]),
-        fetch(`${BASE}/api/positions/pnl/daily`).then(r => r.json()),
+        fetch(`${BASE}/api/positions/pnl/daily`).then(r => r.json() as Promise<{ totalPnlUsd?: number }>),
       ])
 
       return {
-        mode:           ctx.dryRun ? 'paper' : 'live',
-        paperBalance:   { USDC: 5000, ETH: 0 },   // initial paper wallet
-        openPositions:  paperPos.status === 'fulfilled' ? paperPos.value : [],
-        dailyPnlUsd:    dailyPnl.status === 'fulfilled' ? (dailyPnl.value?.totalPnlUsd ?? 0) : 0,
+        mode: ctx.dryRun ? 'paper' : 'live',
+        paperBalance: { USDC: 5000, ETH: 0 },   // initial paper wallet
+        openPositions: paperPos.status === 'fulfilled' ? paperPos.value : [],
+        dailyPnlUsd: dailyPnl.status === 'fulfilled' ? (dailyPnl.value?.totalPnlUsd ?? 0) : 0,
       }
     } catch (err: any) {
       return { error: err.message, mode: 'paper' }
@@ -224,9 +232,9 @@ const getNewsSentimentTool: RegisteredTool = {
   },
   handler: async (args, _ctx: ToolContext) => {
     const coinId = args.coinId as string
-    const BASE   = process.env.API_BASE_URL ?? 'http://localhost:4000'
+    const BASE = process.env.API_BASE_URL ?? 'http://localhost:4000'
     try {
-      const res      = await fetch(`${BASE}/api/news/coin/${coinId}?limit=20`)
+      const res = await fetch(`${BASE}/api/news/coin/${coinId}?limit=20`)
       if (!res.ok) throw new Error(`HTTP ${res.status}`)
       const articles = await res.json() as any[]
 
@@ -238,12 +246,12 @@ const getNewsSentimentTool: RegisteredTool = {
 
       return {
         coinId,
-        articleCount:  articles.length,
-        avgSentiment:  parseFloat(avg.toFixed(3)),
-        bullishCount:  bullish,
-        bearishCount:  bearish,
-        neutralCount:  articles.length - bullish - bearish,
-        label:         avg > 0.15 ? 'bullish' : avg < -0.15 ? 'bearish' : 'neutral',
+        articleCount: articles.length,
+        avgSentiment: parseFloat(avg.toFixed(3)),
+        bullishCount: bullish,
+        bearishCount: bearish,
+        neutralCount: articles.length - bullish - bearish,
+        label: avg > 0.15 ? 'bullish' : avg < -0.15 ? 'bearish' : 'neutral',
       }
     } catch (err: any) {
       return { error: err.message, coinId }

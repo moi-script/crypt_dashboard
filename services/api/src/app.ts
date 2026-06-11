@@ -22,6 +22,9 @@ import intelligenceRouter  from './routes/intelligence.routes'
 import chartAnalysisRouter from './routes/chartAnalysis.routes'
 import orderBlockRouter    from './routes/orderBlock.routes'
 
+// ── OHLCV ingest singleton (must be initialized after Redis connects) ─────────
+import { ohlcvIngest } from './read/ingestion/ohlcv.ingest'
+
 const app = express()
 const server = http.createServer(app)
 
@@ -47,7 +50,6 @@ app.use('/api/opportunities', apiLimiter)
 app.use('/api/intelligence',  apiLimiter)
 app.use('/api/chart',         apiLimiter)
 app.use('/api/orderblocks',   apiLimiter)
-// app.use('/api/paper-wallet', apiLimiter)
 app.use(
   [
     '/api/simple', '/api/categories', '/api/exchanges', '/api/derivatives',
@@ -66,9 +68,9 @@ app.use('/api/opportunities', opportunityRouter)
 app.use('/api/paper-wallet',  paperWalletRoutes)
 
 // ── S03 route mounts ──────────────────────────────────────────────────────────
-app.use('/api/intelligence',  intelligenceRouter)   // GET /scan, POST /trigger, GET /top, GET /cascade, GET /coin/:symbol
-app.use('/api/chart',         chartAnalysisRouter)  // POST /analyze/:symbol, GET /history/:symbol, GET /primitives/:symbol
-app.use('/api/orderblocks',   orderBlockRouter)     // GET /active/:symbol, GET /near/:symbol/:price, POST /sync/:symbol, PATCH /mitigate/:id
+app.use('/api/intelligence',  intelligenceRouter)
+app.use('/api/chart',         chartAnalysisRouter)
+app.use('/api/orderblocks',   orderBlockRouter)
 
 app.use(errorHandler)
 
@@ -78,6 +80,17 @@ async function start() {
   await connectDB()
   await connectRedis()
   await connectSubscriber()
+
+  // Initialize OHLCV ingest Redis connection AFTER connectRedis() completes.
+  // Without this, ohlcvIngest.redisClient is null and every Binance fetch
+  // skips the cache, causing rate limit hits within minutes.
+  try {
+    await ohlcvIngest.init()
+    console.log('OHLCV ingest Redis connected')
+  } catch (err: any) {
+    console.warn('[app] ohlcvIngest.init() failed — OHLCV will run without Redis cache:', err.message)
+    // Non-fatal: the ingest still works, just without caching
+  }
 
   // Guard: prevents double-start on hot-reload
   if (!isSchedulerRunning()) {

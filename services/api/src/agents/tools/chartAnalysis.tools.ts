@@ -5,7 +5,6 @@
 // ✅ COMPLETE — do NOT regenerate
 // ============================================================
 
-import { Tool } from '@anthropic-ai/sdk/resources/messages';
 import { Candle } from '../chartAnalysis.types';
 import {
   detectSupportResistance,
@@ -23,6 +22,17 @@ import { calculateStandardPivots, calculateCamarillaPivots } from '../skills/piv
 import { detectHarmonicPatterns } from '../skills/harmonics.skill';
 import { buildMultiTimeframeContext } from '../skills/multiTimeframe.skill';
 import { ohlcvIngest, Timeframe } from '../../read/ingestion/ohlcv.ingest';
+
+// ─── Tool type (compatible with Anthropic SDK) ────────────────
+interface Tool {
+  name: string;
+  description: string;
+  input_schema: {
+    type: 'object';
+    properties: Record<string, unknown>;
+    required?: string[];
+  };
+}
 
 // ─── Tool Definitions (send to Anthropic API) ────────────────
 export const CHART_ANALYSIS_TOOLS: Tool[] = [
@@ -149,9 +159,6 @@ async function resolveCandles(
 }
 
 // ─── Tool Handlers ────────────────────────────────────────────
-// Each handler takes the tool input and returns a JSON-serializable result.
-// Wire these into your agentic loop's tool_use block handler.
-
 export async function handleChartAnalysisTool(
   toolName: string,
   toolInput: Record<string, unknown>,

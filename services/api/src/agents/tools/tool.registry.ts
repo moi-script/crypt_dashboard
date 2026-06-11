@@ -5,20 +5,71 @@
  * the tool calls the model returns back to the correct handlers.
  *
  * Usage:
- *   const schemas = getToolSchemas()        // send to LLM
+ *   const schemas = getToolSchemas()          // send to LLM
  *   const result  = await dispatch(call, ctx) // handle model's tool call
  */
 
 import type { ToolCall, ToolResult, ToolContext, RegisteredTool, ToolDef } from './tool.types'
-import { READ_TOOLS } from './read.tools'
-import { ACT_TOOLS  } from './act.tools'
+import { READ_TOOLS }  from './read.tools'
+import { ACT_TOOLS }   from './act.tools'
+import {
+  CHART_ANALYSIS_TOOLS,
+  handleChartAnalysisTool,
+} from './chartAnalysis.tools'
+import {
+  MULTI_TIMEFRAME_TOOLS,
+  handleMultiTimeframeTool,
+} from './multiTimeframe.tools'
+import { Candle } from '../chartAnalysis.types'
+
+// ── Per-request candle cache (avoids re-fetching same candles in one tool-call loop) ──
+const globalCandleCache = new Map<string, Candle[]>()
 
 // ── Registry map ──────────────────────────────────────────────────────────────
 
 const registry = new Map<string, RegisteredTool>()
 
+// Register existing read + act tools
 for (const tool of [...READ_TOOLS, ...ACT_TOOLS]) {
   registry.set(tool.def.name, tool)
+}
+
+// Register chart analysis tools (drill-down tools for the LLM)
+for (const tool of CHART_ANALYSIS_TOOLS) {
+  registry.set(tool.name, {
+    category: 'read',
+    def: {
+      name:        tool.name,
+      description: tool.description,
+      parameters: {
+        type:       tool.input_schema.type,
+        properties: tool.input_schema.properties as Record<string, any>,
+        required:   tool.input_schema.required,
+      },
+    },
+    handler: async (args: Record<string, unknown>, _ctx: ToolContext) => {
+      return handleChartAnalysisTool(tool.name, args, globalCandleCache)
+    },
+  })
+}
+
+// Register multi-timeframe tools
+for (const tool of MULTI_TIMEFRAME_TOOLS) {
+  registry.set(tool.name, {
+    category: 'read',
+    def: {
+      name:        tool.name,
+      description: tool.description,
+      parameters: {
+        type:       tool.input_schema.type,
+        properties: tool.input_schema.properties as Record<string, any>,
+        required:   tool.input_schema.required,
+      },
+    },
+    handler: async (args: Record<string, unknown>, _ctx: ToolContext) => {
+      return handleMultiTimeframeTool(tool.name, args)
+    },
+  })
 }
 
 // ── Public API ────────────────────────────────────────────────────────────────
@@ -86,6 +137,11 @@ export async function dispatch(
       durationMs:   Date.now() - start,
     }
   }
+}
+
+/** Clear the candle cache between agent loop ticks */
+export function clearCandleCache(): void {
+  globalCandleCache.clear()
 }
 
 /** List all registered tool names */

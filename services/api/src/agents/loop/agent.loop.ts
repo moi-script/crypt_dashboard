@@ -34,6 +34,7 @@ import { airdropWatchStrategy } from '../policy/strategies/airdropWatch.strategy
 // import { airdropWatchStrategy } from '../policy/strategies/airdropWatch.strategy'
 import type { LoopContext, WalletState, AgentRunRecord, TradeIntent } from './loop.types'
 import type { Strategy } from '../policy/strategies/strategy.types'
+
 import { generateMyId } from '@/utils/nanoid'
 // ── Strategy registry ─────────────────────────────────────────────────────────
 

@@ -7,6 +7,12 @@ import { runVolatilitySkill } from './skills/volatility.skill'
 import { runSentimentSkill }  from './skills/sentiment.skill'
 import { runPatternSkill }    from './skills/pattern.skill'
 
+// ── New Two-Tier imports ───────────────────────────────────────────────────────
+import { detectRegimeForSymbol } from '../services/regimeDetector.service'
+import { selectSkillsForRegime } from './policy/policy.engine'
+import { analyzeSymbol }         from '../services/chartAnalysis.service'
+import { MarketRegime }          from './chartAnalysis.types'
+
 const cg = new CoinGeckoService()
 
 export interface OrchestratorResult {
@@ -16,7 +22,7 @@ export interface OrchestratorResult {
   price:         number
   skills:        SkillResult[]
   skillsUsed:    string[]
-  reasoning:     ReasoningStep[]   // ← full trace
+  reasoning:     ReasoningStep[]
   newsCount:     number
   sentimentAvg:  number
   pastAnalyses:  number
@@ -24,6 +30,11 @@ export interface OrchestratorResult {
   priceHistory:  { time: number; price: number }[]
   ohlcv:         { time: number; open: number; high: number; low: number; close: number; volume: number }[]
   newsHeadlines: string[]
+  // ── New: chart analysis result attached when Two-Tier runs ────
+  regime?:       MarketRegime
+  chartSetup?:   string   // setup_name from ChartAnalysisResult
+  chartBias?:    'long' | 'short' | 'neutral'
+  chartConfidence?: number
 }
 
 interface MarketContext {
@@ -42,10 +53,24 @@ const SKILL_WEIGHTS: Record<string, number> = {
   pattern:    0.10,
 }
 
+// ── Map CoinGecko coinId → Binance symbol for regime detection ────────────────
+// Extend this as you add coins to the watchlist
+const COINGECKO_TO_BINANCE: Record<string, string> = {
+  bitcoin:   'BTCUSDT',
+  ethereum:  'ETHUSDT',
+  solana:    'SOLUSDT',
+  binancecoin: 'BNBUSDT',
+  avalanche: 'AVAXUSDT',
+  near:      'NEARUSDT',
+  aptos:     'APTUSDT',
+  sui:       'SUIUSDT',
+  arbitrum:  'ARBUSDT',
+  optimism:  'OPUSDT',
+}
+
 export async function orchestrate(coinId: string): Promise<OrchestratorResult> {
   console.log(`[Orchestrator] Starting analysis for ${coinId}`)
 
-  // Reasoning chain — appended throughout the run
   const reasoning: ReasoningStep[] = []
   let stepNum = 0
   const addStep = (step: Omit<ReasoningStep, 'step'>) => {
@@ -93,6 +118,45 @@ export async function orchestrate(coinId: string): Promise<OrchestratorResult> {
     decision: `Working with ${priceHistory.length} days of price history`,
   })
 
+  // ── 1b. Regime Detection (NEW) ───────────────────────────────────────
+  // Detect the current market regime before selecting which skills to run.
+  // Uses Binance 4H candles via ohlcvIngest → Redis-cached.
+
+  let detectedRegime: MarketRegime = 'ranging'
+  let regimeSkills: string[] = []
+  const binanceSymbol = COINGECKO_TO_BINANCE[coinId]
+
+  if (binanceSymbol) {
+    try {
+      detectedRegime = await detectRegimeForSymbol(binanceSymbol)
+      regimeSkills   = selectSkillsForRegime(detectedRegime)
+
+      addStep({
+        phase:    'context',
+        title:    `Market regime detected: ${detectedRegime.toUpperCase()}`,
+        detail:   `Regime detection using 4H Binance candles for ${binanceSymbol}. ` +
+                  `Regime: ${detectedRegime}. ` +
+                  `Priority skills for this regime: ${regimeSkills.join(', ')}.`,
+        decision: `Regime-aware skill routing active. Two-Tier analysis will run for ${binanceSymbol}.`,
+      })
+    } catch (err: any) {
+      console.warn(`[Orchestrator] Regime detection failed for ${coinId}:`, err.message)
+      addStep({
+        phase:    'context',
+        title:    'Regime detection skipped',
+        detail:   `Could not detect regime for ${binanceSymbol}: ${err.message}. Falling back to standard skill selection.`,
+        decision: 'Standard skill selection will be used.',
+      })
+    }
+  } else {
+    addStep({
+      phase:    'context',
+      title:    'Regime detection skipped — no Binance symbol mapping',
+      detail:   `No Binance symbol mapping found for coinId "${coinId}". Add it to COINGECKO_TO_BINANCE in orchestrator.ts.`,
+      decision: 'Standard skill selection will be used.',
+    })
+  }
+
   // ── 2. Fetch news ─────────────────────────────────────────────────────
 
   const cutoff = new Date()
@@ -135,7 +199,7 @@ export async function orchestrate(coinId: string): Promise<OrchestratorResult> {
     phase:    'context',
     title:    'Memory recalled',
     detail:   pastCount === 0
-      ? `No previous analyses found for ${coinName}. This is the first run — the agent has no learned behaviour for this coin yet.`
+      ? `No previous analyses found for ${coinName}. This is the first run.`
       : `Recalled ${pastCount} previous analyses. Last verdict: ${lastAnalysis?.verdict ?? 'unknown'} (score ${lastAnalysis?.score ?? 0}). Behaviour notes: "${behaviour?.notes || 'none yet'}". Rolling average score: ${behaviour?.avgScore ?? 0}.`,
     decision: lastAnalysis
       ? `Prior context available — will factor last verdict (${lastAnalysis.verdict}) into confidence`
@@ -144,7 +208,6 @@ export async function orchestrate(coinId: string): Promise<OrchestratorResult> {
 
   // ── 4. Determine market context and select skills ─────────────────────
 
-  // Compute volatility inline for context detection
   const isHighVol = ohlcv.length >= 14 && (() => {
     const closes = ohlcv.slice(-14).map(b => b.close)
     const mean   = closes.reduce((a, b) => a + b, 0) / closes.length
@@ -160,9 +223,7 @@ export async function orchestrate(coinId: string): Promise<OrchestratorResult> {
     isLowConfidence:  lastAnalysis ? (lastAnalysis.confidence ?? 100) < 40 : false,
   }
 
-  // Build skills list with explicit reasoning per skill
   const skillsToRun: string[] = ['trend', 'momentum']
-
   const selectionReasons: string[] = [
     'Trend — always active: core directional read on price vs moving averages.',
     'Momentum — always active: RSI and MACD show whether buyers or sellers are in control.',
@@ -170,42 +231,40 @@ export async function orchestrate(coinId: string): Promise<OrchestratorResult> {
 
   if (ctx.hasEnoughOHLCV) {
     skillsToRun.push('volatility')
-    selectionReasons.push(`Volatility — activated: ${ohlcv.length} OHLCV candles available (need ≥14). Will check Bollinger Bands and ATR.`)
-  } else {
-    selectionReasons.push(`Volatility — skipped: only ${ohlcv.length} candles available, need ≥14.`)
+    selectionReasons.push(`Volatility — activated: ${ohlcv.length} OHLCV candles available.`)
   }
 
   if (ctx.hasNewsData) {
     skillsToRun.push('sentiment')
-    selectionReasons.push(`Sentiment — activated: ${articles.length} news articles found (need ≥3). Average sentiment ${sentimentAvg.toFixed(2)}.`)
-  } else {
-    selectionReasons.push(`Sentiment — skipped: only ${articles.length} articles found, need ≥3 for meaningful signal.`)
+    selectionReasons.push(`Sentiment — activated: ${articles.length} news articles found.`)
   }
 
   if (ctx.hasEnoughOHLCV) {
     skillsToRun.push('pattern')
-    selectionReasons.push(`Pattern — activated: enough OHLCV data to detect candle patterns and S/R levels.`)
-  } else {
-    selectionReasons.push(`Pattern — skipped: insufficient OHLCV data for pattern detection.`)
+    selectionReasons.push(`Pattern — activated: enough OHLCV data to detect candle patterns.`)
   }
 
   if (ctx.isLowConfidence && !skillsToRun.includes('volatility')) {
     skillsToRun.push('volatility')
-    selectionReasons.push(`Volatility — also activated: last analysis had low confidence (${lastAnalysis?.confidence}%), running extra skill defensively.`)
+    selectionReasons.push(`Volatility — also activated: last analysis had low confidence.`)
   }
 
-  if (isHighVol) {
-    selectionReasons.push(`Note: market is in HIGH VOLATILITY regime (rolling std dev > 3%). Volatility skill findings will be weighted cautiously.`)
+  // Note which regime-aware skills are scheduled for the Two-Tier pass
+  if (regimeSkills.length > 0) {
+    selectionReasons.push(
+      `Regime-aware Two-Tier skills queued: ${regimeSkills.join(', ')} ` +
+      `(will run via chartAnalysis.service after base skills complete).`
+    )
   }
 
   addStep({
     phase:    'skill_selection',
-    title:    `${skillsToRun.length} skills selected`,
+    title:    `${skillsToRun.length} base skills selected${regimeSkills.length > 0 ? ' + Two-Tier chart analysis' : ''}`,
     detail:   selectionReasons.join('\n'),
     decision: `Running: ${skillsToRun.join(', ')}`,
   })
 
-  // ── 5. Run skills + log each one ─────────────────────────────────────
+  // ── 5. Run base skills ─────────────────────────────────────────────────
 
   const skillResults: SkillResult[] = []
 
@@ -223,34 +282,63 @@ export async function orchestrate(coinId: string): Promise<OrchestratorResult> {
       detail:   result.summary,
       score:    result.score,
       weight:   weight,
-      decision: `Contributes ${contrib > 0 ? '+' : ''}${contrib} points to final score (score ${result.score} × weight ${weight})`,
+      decision: `Contributes ${contrib > 0 ? '+' : ''}${contrib} points to final score`,
     })
 
     return result
   }
 
-  if (skillsToRun.includes('trend')) {
-    runAndLog('trend', () => runTrendSkill(priceHistory))
-  }
-  if (skillsToRun.includes('momentum')) {
-    runAndLog('momentum', () => runMomentumSkill(priceHistory))
-  }
-  if (skillsToRun.includes('volatility')) {
-    runAndLog('volatility', () => runVolatilitySkill(ohlcv))
-  }
-  if (skillsToRun.includes('sentiment')) {
-    runAndLog('sentiment', () => runSentimentSkill(coinId, articles.map(a => ({
-      title:       a.title,
-      sentiment:   a.sentiment ?? 0,
-      publishedAt: a.publishedAt instanceof Date ? a.publishedAt.toISOString() : String(a.publishedAt),
-      coins:       a.coins ?? [],
-    }))))
-  }
-  if (skillsToRun.includes('pattern')) {
-    runAndLog('pattern', () => runPatternSkill(ohlcv))
+  if (skillsToRun.includes('trend'))      runAndLog('trend',      () => runTrendSkill(priceHistory))
+  if (skillsToRun.includes('momentum'))   runAndLog('momentum',   () => runMomentumSkill(priceHistory))
+  if (skillsToRun.includes('volatility')) runAndLog('volatility', () => runVolatilitySkill(ohlcv))
+  if (skillsToRun.includes('sentiment'))  runAndLog('sentiment',  () => runSentimentSkill(coinId, articles.map(a => ({
+    title:       a.title,
+    sentiment:   a.sentiment ?? 0,
+    publishedAt: a.publishedAt instanceof Date ? a.publishedAt.toISOString() : String(a.publishedAt),
+    coins:       a.coins ?? [],
+  }))))
+  if (skillsToRun.includes('pattern'))    runAndLog('pattern',    () => runPatternSkill(ohlcv))
+
+  // ── 5b. Two-Tier Chart Analysis (NEW) ────────────────────────────────
+  // Run the full Two-Tier pipeline if we have a Binance symbol.
+  // This runs in parallel to base skills and supplements them.
+
+  let chartSetup:       string | undefined
+  let chartBias:        'long' | 'short' | 'neutral' | undefined
+  let chartConfidence:  number | undefined
+
+  if (binanceSymbol) {
+    try {
+      const { result: chartResult } = await analyzeSymbol(binanceSymbol)
+
+      chartSetup      = chartResult.setup_name
+      chartBias       = chartResult.bias
+      chartConfidence = chartResult.confidence
+
+      addStep({
+        phase:    'skill_result',
+        title:    `Two-Tier Chart Analysis → ${chartResult.bias.toUpperCase()} (${chartResult.primary_framework})`,
+        detail:   `Regime: ${chartResult.regime}. Setup: ${chartResult.setup_name}. ` +
+                  `Confidence: ${chartResult.confidence}/100. R:R: ${chartResult.risk_reward.toFixed(2)}. ` +
+                  `Confluence: ${chartResult.confluence_score}/9 (${chartResult.confluence_factors.slice(0, 3).join(', ')}). ` +
+                  `Entry: ${chartResult.entry_zone.low.toFixed(4)}–${chartResult.entry_zone.high.toFixed(4)}. ` +
+                  `SL: ${chartResult.stop_loss.toFixed(4)}. ` +
+                  `Reasoning: ${chartResult.reasoning.slice(0, 200)}`,
+        score:    chartResult.confidence,
+        decision: `Chart analysis bias: ${chartResult.bias}. Invalidation: ${chartResult.invalidation.slice(0, 100)}`,
+      })
+    } catch (err: any) {
+      console.warn(`[Orchestrator] Two-Tier chart analysis failed for ${binanceSymbol}:`, err.message)
+      addStep({
+        phase:    'skill_result',
+        title:    'Two-Tier Chart Analysis — skipped',
+        detail:   `Failed for ${binanceSymbol}: ${err.message}`,
+        decision: 'Base skill scores will be used for final verdict.',
+      })
+    }
   }
 
-  // ── 6. Compute weighted score and log synthesis ───────────────────────
+  // ── 6. Compute weighted score ─────────────────────────────────────────
 
   let totalWeight = 0
   let weightedSum = 0
@@ -263,7 +351,7 @@ export async function orchestrate(coinId: string): Promise<OrchestratorResult> {
     scoreBreakdown.push(`${skill.name}: ${skill.score > 0 ? '+' : ''}${skill.score} × ${w} = ${(skill.score * w).toFixed(1)}`)
   }
 
-  const rawScore     = totalWeight > 0 ? weightedSum / totalWeight : 0
+  const rawScore      = totalWeight > 0 ? weightedSum / totalWeight : 0
   const weightedScore = Math.round(rawScore)
 
   const skillAgreement = skillResults.filter(s => s.verdict === 'bullish').length
@@ -274,12 +362,12 @@ export async function orchestrate(coinId: string): Promise<OrchestratorResult> {
   addStep({
     phase:    'synthesis',
     title:    'Skill scores synthesised',
-    detail:   `Score breakdown:\n${scoreBreakdown.join('\n')}\n\nWeighted total: ${weightedScore}/100. Skill consensus: ${allAgree ? 'all skills agree' : conflicted ? 'skills are conflicting' : 'mixed signals'}. ${conflicted ? 'Conflicting signals reduce confidence.' : allAgree ? 'Strong agreement boosts confidence.' : ''}`,
+    detail:   `Score breakdown:\n${scoreBreakdown.join('\n')}\n\nWeighted total: ${weightedScore}/100. Skill consensus: ${allAgree ? 'all skills agree' : conflicted ? 'skills are conflicting' : 'mixed signals'}. ${chartBias ? `Two-Tier chart bias: ${chartBias} (confidence ${chartConfidence}).` : ''}`,
     score:    weightedScore,
-    decision: `Pre-AI weighted score: ${weightedScore}. This will be reviewed and potentially adjusted by the report generator.`,
+    decision: `Pre-AI weighted score: ${weightedScore}. Chart analysis bias: ${chartBias ?? 'not run'}.`,
   })
 
-  console.log(`[Orchestrator] ${skillResults.length} skills completed for ${coinId} — weighted score: ${weightedScore}`)
+  console.log(`[Orchestrator] ${skillResults.length} skills completed for ${coinId} — weighted score: ${weightedScore}${chartBias ? `, chart bias: ${chartBias}` : ''}`)
 
   return {
     coinId,
@@ -296,5 +384,9 @@ export async function orchestrate(coinId: string): Promise<OrchestratorResult> {
     priceHistory,
     ohlcv,
     newsHeadlines: articles.slice(0, 10).map(a => a.title),
+    regime:        detectedRegime,
+    chartSetup,
+    chartBias,
+    chartConfidence,
   }
 }
