@@ -1,3 +1,10 @@
+=========================================
+SESSION 01
+=========================================
+
+
+
+
 chartAnalysis.types.ts
 
 // ============================================================
@@ -4968,4 +4975,624 @@ export default router;
 
 
 
-this is the current progress, and a full plan,  now you will generate a file structure base on what is already existed , and  you wil generate some files that are chained and important to a plan as progress, to prevent dependency error or undefined imports, note, file structure, aligned files, and provide materials to make it ready more to integrate to promps from claude next session easily without remembering it  
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+===========================================================
+SESSION 02
+===========================================================
+
+
+regimeDetector.service.ts
+// ============================================================
+// regimeDetector.service.ts
+// Fast regime detection with Redis caching
+// Called before full LLM analysis to gate which skills to run
+// ⬜ TODO: implement function bodies
+// ============================================================
+
+import { Candle, MarketRegime } from '../agents/chartAnalysis.types';
+import { computeAllIndicators } from '../agents/skills/indicators.skill';
+import { detectTrend, extractZigZagPivots, buildVolumeProfile } from '../agents/skills/structure.skill';
+import { detectWyckoffRange } from '../agents/skills/wyckoff.skill';
+import { ohlcvIngest } from '../read/ingestion/ohlcv.ingest';
+
+// Redis client — reuse from your existing redis.ts singleton
+// import { redisClient } from '../config/redis';
+
+const REGIME_CACHE_TTL_SECONDS = 300; // 5 min
+const ADX_TRENDING_THRESHOLD = 25;
+const ADX_RANGING_THRESHOLD  = 20;
+
+// ─── Key logic guide ─────────────────────────────────────────
+// ADX > 25  → trending_up or trending_down (check EMA slope)
+// ADX < 20  → ranging
+// Wyckoff Phase A/B/C (accumulation) → 'accumulation'
+// Wyckoff Phase B/C (distribution/BCLX) → 'distribution'
+// Price > all-time high area (no resistance overhead) → 'price_discovery'
+// Fallback: use detectTrend() from structure.skill
+
+export async function detectRegime(
+  symbol: string,
+  candles: Candle[]
+): Promise<MarketRegime> {
+  // TODO: implement
+  // 1. computeAllIndicators(candles) → check adx
+  // 2. detectWyckoffRange(candles) → check phase
+  // 3. detectTrend(candles) → fallback
+  // 4. map to MarketRegime
+  // 5. cacheRegime(symbol, regime) before returning
+  throw new Error('detectRegime not yet implemented');
+}
+
+export async function getCachedRegime(
+  symbol: string
+): Promise<MarketRegime | null> {
+  // TODO: redisClient.get(`regime:${symbol}`) → parse → return MarketRegime | null
+  return null;
+}
+
+export async function cacheRegime(
+  symbol: string,
+  regime: MarketRegime
+): Promise<void> {
+  // TODO: redisClient.set(`regime:${symbol}`, regime, { EX: REGIME_CACHE_TTL_SECONDS })
+}
+
+// Convenience: fetch candles + detect regime in one call
+export async function detectRegimeForSymbol(symbol: string): Promise<MarketRegime> {
+  const cached = await getCachedRegime(symbol);
+  if (cached) return cached;
+
+  const result = await ohlcvIngest.fetch({ symbol, timeframe: '4h', limit: 100 });
+  return detectRegime(symbol, result.candles);
+}
+
+============================
+
+regimeDetector.prompt.ts
+
+
+// ============================================================
+// regimeDetector.prompt.ts
+// Lightweight prompt for fast regime classification
+// No tool use — single-turn, returns one of 6 regime strings
+// ⬜ TODO: write the actual prompt content
+// ============================================================
+
+// Used in regimeDetector.service.ts when ADX/Wyckoff is ambiguous
+// and a quick LLM pass is cheaper than running all skills
+export const REGIME_DETECTOR_SYSTEM_PROMPT = `
+You are a market regime classifier. You receive a summary of recent price action and indicators.
+Return ONLY one of these exact strings (no JSON, no explanation):
+trending_up | trending_down | ranging | accumulation | distribution | price_discovery
+
+Rules:
+- trending_up: price above rising EMAs, higher highs + higher lows, ADX > 25
+- trending_down: price below falling EMAs, lower highs + lower lows, ADX > 25
+- ranging: price oscillating between defined S/R, ADX < 20, no clear direction
+- accumulation: Wyckoff Phase B/C with selling climax evidence and low volume pullbacks
+- distribution: Wyckoff with buying climax and UTAD risk signals, high volume at highs
+- price_discovery: price at or above all-time high, no overhead resistance, momentum driven
+
+// TODO: expand with more detailed regime indicators and examples
+`;
+
+// Regime → which skills are highest priority
+// Used by policy.engine.ts REGIME_TO_SKILLS mapping
+export const REGIME_TO_SKILLS: Record<string, string[]> = {
+  trending_up:      ['smartMoney', 'elliott', 'multiTimeframe'],
+  trending_down:    ['smartMoney', 'elliott', 'multiTimeframe'],
+  ranging:          ['wyckoff', 'pivots', 'fibonacci', 'harmonics'],
+  accumulation:     ['wyckoff', 'smartMoney', 'fibonacci'],
+  distribution:     ['wyckoff', 'smartMoney', 'harmonics'],
+  price_discovery:  ['fibonacci', 'elliott', 'smartMoney'],
+};
+
+
+===========================================
+orderBlock.service.ts
+
+
+// ============================================================
+// orderBlock.service.ts
+// OB lifecycle management: active → mitigated tracking across ticks
+// Persists to MongoDB. Diffs against DB on each scanner tick.
+// ⬜ TODO: implement function bodies
+// ============================================================
+
+import { Candle, OrderBlock } from '../agents/chartAnalysis.types';
+import {
+  detectOrderBlocks,
+  detectBullishOrderBlocks,
+  detectBearishOrderBlocks,
+} from '../agents/skills/smartMoney.skill';
+import { ohlcvIngest } from '../read/ingestion/ohlcv.ingest';
+// import { OrderBlockModel } from '../models/orderBlock.model';  ← uncomment when model exists
+
+const PRICE_TOLERANCE_PCT = 0.005; // 0.5% — OB is "near" if within this range
+
+// ─── Sync OBs for a symbol (called each tick) ────────────────
+// 1. Fetch fresh candles
+// 2. Re-run detectOrderBlocks
+// 3. Diff against DB: new OBs → insert, mitigated OBs → update status
+// Returns the current active OBs
+export async function syncOrderBlocks(
+  symbol: string,
+  candles?: Candle[]
+): Promise<OrderBlock[]> {
+  // TODO: implement
+  // const freshCandles = candles ?? (await ohlcvIngest.fetch({ symbol, timeframe: '4h', limit: 200 })).candles;
+  // const detected = detectOrderBlocks(freshCandles, '4H');
+  // const existing = await OrderBlockModel.find({ symbol, status: 'active' });
+  // diff + upsert
+  throw new Error('syncOrderBlocks not yet implemented');
+}
+
+// ─── Get active OBs from DB ───────────────────────────────────
+export async function getActiveOrderBlocks(symbol: string): Promise<OrderBlock[]> {
+  // TODO: return OrderBlockModel.find({ symbol, status: 'active' }).sort({ origin_timestamp: -1 })
+  return [];
+}
+
+// ─── Mark an OB as mitigated ─────────────────────────────────
+export async function markMitigated(id: string): Promise<void> {
+  // TODO: OrderBlockModel.findOneAndUpdate({ id }, { status: 'mitigated', mitigated_at: new Date() })
+}
+
+// ─── Find OBs near a given price ─────────────────────────────
+export async function getOrderBlocksNearPrice(
+  symbol: string,
+  price: number,
+  tolerancePct = PRICE_TOLERANCE_PCT
+): Promise<OrderBlock[]> {
+  // TODO: get all active OBs for symbol, filter where:
+  // price >= ob.low * (1 - tolerancePct) && price <= ob.high * (1 + tolerancePct)
+  return [];
+}
+
+// ─── Get the nearest unmitigated OB above/below price ────────
+export async function getNearestOrderBlock(
+  symbol: string,
+  price: number,
+  direction: 'above' | 'below'
+): Promise<OrderBlock | null> {
+  const active = await getActiveOrderBlocks(symbol);
+  if (direction === 'above') {
+    const above = active.filter(ob => ob.low > price).sort((a, b) => a.low - b.low);
+    return above[0] ?? null;
+  }
+  const below = active.filter(ob => ob.high < price).sort((a, b) => b.high - a.high);
+  return below[0] ?? null;
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+chartAnalysis.tools.ts
+
+// ============================================================
+// chartAnalysis.tools.ts
+// Anthropic tool definitions for agentic chart analysis drill-down
+// The LLM can call these tools to get more granular data
+// ⬜ TODO: implement tool handler functions (tool definitions are complete)
+// ============================================================
+
+import { Tool } from '@anthropic-ai/sdk/resources/messages';
+import { Candle } from '../chartAnalysis.types';
+import { detectSupportResistance, extractZigZagPivots, buildVolumeProfile } from '../skills/structure.skill';
+import { computeAllIndicators } from '../skills/indicators.skill';
+import { calculateFibonacciLevels, findFibClusters } from '../skills/fibonacci.skill';
+import { calculateStandardPivots, calculateCamarillaPivots } from '../skills/pivots.skill';
+import { detectHarmonicPatterns } from '../skills/harmonics.skill';
+import { buildMultiTimeframeContext } from '../skills/multiTimeframe.skill';
+import { calculateIchimoku, calculateVWAP } from '../skills/indicators.skill';
+
+// ─── Tool Definitions (send to Anthropic API) ────────────────
+export const CHART_ANALYSIS_TOOLS: Tool[] = [
+  {
+    name: 'analyze_market_structure',
+    description: 'Runs full market structure analysis on a symbol: S/R zones, volume profile, trend. Returns key_levels, vpoc, vah, val, trend.',
+    input_schema: {
+      type: 'object' as const,
+      properties: {
+        symbol: { type: 'string', description: 'e.g. BTCUSDT' },
+        timeframe: { type: 'string', enum: ['1h', '4h', '1d'], description: 'Candle timeframe' },
+      },
+      required: ['symbol'],
+    },
+  },
+  {
+    name: 'get_market_pivots',
+    description: 'Returns ZigZag swing pivots for the symbol. Useful for Elliott wave and harmonic counting.',
+    input_schema: {
+      type: 'object' as const,
+      properties: {
+        symbol: { type: 'string' },
+        timeframe: { type: 'string', enum: ['1h', '4h', '1d'] },
+        threshold: { type: 'number', description: 'ZigZag threshold 0.01-0.1, default 0.03' },
+      },
+      required: ['symbol'],
+    },
+  },
+  {
+    name: 'get_htf_context',
+    description: 'Returns multi-timeframe bias analysis (1W/1D/4H/1H/15M). Use to check HTF/LTF confluence.',
+    input_schema: {
+      type: 'object' as const,
+      properties: {
+        symbol: { type: 'string' },
+      },
+      required: ['symbol'],
+    },
+  },
+  {
+    name: 'detect_harmonic_setup',
+    description: 'Runs harmonic pattern detection (Gartley, Bat, Butterfly, Crab, Cypher). Returns patterns with PRZ zones.',
+    input_schema: {
+      type: 'object' as const,
+      properties: {
+        symbol: { type: 'string' },
+        timeframe: { type: 'string', enum: ['1h', '4h', '1d'] },
+      },
+      required: ['symbol'],
+    },
+  },
+  {
+    name: 'get_confluence_zones',
+    description: 'Finds price levels where multiple indicators overlap (S/R + OB + Fib + Pivot). Returns zones ranked by number of confluences.',
+    input_schema: {
+      type: 'object' as const,
+      properties: {
+        symbol: { type: 'string' },
+        timeframe: { type: 'string', enum: ['1h', '4h', '1d'] },
+        tolerance_pct: { type: 'number', description: 'Clustering tolerance, default 0.01 (1%)' },
+      },
+      required: ['symbol'],
+    },
+  },
+  {
+    name: 'get_pivot_points',
+    description: 'Returns Standard and Camarilla pivot points (PP, R1-R3, S1-S3) for the symbol.',
+    input_schema: {
+      type: 'object' as const,
+      properties: {
+        symbol: { type: 'string' },
+        timeframe: { type: 'string', enum: ['1h', '4h', '1d'] },
+      },
+      required: ['symbol'],
+    },
+  },
+  {
+    name: 'get_ichimoku_detail',
+    description: 'Returns full Ichimoku Cloud reading: Tenkan, Kijun, Senkou A/B, Chikou, cloud color, TK cross, price vs cloud.',
+    input_schema: {
+      type: 'object' as const,
+      properties: {
+        symbol: { type: 'string' },
+        timeframe: { type: 'string', enum: ['1h', '4h', '1d'] },
+      },
+      required: ['symbol'],
+    },
+  },
+  {
+    name: 'get_vwap_bands',
+    description: 'Returns VWAP with 1σ and 2σ standard deviation bands. Identifies mean reversion zones.',
+    input_schema: {
+      type: 'object' as const,
+      properties: {
+        symbol: { type: 'string' },
+        timeframe: { type: 'string', enum: ['1h', '4h', '1d'] },
+      },
+      required: ['symbol'],
+    },
+  },
+];
+
+// ─── Tool Handlers ────────────────────────────────────────────
+// Each handler takes the tool input and returns a JSON-serializable result.
+// Wire these into your agentic loop's tool_use block handler.
+
+export async function handleChartAnalysisTool(
+  toolName: string,
+  toolInput: Record<string, unknown>,
+  candleCache: Map<string, Candle[]>  // pass in your fetched candles to avoid re-fetching
+): Promise<unknown> {
+  // TODO: implement each case
+  // switch (toolName) {
+  //   case 'analyze_market_structure': { ... }
+  //   case 'get_market_pivots': { ... }
+  //   case 'get_htf_context': { ... }
+  //   case 'detect_harmonic_setup': { ... }
+  //   case 'get_confluence_zones': { ... }
+  //   case 'get_pivot_points': { ... }
+  //   case 'get_ichimoku_detail': { ... }
+  //   case 'get_vwap_bands': { ... }
+  // }
+  throw new Error(`Tool handler not implemented: ${toolName}`);
+}
+
+
+==============================
+regimeDetector.service.ts
+
+// ============================================================
+// orderBlock.schema.ts
+// Mongoose schema for Order Block zones
+// ✅ COMPLETE — do NOT regenerate
+// Imported by: orderBlock.model.ts
+// ============================================================
+
+import { Schema } from 'mongoose';
+
+const FairValueGapSubSchema = new Schema({
+  high:      { type: Number, required: true },
+  low:       { type: Number, required: true },
+  timestamp: { type: Number, required: true },
+  filled:    { type: Boolean, default: false },
+  type:      { type: String, enum: ['bullish', 'bearish'], required: true },
+}, { _id: false });
+
+export const OrderBlockSchema = new Schema(
+  {
+    id:               { type: String, required: true, unique: true, index: true },
+    symbol:           { type: String, required: true, index: true },
+    type:             { type: String, enum: ['bullish', 'bearish'], required: true },
+    high:             { type: Number, required: true },
+    low:              { type: Number, required: true },
+    origin_timestamp: { type: Number, required: true },
+    timeframe:        { type: String, required: true, default: '4H' },
+    status:           { type: String, enum: ['active', 'mitigated', 'broken'], default: 'active', index: true },
+    strength:         { type: Number, min: 0, max: 100, default: 50 },
+    associated_fvg:   { type: FairValueGapSubSchema, default: null },
+    mitigated_at:     { type: Date, default: null },
+  },
+  {
+    timestamps: true,   // adds createdAt, updatedAt
+    collection: 'orderblocks',
+  }
+);
+
+// Compound index: most common query pattern
+OrderBlockSchema.index({ symbol: 1, status: 1, origin_timestamp: -1 });
+OrderBlockSchema.index({ symbol: 1, low: 1, high: 1 }); // for price range queries
+
+
+
+=============================================
+orderBlock.service.ts
+
+// ============================================================
+// orderBlock.service.ts
+// OB lifecycle management: active → mitigated tracking across ticks.
+// Persists to MongoDB. Diffs against DB on each scheduler tick.
+// ✅ COMPLETE — do NOT regenerate
+// ============================================================
+
+import { Candle, OrderBlock } from '../agents/chartAnalysis.types';
+import {
+  detectOrderBlocks,
+  detectBullishOrderBlocks,
+  detectBearishOrderBlocks,
+} from '../agents/skills/smartMoney.skill';
+import { ohlcvIngest } from '../read/ingestion/ohlcv.ingest';
+// Uncomment when model is created (Session B models):
+// import OrderBlockModel from '../models/orderBlock.model';
+
+const PRICE_TOLERANCE_PCT = 0.005; // 0.5% — OB is "near" if within this range
+
+// ─── Sync OBs for a symbol (called each scheduler tick) ──────
+// 1. Detect fresh OBs from candles
+// 2. Diff vs DB active OBs — insert new, mark mitigated where price traded through
+// Returns current active OBs
+export async function syncOrderBlocks(
+  symbol: string,
+  candles?: Candle[]
+): Promise<OrderBlock[]> {
+  const freshCandles = candles
+    ?? (await ohlcvIngest.fetch({ symbol, timeframe: '4h', limit: 200 })).candles;
+
+  const detected = detectOrderBlocks(freshCandles, '4H');
+
+  // TODO: uncomment and replace in-memory logic with DB when OrderBlockModel exists
+  // const existing = await OrderBlockModel.find({ symbol, status: 'active' }).lean();
+  // const existingIds = new Set(existing.map((ob: any) => ob.id));
+  // const newOBs = detected.filter(ob => !existingIds.has(ob.id));
+  // if (newOBs.length > 0) {
+  //   await OrderBlockModel.insertMany(newOBs.map(ob => ({ ...ob, symbol })));
+  // }
+  // // Check for mitigations: current price traded through any active OB
+  // const currentPrice = freshCandles[freshCandles.length - 1].close;
+  // for (const ob of existing) {
+  //   if (currentPrice >= ob.low && currentPrice <= ob.high) {
+  //     await OrderBlockModel.findOneAndUpdate({ id: ob.id }, { status: 'mitigated', mitigated_at: new Date() });
+  //   }
+  // }
+  // return (await OrderBlockModel.find({ symbol, status: 'active' }).lean()) as OrderBlock[];
+
+  return detected;
+}
+
+// ─── Get active OBs from DB ───────────────────────────────────
+export async function getActiveOrderBlocks(symbol: string): Promise<OrderBlock[]> {
+  // TODO: return OrderBlockModel.find({ symbol, status: 'active' }).sort({ origin_timestamp: -1 }).lean();
+  const result = await ohlcvIngest.fetch({ symbol, timeframe: '4h', limit: 200 });
+  return detectOrderBlocks(result.candles, '4H');
+}
+
+// ─── Mark an OB as mitigated ─────────────────────────────────
+export async function markMitigated(id: string): Promise<void> {
+  // TODO: await OrderBlockModel.findOneAndUpdate({ id }, { status: 'mitigated', mitigated_at: new Date() });
+  console.log(`[OrderBlockService] markMitigated called for id: ${id} (DB not yet wired)`);
+}
+
+// ─── Find OBs near a given price ─────────────────────────────
+export async function getOrderBlocksNearPrice(
+  symbol: string,
+  price: number,
+  tolerancePct = PRICE_TOLERANCE_PCT
+): Promise<OrderBlock[]> {
+  const active = await getActiveOrderBlocks(symbol);
+  return active.filter(ob =>
+    price >= ob.low  * (1 - tolerancePct) &&
+    price <= ob.high * (1 + tolerancePct)
+  );
+}
+
+// ─── Get nearest unmitigated OB above/below price ────────────
+export async function getNearestOrderBlock(
+  symbol: string,
+  price: number,
+  direction: 'above' | 'below'
+): Promise<OrderBlock | null> {
+  const active = await getActiveOrderBlocks(symbol);
+  if (direction === 'above') {
+    const above = active.filter(ob => ob.low > price).sort((a, b) => a.low - b.low);
+    return above[0] ?? null;
+  }
+  const below = active.filter(ob => ob.high < price).sort((a, b) => b.high - a.high);
+  return below[0] ?? null;
+
+
+}
+
+
+======================================
+
+orderBlock.schema.ts
+
+// ============================================================
+// orderBlock.schema.ts
+// Mongoose schema for Order Block zones
+// ✅ COMPLETE — do NOT regenerate
+// Imported by: orderBlock.model.ts
+// ============================================================
+
+import { Schema } from 'mongoose';
+
+const FairValueGapSubSchema = new Schema({
+  high:      { type: Number, required: true },
+  low:       { type: Number, required: true },
+  timestamp: { type: Number, required: true },
+  filled:    { type: Boolean, default: false },
+  type:      { type: String, enum: ['bullish', 'bearish'], required: true },
+}, { _id: false });
+
+export const OrderBlockSchema = new Schema(
+  {
+    id:               { type: String, required: true, unique: true, index: true },
+    symbol:           { type: String, required: true, index: true },
+    type:             { type: String, enum: ['bullish', 'bearish'], required: true },
+    high:             { type: Number, required: true },
+    low:              { type: Number, required: true },
+    origin_timestamp: { type: Number, required: true },
+    timeframe:        { type: String, required: true, default: '4H' },
+    status:           { type: String, enum: ['active', 'mitigated', 'broken'], default: 'active', index: true },
+    strength:         { type: Number, min: 0, max: 100, default: 50 },
+    associated_fvg:   { type: FairValueGapSubSchema, default: null },
+    mitigated_at:     { type: Date, default: null },
+  },
+  {
+    timestamps: true,   // adds createdAt, updatedAt
+    collection: 'orderblocks',
+  }
+);
+
+// Compound index: most common query pattern
+OrderBlockSchema.index({ symbol: 1, status: 1, origin_timestamp: -1 });
+OrderBlockSchema.index({ symbol: 1, low: 1, high: 1 }); // for price range queries
+
+
+
+==========================================
+
+marketRegime.schema.ts
+
+
+// ============================================================
+// marketRegime.schema.ts
+// Mongoose schema for Market Regime snapshots
+// ✅ COMPLETE — do NOT regenerate
+// Imported by: marketRegime.model.ts
+// ============================================================
+
+import { Schema } from 'mongoose';
+
+export const MarketRegimeSchema = new Schema(
+  {
+    symbol:        { type: String, required: true, index: true },
+    regime: {
+      type: String,
+      enum: ['trending_up', 'trending_down', 'ranging', 'accumulation', 'distribution', 'price_discovery'],
+      required: true,
+    },
+    detected_at:   { type: Date, required: true, default: Date.now },
+    confidence:    { type: Number, min: 0, max: 100, default: 70 },
+    adx:           { type: Number, default: 0 },
+    wyckoff_phase: { type: String, default: 'unknown' },
+    timeframe:     { type: String, default: '4h' },
+  },
+  {
+    timestamps: true,
+    collection: 'marketregimes',
+  }
+);
+
+// Get latest regime per symbol quickly
+MarketRegimeSchema.index({ symbol: 1, detected_at: -1 });
+// TTL index: auto-expire old regime snapshots after 24h
+MarketRegimeSchema.index({ detected_at: 1 }, { expireAfterSeconds: 86400 });
+
+
+
+
+this is the current progress, and a full plan,  now you will generate a file structure base on what is already existed, and you will generate some files that are chained and important to a plan as progress, to prevent dependency error or undefined imports, note, file structure, aligned files, and provide materials to make it ready more to integrate to promps from claude next session easily without remembering it  | additionally create a summary of whats created and next session to create also make a hints of how it will be linked to hte previous one so next session will be easy

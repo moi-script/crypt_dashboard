@@ -12,11 +12,15 @@ import { connectRedis } from './config/redis'
 import { connectSubscriber } from './websocket/redisSubscriber'
 import morgan from 'morgan'
 import paperWalletRoutes from './routes/paperWallet.routes'
-
 import agentRunRoutes                          from './routes/agentRun.routes'
 import positionRoutes                          from './routes/position.routes'
 import { opportunityRouter }                   from './routes/position.routes'
 import { startScheduler, isSchedulerRunning }  from './agents/loop/scheduler'
+
+// ── S03 routes ────────────────────────────────────────────────────────────────
+import intelligenceRouter  from './routes/intelligence.routes'
+import chartAnalysisRouter from './routes/chartAnalysis.routes'
+import orderBlockRouter    from './routes/orderBlock.routes'
 
 const app = express()
 const server = http.createServer(app)
@@ -40,6 +44,9 @@ app.use('/api/portfolio',     apiLimiter)
 app.use('/api/agent-runs',    apiLimiter)
 app.use('/api/positions',     apiLimiter)
 app.use('/api/opportunities', apiLimiter)
+app.use('/api/intelligence',  apiLimiter)
+app.use('/api/chart',         apiLimiter)
+app.use('/api/orderblocks',   apiLimiter)
 // app.use('/api/paper-wallet', apiLimiter)
 app.use(
   [
@@ -56,7 +63,13 @@ app.use('/api', routes)
 app.use('/api/agent-runs',    agentRunRoutes)
 app.use('/api/positions',     positionRoutes)
 app.use('/api/opportunities', opportunityRouter)
-app.use('/api/paper-wallet', paperWalletRoutes)
+app.use('/api/paper-wallet',  paperWalletRoutes)
+
+// ── S03 route mounts ──────────────────────────────────────────────────────────
+app.use('/api/intelligence',  intelligenceRouter)   // GET /scan, POST /trigger, GET /top, GET /cascade, GET /coin/:symbol
+app.use('/api/chart',         chartAnalysisRouter)  // POST /analyze/:symbol, GET /history/:symbol, GET /primitives/:symbol
+app.use('/api/orderblocks',   orderBlockRouter)     // GET /active/:symbol, GET /near/:symbol/:price, POST /sync/:symbol, PATCH /mitigate/:id
+
 app.use(errorHandler)
 
 initWebSocket(server)

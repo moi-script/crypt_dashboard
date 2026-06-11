@@ -290,17 +290,36 @@ services/ (frontend)
 
 ---
 
-## Dependency Graph (Import order — never violate)
 
+
+
+
+
+
+
+
+
+
+## TODO
+
+
+
+
+
+
+
+## Dependency Graph (Import order — never violate)
 ```
 chartAnalysis.types.ts                    (no imports from src)
     ↓
 coinUniverse.config.ts                    (imports: CoinTier from types)
+
 nanoid.ts                                 (no imports)
     ↓
 ohlcv.ingest.ts                           (imports: Candle, Timeframe)
     ↓
-structure.skill.ts                        (imports: Candle, SwingPivot, VolumeProfileLevel)
+structure.skill.ts                        (imports: Candle, SwingPivot VolumeProfileLevel)
+
     ↓
 smartMoney.skill.ts                       (imports: structure.skill + types)
 indicators.skill.ts                       (imports: Candle, IchimokuCloud, VWAPData)
@@ -415,5 +434,6 @@ intelligence.routes.ts                   (imports: intelligence.controller)
 7. `smartMoney.strategy.ts` — ICT setup → TradeSignal conversion
 8. `wyckoff.strategy.ts` — Wyckoff Spring/UTAD → TradeSignal
 9. All Mongoose schemas and models (orderBlock, marketRegime, chartAnalysis)
+
 10. Frontend components (CoinIntelligenceCard, CascadeMap, BtcContextBar)
 ```
