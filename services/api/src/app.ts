@@ -16,12 +16,12 @@ import agentRunRoutes                          from './routes/agentRun.routes'
 import positionRoutes                          from './routes/position.routes'
 import { opportunityRouter }                   from './routes/position.routes'
 import { startScheduler, isSchedulerRunning }  from './agents/loop/scheduler'
-
+import agent from './routes/agent.routes';
 // ── S03 routes ────────────────────────────────────────────────────────────────
 import intelligenceRouter  from './routes/intelligence.routes'
 import chartAnalysisRouter from './routes/chartAnalysis.routes'
 import orderBlockRouter    from './routes/orderBlock.routes'
-
+import coin from './routes/coin.routes';
 // ── OHLCV ingest singleton (must be initialized after Redis connects) ─────────
 import { ohlcvIngest } from './read/ingestion/ohlcv.ingest'
 
@@ -66,7 +66,8 @@ app.use('/api/agent-runs',    agentRunRoutes)
 app.use('/api/positions',     positionRoutes)
 app.use('/api/opportunities', opportunityRouter)
 app.use('/api/paper-wallet',  paperWalletRoutes)
-
+app.use("/api/coins", coin);
+app.use("/api/agent", agent);
 // ── S03 route mounts ──────────────────────────────────────────────────────────
 app.use('/api/intelligence',  intelligenceRouter)
 app.use('/api/chart',         chartAnalysisRouter)

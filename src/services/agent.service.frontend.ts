@@ -237,7 +237,7 @@ export const agentService = {
     coinId?:      string;
     userId?:      string;
     isAnalysing?: boolean;
-  }) => apiClient.post<ChatResponse>("/agent/chat", params),
+  }) => apiClient.post<ChatResponse>("/agent/chat/stream", params),
 
   getSession: (sessionId: string, coinId?: string, userId?: string) => {
     const q = new URLSearchParams();

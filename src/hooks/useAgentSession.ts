@@ -3,8 +3,6 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { apiClient } from "@/services/api.client";
 
-// ── Types ─────────────────────────────────────────────────────────────────────
-
 export interface AgentEmotion {
   emotion:   "happy" | "depressed" | "nervous" | "frustrated" | "shocked" | "thinking";
   intensity: "low" | "medium" | "high";
@@ -14,12 +12,12 @@ export interface AgentEmotion {
 }
 
 export interface SessionListItem {
-  sessionId:     string;
-  coinId:        string;
-  updatedAt:     number;
-  createdAt:     number;
-  messageCount:  number;
-  lastMessage?:  string;
+  sessionId:      string;
+  coinId:         string;
+  updatedAt:      number;
+  createdAt:      number;
+  messageCount:   number;
+  lastMessage?:   string;
   currentEmotion?: AgentEmotion;
 }
 
@@ -28,53 +26,12 @@ export interface UseAgentSessionReturn {
   isRestoring:        boolean;
   sessions:           SessionListItem[];
   sessionsLoading:    boolean;
-  startNewSession:    () => string;
+  startNewSession:    () => Promise<void>;
   switchToSession:    (sid: string) => void;
   deleteSession:      (sid: string) => Promise<void>;
   refreshSessionList: () => Promise<void>;
   markSessionUpdated: (sid: string, lastMsg: string, emotion?: AgentEmotion) => void;
 }
-
-// ── localStorage — only used to remember which session was last active ────────
-// MongoDB is the source of truth for ALL sessions.
-// localStorage only remembers "which session was I last looking at"
-// so we can jump straight back to it without an extra round-trip.
-
-const ls = {
-  get(k: string) {
-    if (typeof window === "undefined") return null;
-    try { return localStorage.getItem(k); } catch { return null; }
-  },
-  set(k: string, v: string) {
-    if (typeof window === "undefined") return;
-    try { localStorage.setItem(k, v); } catch { /* quota */ }
-  },
-  del(k: string) {
-    if (typeof window === "undefined") return;
-    try { localStorage.removeItem(k); } catch { /* ignore */ }
-  },
-};
-
-// Key: "which sessionId was the user last looking at for this coin"
-function lastActiveKey(userId: string, coinId: string) {
-  return `agent_last:${userId}:${coinId}`;
-}
-
-function getLastActive(userId: string, coinId: string): string | null {
-  return ls.get(lastActiveKey(userId, coinId));
-}
-function setLastActive(userId: string, coinId: string, sid: string) {
-  ls.set(lastActiveKey(userId, coinId), sid);
-}
-function clearLastActive(userId: string, coinId: string) {
-  ls.del(lastActiveKey(userId, coinId));
-}
-
-function newSid(): string {
-  return `s-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
-}
-
-// ── API ───────────────────────────────────────────────────────────────────────
 
 export interface RawSession {
   sessionId:      string;
@@ -86,71 +43,24 @@ export interface RawSession {
   updatedAt:      string | number;
 }
 
-// Fetch all sessions for a user from MongoDB — this is the source of truth
-async function fetchUserSessions(userId: string): Promise<RawSession[]> {
-  try {
-    return await apiClient.get<RawSession[]>(`/agent/sessions/user/${userId}`);
-  } catch { return []; }
-}
-
-// Get or create a specific session — never 404s
-async function fetchOrCreateSession(
-  sid:    string,
-  coinId: string,
-  userId: string,
-): Promise<RawSession | null> {
-  try {
-    const params = new URLSearchParams({ coinId, userId });
-    return await apiClient.get<RawSession>(`/agent/session/${sid}?${params}`);
-  } catch { return null; }
-}
-
-// Create a brand-new session in MongoDB by sending a silent init chat
-async function createSessionInDB(
-  sid:    string,
-  coinId: string,
-  userId: string,
-): Promise<void> {
-  try {
-    await apiClient.post("/agent/chat", {
-      sessionId:   sid,
-      coinId,
-      userId,
-      message:     "__init__",
-      isAnalysing: true,
-    });
-  } catch { /* non-fatal */ }
-}
-
-async function deleteSessionApi(sid: string): Promise<void> {
-  try { await apiClient.del(`/agent/session/${sid}`); } catch { /* ignore */ }
-}
-
-// ── Helpers ───────────────────────────────────────────────────────────────────
-
 function toMs(v: string | number): number {
   if (typeof v === "string") return new Date(v).getTime();
   return v > 1e12 ? v : v * 1000;
 }
 
-function rawToItem(
-  s: RawSession,
-  preview?: { lastMsg: string; emotion?: AgentEmotion },
-): SessionListItem {
+function rawToItem(s: RawSession): SessionListItem {
   const msgs = s.messages ?? [];
-  const last = msgs.filter(m => m.content !== "__init__").at(-1);
+  const last = msgs.at(-1);
   return {
     sessionId:      s.sessionId,
     coinId:         s.coinId,
     updatedAt:      toMs(s.updatedAt),
     createdAt:      toMs(s.createdAt),
-    messageCount:   msgs.filter(m => m.content !== "__init__").length,
-    lastMessage:    preview?.lastMsg ?? last?.content?.slice(0, 80),
+    messageCount:   msgs.length,
+    lastMessage:    last?.content?.slice(0, 80),
     currentEmotion: s.currentEmotion,
   };
 }
-
-// ── Hook ──────────────────────────────────────────────────────────────────────
 
 export function useAgentSession(
   userId: string | null,
@@ -161,168 +71,141 @@ export function useAgentSession(
   const [sessions,        setSessions]        = useState<SessionListItem[]>([]);
   const [sessionsLoading, setSessionsLoading] = useState(false);
 
-  const previewsRef = useRef<
-    Record<string, { lastMsg: string; emotion?: AgentEmotion; updatedAt: number }>
-  >({});
-
-  // ── Refresh sidebar from MongoDB ──────────────────────────────────────────
+  // const previewsRef = useRef Record<string, { lastMsg: string; emotion?: AgentEmotion; updatedAt: number }>({});
+const previewsRef = useRef<Record<string, { lastMsg: string; emotion?: AgentEmotion; updatedAt: number }>>({});
+  // ── Fetch session list from MongoDB ───────────────────────────────────────
+  // Matches: GET /api/agent/sessions (controller reads userId from req.user)
   const refreshSessionList = useCallback(async () => {
     if (!userId) return;
     setSessionsLoading(true);
     try {
-      const raw = await fetchUserSessions(userId);
+      const raw = await apiClient.get<RawSession[]>("/agent/sessions");
       setSessions(
         raw
-          .map(s => rawToItem(s, previewsRef.current[s.sessionId]))
+          .map(s => rawToItem(s))
           .sort((a, b) => b.updatedAt - a.updatedAt)
       );
+    } catch {
+      // non-critical — sidebar just stays empty
     } finally {
       setSessionsLoading(false);
     }
   }, [userId]);
 
-  // ── Mount / userId change: restore from MongoDB ───────────────────────────
-  // Flow:
-  //   1. Fetch ALL sessions for this user from MongoDB
-  //   2. If sessions exist → use the most recently updated one
-  //      (or the one saved in localStorage if it's in the list)
-  //   3. If no sessions exist → create a fresh one and seed it in MongoDB
-  //   4. Populate the sidebar with all sessions
+  // ── On mount: restore last active session ────────────────────────────────
   useEffect(() => {
     let cancelled = false;
 
     async function restore() {
       setIsRestoring(true);
-      setSessions([]);
       setSessionId(null);
+      setSessions([]);
 
       if (!userId) {
-        // Not logged in — transient in-memory session only
-        if (!cancelled) {
-          setSessionId(newSid());
-          setIsRestoring(false);
+        // Not logged in — create a transient session
+        try {
+          const res = await apiClient.post<{ sessionId: string }>(
+            "/agent/session/create", { coinId }
+          );
+          if (!cancelled) setSessionId(res.sessionId);
+        } catch {
+          if (!cancelled) setSessionId(`sess_${coinId}_${Date.now()}`);
+        } finally {
+          if (!cancelled) setIsRestoring(false);
         }
         return;
       }
 
       try {
-        // ── Step 1: Fetch all sessions from MongoDB ───────────────────────
-        const allSessions = await fetchUserSessions(userId);
+        // Fetch all sessions for this user
+        const raw = await apiClient.get<RawSession[]>("/agent/sessions");
 
         if (cancelled) return;
 
-        if (allSessions.length > 0) {
-          // ── Step 2: Pick the active session ──────────────────────────────
-          // Prefer the one the user was last looking at (localStorage hint)
-          // Fall back to the most recently updated one in MongoDB
-          const lastActive = getLastActive(userId, coinId);
-          const inList     = lastActive
-            ? allSessions.find(s => s.sessionId === lastActive)
-            : null;
+        const sorted = [...raw].sort(
+          (a, b) => toMs(b.updatedAt) - toMs(a.updatedAt)
+        );
 
-          // Sort by updatedAt descending — most recent first
-          const sorted = [...allSessions].sort(
-            (a, b) => toMs(b.updatedAt) - toMs(a.updatedAt)
-          );
-
-          const active = inList ?? sorted[0];
-
-          // Update localStorage to match what we actually picked
-          setLastActive(userId, coinId, active.sessionId);
-
-          if (!cancelled) {
-            setSessionId(active.sessionId);
-            setSessions(
-              sorted.map(s => rawToItem(s, previewsRef.current[s.sessionId]))
-            );
-            setIsRestoring(false);
-          }
+        if (sorted.length > 0) {
+          // Resume the most recently updated session
+          setSessionId(sorted[0].sessionId);
+          setSessions(sorted.map(rawToItem));
         } else {
-          // ── Step 3: No sessions yet — create first one ────────────────────
-          const fresh = newSid();
-          setLastActive(userId, coinId, fresh);
-
-          // Seed in MongoDB immediately so it persists on refresh
-          await createSessionInDB(fresh, coinId, userId);
-
+          // No sessions yet — create the first one
+          const res = await apiClient.post<{ sessionId: string }>(
+            "/agent/session/create", { coinId }
+          );
           if (!cancelled) {
-            setSessionId(fresh);
+            setSessionId(res.sessionId);
             setSessions([]);
-            setIsRestoring(false);
           }
         }
       } catch {
-        // Network error fallback — use a transient session
-        if (!cancelled) {
-          setSessionId(newSid());
-          setIsRestoring(false);
+        // Fallback: create a fresh session
+        try {
+          const res = await apiClient.post<{ sessionId: string }>(
+            "/agent/session/create", { coinId }
+          );
+          if (!cancelled) setSessionId(res.sessionId);
+        } catch {
+          if (!cancelled) setSessionId(`sess_${coinId}_${Date.now()}`);
         }
+      } finally {
+        if (!cancelled) setIsRestoring(false);
       }
     }
 
     restore();
     return () => { cancelled = true; };
-  }, [userId, coinId]); // re-runs when userId changes (login/logout)
+  }, [userId, coinId]);
 
   // ── Start a new session ───────────────────────────────────────────────────
-  const startNewSession = useCallback((): string => {
-    const sid = newSid();
-
-    if (userId) {
-      setLastActive(userId, coinId, sid);
-      // Seed in MongoDB in background
-      createSessionInDB(sid, coinId, userId).then(() => {
-        // Add to sidebar once created
-        refreshSessionList();
-      });
+  // Matches: POST /api/agent/session/create
+  const startNewSession = useCallback(async () => {
+    try {
+      const res = await apiClient.post<{ sessionId: string }>(
+        "/agent/session/create", { coinId }
+      );
+      setSessionId(res.sessionId);
+      // Refresh sidebar to show the new entry
+      await refreshSessionList();
+    } catch {
+      // fallback to local id so UI doesn't break
+      setSessionId(`sess_${coinId}_${Date.now()}`);
     }
-
-    setSessionId(sid);
-    return sid;
-  }, [userId, coinId, refreshSessionList]);
+  }, [coinId, refreshSessionList]);
 
   // ── Switch to an existing session ─────────────────────────────────────────
   const switchToSession = useCallback((sid: string) => {
-    if (userId) setLastActive(userId, coinId, sid);
     setSessionId(sid);
-  }, [userId, coinId]);
+  }, []);
 
   // ── Delete a session ──────────────────────────────────────────────────────
+  // Matches: DELETE /api/agent/session/:sessionId
   const deleteSession = useCallback(async (sid: string) => {
-    await deleteSessionApi(sid);
+    try {
+      await apiClient.del(`/agent/session/${sid}`);
+    } catch { /* ignore */ }
 
-    // Remove from sidebar immediately
     setSessions(prev => {
       const remaining = prev.filter(s => s.sessionId !== sid);
 
-      // If deleting the active session, switch to most recent remaining
       if (sid === sessionId) {
-        const next = remaining[0] ?? null;
-        if (next) {
-          if (userId) setLastActive(userId, coinId, next.sessionId);
-          setSessionId(next.sessionId);
+        if (remaining.length > 0) {
+          setSessionId(remaining[0].sessionId);
         } else {
-          // No more sessions — create a fresh one
-          const fresh = newSid();
-          if (userId) {
-            setLastActive(userId, coinId, fresh);
-            createSessionInDB(fresh, coinId, userId);
-          }
-          setSessionId(fresh);
+          // Create a new session if none remain
+          apiClient.post<{ sessionId: string }>(
+            "/agent/session/create", { coinId }
+          ).then(res => setSessionId(res.sessionId)).catch(() => {});
         }
       }
 
       return remaining;
     });
+  }, [sessionId, coinId]);
 
-    // Clear localStorage hint if it pointed to the deleted session
-    if (userId) {
-      const last = getLastActive(userId, coinId);
-      if (last === sid) clearLastActive(userId, coinId);
-    }
-  }, [userId, coinId, sessionId]);
-
-  // ── Update sidebar preview optimistically after a message ────────────────
+  // ── Optimistic sidebar update after each message ──────────────────────────
   const markSessionUpdated = useCallback((
     sid:      string,
     lastMsg:  string,
@@ -353,7 +236,6 @@ export function useAgentSession(
           .sort((a, b) => b.updatedAt - a.updatedAt);
       }
 
-      // New session not yet in list — prepend it
       return [{
         sessionId:      sid,
         coinId,
