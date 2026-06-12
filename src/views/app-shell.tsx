@@ -44,14 +44,25 @@ const Icons = {
       <line x1="9" y1="15" x2="13" y2="15" />
     </svg>
   ),
+  dashboard: (
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className="w-[18px] h-[18px]">
+    <rect x="3" y="3" width="7" height="7" rx="1" />
+    <rect x="14" y="3" width="7" height="7" rx="1" />
+    <rect x="3" y="14" width="7" height="7" rx="1" />
+    <rect x="14" y="14" width="7" height="7" rx="1" />
+  </svg>
+),
 };
 
 const NAV = [
   { href: "/",          label: "Markets",   icon: Icons.markets,   match: (p: string) => p === "/" || p.startsWith("/coins") },
   { href: "/portfolio", label: "Portfolio", icon: Icons.portfolio, match: (p: string) => p.startsWith("/portfolio") },
   { href: "/alerts",    label: "Alerts",    icon: Icons.alerts,    match: (p: string) => p.startsWith("/alerts") },
+  
   { href: "/agent",     label: "AI Agent",  icon: Icons.agent,     match: (p: string) => p.startsWith("/agent") },
+  { href: "/dashboard", label: "Dashboard", icon: Icons.dashboard, match: (p : string) => p.startsWith("/dashboard") },
   { href: "/news",      label: "News",      icon: Icons.news,      match: (p: string) => p.startsWith("/news") },
+
 ];
 
 // ── Account chip ──────────────────────────────────────────────────────────

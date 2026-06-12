@@ -15,15 +15,18 @@ import {
   type Opportunity,
 } from "@/services/agent.service.frontend";
 import { PaperWalletDashboard } from "@/components/PaperWalletDashboard";
+import { AgentToolCard, parseToolIntent, type ToolResult } from "@/components/AgentToolCards";
 // ── Types ─────────────────────────────────────────────────────────────────────
 type EmotionType = AgentEmotion["emotion"];
 
 interface ChatMessage {
-  role:     "user" | "agent";
-  content:  string;
-  emotion?: AgentEmotion;
-  ts:       number;
-  report?:  AnalysisReport;
+  role:          "user" | "agent";
+  content:       string;
+  emotion?:      AgentEmotion;
+  ts:            number;
+  report?:       AnalysisReport;
+  toolResult?:   ToolResult;
+  toolLoading?:  boolean;
 }
 
 interface ChatResponse {
@@ -889,7 +892,7 @@ function Bubble({ msg, cur }: { msg: ChatMessage; cur: AgentEmotion | null }) {
         display: "flex", flexDirection: "column", gap: 4,
         maxWidth: "78%",
         alignItems: isUser ? "flex-end" : "flex-start",
-        width: msg.report ? "100%" : undefined,
+        width: (msg.report || msg.toolResult) ? "100%" : undefined,
       }}>
         <div style={{
           padding: "12px 16px",
@@ -912,6 +915,18 @@ function Bubble({ msg, cur }: { msg: ChatMessage; cur: AgentEmotion | null }) {
         {!isUser && msg.report && (
           <div style={{ width: "100%", marginTop: 6 }}>
             <ReportBubble report={msg.report} />
+          </div>
+        )}
+        {!isUser && msg.toolLoading && (
+          <div style={{ marginTop: 6, padding: "10px 14px", borderRadius: 10, background: "rgb(8,18,32)", border: "1px solid rgba(255,255,255,0.07)", display: "flex", alignItems: "center", gap: 8 }}>
+            <style>{`@keyframes ac-spin{to{transform:rotate(360deg)}}`}</style>
+            <span style={{ display: "inline-block", width: 12, height: 12, border: `2px solid ${mood.softBg}`, borderTopColor: mood.accent, borderRadius: "50%", animation: "ac-spin 0.7s linear infinite", flexShrink: 0 }} />
+            <span style={{ fontFamily: "var(--font-mono)", fontSize: 11, color: "rgba(255,255,255,0.4)" }}>Fetching data…</span>
+          </div>
+        )}
+        {!isUser && msg.toolResult && (
+          <div style={{ width: "100%", marginTop: 6 }}>
+            <AgentToolCard result={msg.toolResult} accentColor={mood.accent} />
           </div>
         )}
         <span style={{ fontSize: 11, color: "rgba(255,255,255,0.25)", fontFamily: "var(--font-mono)", padding: "0 4px" }}>
@@ -1004,6 +1019,69 @@ export function AgentChat({ coinId = "bitcoin", userId = null }: AgentChatProps)
   const handleSwitch      = useCallback((sid: string) => { if (sid !== sessionId) switchToSession(sid); }, [sessionId, switchToSession]);
   const handleDelete      = useCallback(async (sid: string) => { await deleteSession(sid); }, [deleteSession]);
 
+  // ── Tool dispatch — calls backend APIs and attaches result to the message ──
+  const dispatchTool = useCallback(async (
+    intent: { type: ToolResult["type"]; symbol?: string },
+    agentMsgTs: number
+  ) => {
+    // Mark the agent message as loading a card
+    setMessages(prev => prev.map(m => m.ts === agentMsgTs ? { ...m, toolLoading: true } : m));
+    try {
+      let result: ToolResult | null = null;
+      // Derive symbol: prefer explicit, else derive from coinId prop
+      const sym = intent.symbol
+        ?? (coinId !== "bitcoin" ? coinId.toUpperCase().replace("USDT","") + "USDT" : "BTCUSDT");
+
+      switch (intent.type) {
+        case "chart_analyze": {
+          const res = await apiClient.post<any>(`/chart/analyze/${sym}`, {});
+          result = { type: "chart_analyze", symbol: sym, data: res.data };
+          break;
+        }
+        case "chart_primitives": {
+          const res = await apiClient.get<any>(`/chart/primitives/${sym}`);
+          result = { type: "chart_primitives", symbol: sym, data: res.data };
+          break;
+        }
+        case "intelligence_scan": {
+          const res = await apiClient.get<any>("/intelligence/scan");
+          result = { type: "intelligence_scan", data: res.data };
+          break;
+        }
+        case "intelligence_coin": {
+          const coinSym = sym.replace("USDT", "");
+          const res = await apiClient.get<any>(`/intelligence/coin/${coinSym}`);
+          result = { type: "intelligence_coin", symbol: coinSym, data: res.data };
+          break;
+        }
+        case "orderblocks_active": {
+          const res = await apiClient.get<any>(`/orderblocks/active/${sym}`);
+          result = { type: "orderblocks_active", symbol: sym, data: res.data };
+          break;
+        }
+        case "orderblocks_sync": {
+          const res = await apiClient.post<any>(`/orderblocks/sync/${sym}`, {});
+          result = { type: "orderblocks_sync", symbol: sym, data: res.data };
+          break;
+        }
+        case "agent_runs": {
+          const res = await apiClient.get<any>("/agent-runs?limit=10&status=completed");
+          result = { type: "agent_runs", data: res };
+          break;
+        }
+      }
+      if (result) {
+        setMessages(prev => prev.map(m =>
+          m.ts === agentMsgTs ? { ...m, toolLoading: false, toolResult: result! } : m
+        ));
+      }
+    } catch {
+      setMessages(prev => prev.map(m =>
+        m.ts === agentMsgTs ? { ...m, toolLoading: false } : m
+      ));
+    }
+  }, [coinId]);
+
   const runAnalysis = useCallback(async () => {
     if (!sessionId) return;
     setLoading(true); setShowPrompts(false); setError(null);
@@ -1028,7 +1106,12 @@ export function AgentChat({ coinId = "bitcoin", userId = null }: AgentChatProps)
         );
         setMessages(history);
         const last = history[history.length - 1];
-        if (last) markSessionUpdated(sessionId, last.content, agentOut.emotion);
+        if (last) {
+          markSessionUpdated(sessionId, last.content, agentOut.emotion);
+          // Auto-dispatch tool if agent signals intent
+          const intent = parseToolIntent(last.content);
+          if (intent) dispatchTool(intent, last.ts);
+        }
       }
     } catch (e: any) {
       setError(e.message ?? "Analysis failed");
@@ -1053,6 +1136,12 @@ export function AgentChat({ coinId = "bitcoin", userId = null }: AgentChatProps)
       setEmotion(res.emotion);
       setMessages(res.history);
       markSessionUpdated(sessionId, res.content, res.emotion);
+      // Auto-dispatch tool if agent response signals a data intent
+      const lastMsg = res.history[res.history.length - 1];
+      if (lastMsg?.role === "agent") {
+        const intent = parseToolIntent(lastMsg.content);
+        if (intent) dispatchTool(intent, lastMsg.ts);
+      }
       if (res.suggestAnalysis) { await runAnalysis(); return; }
     } catch (e: any) {
       setError(e.message ?? "Something went wrong");
@@ -1211,6 +1300,7 @@ export function AgentChat({ coinId = "bitcoin", userId = null }: AgentChatProps)
             {/* Quick chips */}
             {messages.length > 0 && (
               <div style={{ padding: "8px 20px 0", display: "flex", flexWrap: "wrap", gap: 7, background: "rgb(2,6,9)" }}>
+                {/* Conversation chips */}
                 {["How are you?", "Run analysis", "Biggest risks?", "Buy or sell?"].map(p => (
                   <button key={p} onClick={() => send(p)} disabled={loading}
                     style={{
@@ -1222,6 +1312,37 @@ export function AgentChat({ coinId = "bitcoin", userId = null }: AgentChatProps)
                     onMouseEnter={e => { if (!loading) { (e.currentTarget as HTMLElement).style.borderColor = mood.accent; (e.currentTarget as HTMLElement).style.color = "rgba(255,255,255,0.85)"; (e.currentTarget as HTMLElement).style.background = mood.softBg; } }}
                     onMouseLeave={e => { (e.currentTarget as HTMLElement).style.borderColor = "rgba(255,255,255,0.08)"; (e.currentTarget as HTMLElement).style.color = "rgba(255,255,255,0.5)"; (e.currentTarget as HTMLElement).style.background = "rgb(8,18,32)"; }}
                   >{p}</button>
+                ))}
+                {/* Tool dispatch chips — directly call backend, render card inline */}
+                {([
+                  { label: "📊 Analyse",        type: "chart_analyze"     },
+                  { label: "🔍 Scan market",    type: "intelligence_scan" },
+                  { label: "🧱 Order blocks",   type: "orderblocks_active"},
+                  { label: "⚗️ Primitives",     type: "chart_primitives"  },
+                ] as { label: string; type: ToolResult["type"] }[]).map(chip => (
+                  <button key={chip.label}
+                    disabled={loading}
+                    onClick={() => {
+                      const ts = Date.now();
+                      setMessages(prev => [...prev, {
+                        role: "agent",
+                        content: `Fetching ${chip.label.replace(/^\S+\s*/, "")}…`,
+                        ts,
+                        emotion: emotion ?? undefined,
+                        toolLoading: true,
+                      }]);
+                      setShowPrompts(false);
+                      dispatchTool({ type: chip.type }, ts);
+                    }}
+                    style={{
+                      padding: "6px 14px", borderRadius: 20, fontSize: 13, fontFamily: "var(--font-display)",
+                      fontWeight: 500, color: mood.textColor, background: mood.softBg,
+                      border: `1px solid ${mood.accent}35`, cursor: loading ? "not-allowed" : "pointer",
+                      transition: "all 0.15s ease", opacity: loading ? 0.5 : 1,
+                    }}
+                    onMouseEnter={e => { if (!loading) (e.currentTarget as HTMLElement).style.opacity = "0.7"; }}
+                    onMouseLeave={e => { (e.currentTarget as HTMLElement).style.opacity = loading ? "0.5" : "1"; }}
+                  >{chip.label}</button>
                 ))}
               </div>
             )}
