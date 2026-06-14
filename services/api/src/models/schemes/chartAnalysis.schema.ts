@@ -42,7 +42,7 @@ export const ChartAnalysisSchema = new Schema(
     risk_warnings:        [{ type: String }],
     risk_rejection:       { type: String, default: null },
     // Metadata
-    analyzed_at:          { type: Date, default: Date.now, index: true },
+    analyzed_at:          { type: Date, default: Date.now },
     timeframes_used:      [{ type: String }],
     btc_bias_at_time:     { type: String, enum: ['long', 'short', 'neutral'], default: null },
   },

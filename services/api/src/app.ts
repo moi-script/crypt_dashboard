@@ -24,7 +24,7 @@ import orderBlockRouter    from './routes/orderBlock.routes'
 import coin from './routes/coin.routes';
 // ── OHLCV ingest singleton (must be initialized after Redis connects) ─────────
 import { ohlcvIngest } from './read/ingestion/ohlcv.ingest'
-
+import analysisRoutes from './routes/analysis.routes'
 const app = express()
 const server = http.createServer(app)
 
@@ -72,7 +72,7 @@ app.use("/api/agent", agent);
 app.use('/api/intelligence',  intelligenceRouter)
 app.use('/api/chart',         chartAnalysisRouter)
 app.use('/api/orderblocks',   orderBlockRouter)
-
+app.use('/api/analysis', analysisRoutes)
 app.use(errorHandler)
 
 initWebSocket(server)

@@ -1,42 +1,48 @@
 import { Router } from "express";
 import { agentController } from "../controllers/agent.controller";
-
-// import { requireAuth } from "../middlewares/auth.middleware";
+import { auth } from "../middleware/auth";
 
 const router = Router();
 
 // ── Session Management ────────────────────────────────────────────────────────
 
 // POST /api/agent/session/create
-// Frontend: apiClient.post("/api/agent/session/create", { coinId })
-// Creates a clean DB session and returns { sessionId }
-router.post("/session/create", agentController.createSession);
+// Uses optionalAuth — attaches userId if token present, but doesn't block guests.
+// The controller will 401 if userId is missing (you must be logged in to create).
+router.post("/session/create", optionalAuth, agentController.createSession);
 
-// GET /api/agent/session/:sessionId
-// Frontend: apiClient.get(`/api/agent/session/${activeSessionId}`)
-// Returns { messages, currentEmotion } for history restoration on page load
+// GET /api/agent/session/:sessionId — no auth needed
 router.get("/session/:sessionId", agentController.getSession);
 
 // DELETE /api/agent/session/:sessionId
-// Frontend: called when user clears a session from the sidebar
 router.delete("/session/:sessionId", agentController.clearSession);
 
-// GET /api/agent/sessions
-// Frontend: fetches the session list shown in ChatSidebar
-router.get("/sessions", agentController.getUserSessions);
+// GET /api/agent/sessions — requires auth
+router.get("/sessions", auth, agentController.getUserSessions);
 
 // ── Chat ──────────────────────────────────────────────────────────────────────
-
-// POST /api/agent/chat/stream
-// Frontend: native fetch() in useChatEngine.sendMessage()
-// Streams NDJSON chunks: text_delta | emotion_update | tool_execution | done | error
 router.post("/chat/stream", agentController.streamChat);
 
 // ── Analysis Pipeline Callback ────────────────────────────────────────────────
-
-// POST /api/agent/analysis-complete
-// Called by your agent-run job after orchestrate() finishes.
-// Returns the full ChatOutput including analysisReport for rich rendering.
 router.post("/analysis-complete", agentController.notifyAnalysisComplete);
 
 export default router;
+
+// ── optionalAuth — same as auth but doesn't block if no token ────────────────
+// Attach to any route that should work for both guests and logged-in users.
+import type { Request, Response, NextFunction } from "express";
+import jwt from "jsonwebtoken";
+
+function optionalAuth(req: Request, _res: Response, next: NextFunction) {
+  const header = req.headers.authorization;
+  if (!header?.startsWith("Bearer ")) {
+    return next(); // no token — continue without userId
+  }
+  try {
+    const payload = jwt.verify(header.slice(7), process.env.JWT_SECRET!) as { sub: string };
+    (req as any).userId = payload.sub;
+  } catch {
+    // invalid token — ignore, continue without userId
+  }
+  next();
+}

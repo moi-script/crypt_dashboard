@@ -5,16 +5,21 @@ import { makeEmotion }     from "../agents/emotion.types";
 
 const agentService = new AgentService();
 
+function getUserId(req: Request): string | undefined {
+  return (req as any).userId;
+}
+
 export const agentController = {
 
-  // ── 1. Clean Session Initialization ──────────────────────────────────────────
-  // Replaces the old frontend hack of sending an " init " message.
-  // Creates a bare session document and returns the sessionId to the client.
-
+  // ── 1. Create Session ─────────────────────────────────────────────────────────
   async createSession(req: Request, res: Response) {
     try {
       const { coinId = "bitcoin" } = req.body;
-      const userId = (req as any).user?.id ?? "anonymous";
+      const userId = getUserId(req);
+
+      if (!userId) {
+        return res.status(401).json({ error: "Unauthorized — please log in to create a session" });
+      }
 
       const sessionId = `sess_${coinId}_${Date.now()}`;
 
@@ -36,8 +41,6 @@ export const agentController = {
   },
 
   // ── 2. Get Session ────────────────────────────────────────────────────────────
-  // Returns the full session (messages + currentEmotion) for history restoration.
-
   async getSession(req: Request, res: Response) {
     try {
       const { sessionId } = req.params;
@@ -51,16 +54,6 @@ export const agentController = {
   },
 
   // ── 3. NDJSON Streaming Chat ──────────────────────────────────────────────────
-  // Each chunk written to the response is a self-contained JSON line terminated
-  // with \n so the frontend reader can parse them one-by-one.
-  //
-  // Chunk shapes the frontend expects (see useChatEngine.ts):
-  //   { type: "text_delta",     text: string }
-  //   { type: "emotion_update", emotion: AgentEmotion }
-  //   { type: "tool_execution", toolName: string, symbol: string, toolData: any }
-  //   { type: "done" }
-  //   { type: "error",          message: string }
-
   async streamChat(req: Request, res: Response) {
     const { sessionId, message, coinId = "bitcoin" } = req.body;
 
@@ -68,45 +61,30 @@ export const agentController = {
       return res.status(400).json({ error: "Missing sessionId or message" });
     }
 
-    // Set NDJSON streaming headers before we write anything
-    res.setHeader("Content-Type",     "application/x-ndjson");
-    res.setHeader("Transfer-Encoding","chunked");
-    res.setHeader("Connection",       "keep-alive");
-    res.setHeader("Cache-Control",    "no-cache");
+    res.setHeader("Content-Type",      "application/x-ndjson");
+    res.setHeader("Transfer-Encoding", "chunked");
+    res.setHeader("Connection",        "keep-alive");
+    res.setHeader("Cache-Control",     "no-cache");
 
-    // Convenience helper — keeps every write consistent
     const send = (payload: object) => res.write(JSON.stringify(payload) + "\n");
 
     try {
-      // AgentService.chat() is the single source of truth for emotion + LLM logic.
-      // It already handles: session loading, DeepSeek call, emotion derivation,
-      // session persistence, and fallback responses.
       const output = await agentService.chat({
         sessionId,
         message,
         coinId,
-        userId:      (req as any).user?.id,
+        userId:      getUserId(req),
         isAnalysing: req.body.isAnalysing ?? false,
       });
-
-      // ── Stream the text content token-by-token ──────────────────────────────
-      // AgentService returns the full string at once (DeepSeek non-streaming call).
-      // We simulate a token stream here so the frontend cursor animation works.
-      // Swap this block for a real streaming LLM call when you upgrade AgentService.
 
       const words = output.content.split(" ");
       for (const word of words) {
         send({ type: "text_delta", text: word + " " });
-        // Tiny yield so Node doesn't hold the event loop
         await new Promise(r => setImmediate(r));
       }
 
-      // ── Emit the final emotion state ────────────────────────────────────────
       send({ type: "emotion_update", emotion: output.emotion });
 
-      // ── Emit the analysis report as a synthetic tool_execution chunk ────────
-      // This is how the frontend's AgentToolCard receives structured data without
-      // regex scraping. If no report is attached, this block is skipped.
       if (output.analysisReport) {
         send({
           type:     "tool_execution",
@@ -116,9 +94,35 @@ export const agentController = {
         });
       }
 
-      // ── Suggest-analysis flag (frontend can show a "Run Analysis" button) ───
       if (output.suggestAnalysis) {
         send({ type: "suggest_analysis" });
+      }
+
+      // ── Persist user + agent messages (with report/tool data) to the session ──
+      try {
+        const now = Date.now();
+        const userMsg = {
+          role:    "user" as const,
+          content: message,
+          ts:      now,
+        };
+        const agentMsg = {
+          role:      "agent" as const,
+          content:   output.content,
+          emotion:   output.emotion,
+          ts:        now + 1,
+          report:    output.analysisReport ?? undefined,
+        };
+
+        await AgentSessionDoc.updateOne(
+          { sessionId },
+          {
+            $push: { messages: { $each: [userMsg, agentMsg] } },
+            $set:  { currentEmotion: output.emotion, updatedAt: new Date() },
+          },
+        );
+      } catch (persistErr: any) {
+        console.warn("[AgentController] Failed to persist chat messages:", persistErr.message);
       }
 
       send({ type: "done" });
@@ -126,32 +130,24 @@ export const agentController = {
 
     } catch (error: any) {
       console.error("[AgentController] Streaming error:", error);
-
       if (!res.headersSent) {
         return res.status(500).json({ error: "Internal server error during generation" });
       }
-
       send({ type: "error", message: "Stream interrupted: " + (error.message ?? "unknown") });
       res.end();
     }
   },
 
   // ── 4. Notify Analysis Complete ───────────────────────────────────────────────
-  // Called by your analysis pipeline (agent-run job) once orchestration finishes.
-  // Returns the full analysis report the frontend can render in the chat.
-
   async notifyAnalysisComplete(req: Request, res: Response) {
     try {
       const { sessionId, coinId, verdict, score, confidence } = req.body;
-
       if (!sessionId || !coinId || !verdict) {
         return res.status(400).json({ error: "Missing required fields" });
       }
-
       const output = await agentService.notifyAnalysisComplete(
         sessionId, coinId, verdict, score ?? 0, confidence ?? 0,
       );
-
       return res.status(200).json(output);
     } catch (error) {
       console.error("[AgentController] Error notifying analysis complete:", error);
@@ -160,12 +156,10 @@ export const agentController = {
   },
 
   // ── 5. List User Sessions ─────────────────────────────────────────────────────
-
   async getUserSessions(req: Request, res: Response) {
     try {
-      const userId = (req as any).user?.id;
+      const userId = getUserId(req);
       if (!userId) return res.status(401).json({ error: "Unauthorized" });
-
       const sessions = await agentService.getUserSessions(userId);
       return res.status(200).json(sessions);
     } catch (error) {
@@ -175,7 +169,6 @@ export const agentController = {
   },
 
   // ── 6. Clear Session ──────────────────────────────────────────────────────────
-
   async clearSession(req: Request, res: Response) {
     try {
       const { sessionId } = req.params;

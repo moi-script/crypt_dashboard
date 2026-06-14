@@ -18,10 +18,44 @@ export interface AgentEmotion {
   message:   string           // short flavour text the agent "says"
 }
 
+export interface AgentReportSkill {
+  name:    string
+  verdict: 'bullish' | 'bearish' | 'neutral'
+  score:   number
+  summary: string
+}
+
+export interface AgentReportStep {
+  step:      number
+  phase:     string
+  title:     string
+  detail:    string
+  score?:    number
+  decision?: string
+  weight?:   number
+}
+
+export interface AgentAnalysisReport {
+  verdict:    string
+  score:      number
+  confidence: number
+  narrative:  string
+  keyPoints:  string[]
+  risks:      string[]
+  skillsUsed: string[]
+  skills:     AgentReportSkill[]
+  reasoning:  AgentReportStep[]
+  coinName:   string
+  symbol:     string
+  priceAtRun: number
+  runAt:      string
+}
+
 export interface AgentChatMessage {
   role:    'user' | 'agent'
   content: string
   emotion?: AgentEmotion
+  report?: AgentAnalysisReport
   ts:      number             // unix ms
 }
 

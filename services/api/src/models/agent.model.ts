@@ -25,6 +25,9 @@ export interface IAgentMessage {
   content:   string
   emotion?:  IStoredEmotion
   ts:        number
+  report?:  Record<string, unknown>   // arbitrary nested AnalysisReport JSON
+
+
 }
 
 // ── Full session document ─────────────────────────────────────────────────────
@@ -54,6 +57,8 @@ const MessageSchema = new Schema<IAgentMessage>({
   content: { type: String, required: true },
   emotion: { type: EmotionSchema, default: undefined },
   ts:      { type: Number, required: true },
+  //  report:  { type: Schema.Types.Mixed, default: undefined }, // ← add this
+   report:  { type: Schema.Types.Mixed, default: undefined },
 }, { _id: false })
 
 const AgentSessionSchema = new Schema<IAgentSession>({

@@ -93,24 +93,24 @@
   --r-xl: 24px;
 
   /* Transitions */
-  --ease:    cubic-bezier(0.4, 0, 0.2, 1);
+  --ease:        cubic-bezier(0.4, 0, 0.2, 1);
   --ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
-  --t-fast:  150ms var(--ease);
-  --t-base:  250ms var(--ease);
-  --t-slow:  400ms var(--ease);
+  --t-fast:      150ms var(--ease);
+  --t-base:      250ms var(--ease);
+  --t-slow:      400ms var(--ease);
 }
 
 /* ── Tailwind v4 Document Flow Target Overrides ──────────────── */
 @layer base {
-  *, *::before, *::after { 
-    box-sizing: border-box; 
-    margin: 0; 
-    padding: 0; 
+  *, *::before, *::after {
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
   }
 
-  html { 
-    font-size: 14px; 
-    -webkit-font-smoothing: antialiased; 
+  html {
+    font-size: 14px;
+    -webkit-font-smoothing: antialiased;
   }
 
   body {
@@ -127,19 +127,104 @@
     position: fixed;
     inset: 0;
     z-index: 0;
-  background:
-      radial-gradient(ellipse 80% 50% at 20% 0%, rgba(0,212,255,0.06) 0%, transparent 60%),
+    background:
+      radial-gradient(ellipse 80% 50% at 20% 0%,  rgba(0,212,255,0.06)   0%, transparent 60%),
       radial-gradient(ellipse 60% 40% at 80% 100%, rgba(167,139,250,0.05) 0%, transparent 60%),
-      radial-gradient(ellipse 40% 30% at 50% 50%, rgba(0,229,160,0.03) 0%, transparent 60%);
+      radial-gradient(ellipse 40% 30% at 50% 50%,  rgba(0,229,160,0.03)   0%, transparent 60%);
     pointer-events: none;
   }
 
-  h1, h2, h3 { 
-    font-family: var(--font-display); 
-    font-weight: 700; 
-    letter-spacing: -0.02em; 
+  h1, h2, h3 {
+    font-family: var(--font-display);
+    font-weight: 700;
+    letter-spacing: -0.02em;
   }
 }
+
+/* ── Structural Responsiveness ───────────────────────────────── */
+@media (max-width: 768px) {
+  :root { font-size: 13px; }
+}
+
+/* ── News: article grid ──────────────────────────────────────── */
+.news-grid {
+  grid-template-columns: repeat(2, 1fr);
+}
+
+/* ── News: stat cards row ────────────────────────────────────── */
+.news-stats-grid {
+  grid-template-columns: repeat(3, 1fr);
+}
+
+/* ── News card — desktop (square, column layout) ─────────────── */
+.news-card {
+  aspect-ratio: 1 / 1;
+  flex-direction: column;
+}
+
+.news-card__hero {
+  height: 45%;
+  width: 100%;
+}
+
+.news-card__strip { display: block; }
+.news-card__divider { display: block; }
+
+.news-card__summary {
+  -webkit-line-clamp: 5;
+}
+
+/* ── News — mobile breakpoint ────────────────────────────────── */
+@media (max-width: 639px) {
+  /* Grid: drop to single column */
+  .news-grid,
+  .news-stats-grid {
+    grid-template-columns: 1fr;
+  }
+
+  /* Card: horizontal row layout, explicit height so children can fill it */
+  .news-card {
+    aspect-ratio: unset;
+    flex-direction: row;
+    height: 140px;
+  }
+
+  /* Thumbnail: fixed width + stretch to card height */
+  .news-card__hero {
+    width: 120px;
+    height: 140px;
+    flex-shrink: 0;
+  }
+
+  /* Body: takes remaining width, clamps overflow */
+ .news-card__body {
+    flex: 1;
+    min-width: 0;
+    padding: 10px 12px !important;
+    gap: 6px !important;
+    overflow: hidden;
+    display: flex;           /* add this */
+    flex-direction: column;  /* add this */
+  }
+
+  .news-card__title {
+    font-size: 13px !important;
+    -webkit-line-clamp: 2;
+  }
+
+  .news-card__summary {
+    font-size: 11px !important;
+    -webkit-line-clamp: 2;
+  }
+
+  /* Hide decorative elements that don't fit */
+  .news-card__strip,
+  .news-card__divider {
+    display: none;
+  }
+}
+
+/* ── Utilities ───────────────────────────────────────────────── */
 @utility crt-overlay {
   position: fixed;
   inset: 0;
@@ -154,7 +239,6 @@
   );
 }
 
-/* ── Native Tailwind v4 Utility Registrations ─────────────────── */
 @utility glass {
   background: var(--surface-1);
   backdrop-filter: blur(20px) saturate(180%);
@@ -171,10 +255,10 @@
   border-radius: var(--r-sm);
 }
 
-@utility border-glow-cyan { border-color: rgba(0,212,255,0.3) !important; box-shadow: 0 0 20px rgba(0,212,255,0.15), inset 0 0 20px rgba(0,212,255,0.03); }
-@utility border-glow-up { border-color: rgba(0,229,160,0.3) !important; box-shadow: 0 0 20px rgba(0,229,160,0.15), inset 0 0 20px rgba(0,229,160,0.03); }
-@utility border-glow-down { border-color: rgba(255,85,114,0.3) !important; box-shadow: 0 0 20px rgba(255,85,114,0.15), inset 0 0 20px rgba(255,85,114,0.03); }
-@utility border-glow-warn { border-color: rgba(255,176,32,0.3) !important; box-shadow: 0 0 20px rgba(255,176,32,0.15), inset 0 0 20px rgba(255,176,32,0.03); }
+@utility border-glow-cyan { border-color: rgba(0,212,255,0.3)   !important; box-shadow: 0 0 20px rgba(0,212,255,0.15),   inset 0 0 20px rgba(0,212,255,0.03); }
+@utility border-glow-up   { border-color: rgba(0,229,160,0.3)   !important; box-shadow: 0 0 20px rgba(0,229,160,0.15),   inset 0 0 20px rgba(0,229,160,0.03); }
+@utility border-glow-down { border-color: rgba(255,85,114,0.3)  !important; box-shadow: 0 0 20px rgba(255,85,114,0.15),  inset 0 0 20px rgba(255,85,114,0.03); }
+@utility border-glow-warn { border-color: rgba(255,176,32,0.3)  !important; box-shadow: 0 0 20px rgba(255,176,32,0.15),  inset 0 0 20px rgba(255,176,32,0.03); }
 
 @utility syne { font-family: var(--font-display) !important; }
 
@@ -188,7 +272,7 @@
 }
 
 @utility label-cyan { color: var(--cyan); }
-@utility label-up { color: var(--up); }
+@utility label-up   { color: var(--up);   }
 @utility label-down { color: var(--down); }
 @utility label-warn { color: var(--warn); }
 
@@ -199,17 +283,14 @@
   &:hover { animation-play-state: paused; }
 }
 
-@utility flash-up { animation: flash-up 0.7s ease-out; }
+@utility flash-up   { animation: flash-up   0.7s ease-out; }
 @utility flash-down { animation: flash-down 0.7s ease-out; }
 
-@utility fade-up {
-  opacity: 0;
-  animation: fade-up 0.5s var(--ease) forwards;
-}
+@utility fade-up  { opacity: 0; animation: fade-up 0.5s var(--ease) forwards; }
 @utility fade-up-1 { animation-delay: 0.05s; }
-@utility fade-up-2 { animation-delay: 0.1s; }
+@utility fade-up-2 { animation-delay: 0.1s;  }
 @utility fade-up-3 { animation-delay: 0.15s; }
-@utility fade-up-4 { animation-delay: 0.2s; }
+@utility fade-up-4 { animation-delay: 0.2s;  }
 @utility fade-up-5 { animation-delay: 0.25s; }
 
 @utility skeleton {
@@ -317,7 +398,7 @@
   }
 }
 
-/* ── Functional Keyframes ────────────────────────────────────── */
+/* ── Keyframes ───────────────────────────────────────────────── */
 @keyframes ticker {
   from { transform: translateX(0); }
   to   { transform: translateX(-50%); }
@@ -348,9 +429,4 @@
 }
 @keyframes spin {
   to { transform: rotate(360deg); }
-}
-
-/* ── Structural Responsiveness ───────────────────────────────── */
-@media (max-width: 768px) {
-  :root { font-size: 13px; }
 }

@@ -35,7 +35,7 @@ export default function NewsView() {
       </div>
 
       {/* stats */}
-      <div className="fade-up fade-up-2" style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 14 }}>
+      <div className="fade-up fade-up-2 news-stats-grid" style={{ display: "grid", gap: 14 }}>
         <StatCard label="Articles" value={articles.length || "—"} sub="Last 24h window" />
         <StatCard
           label="Market Mood"
@@ -77,13 +77,13 @@ export default function NewsView() {
         {/* articles grid */}
         <div style={{ padding: 16 }}>
           {isLoading ? (
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(300px, 1fr))", gap: 12 }}>
+            <div className="news-grid" style={{ display: "grid", gap: 12 }}>
               {Array.from({ length: 6 }).map((_, i) => (
                 <div key={i} className="skeleton" style={{ height: 180, borderRadius: 12 }} />
               ))}
             </div>
           ) : shown.length ? (
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(300px, 1fr))", gap: 12 }}>
+            <div className="news-grid" style={{ display: "grid", gap: 12 }}>
               {shown.map(a => <NewsCard key={a.id} article={a} />)}
             </div>
           ) : (

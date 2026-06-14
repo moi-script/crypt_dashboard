@@ -407,98 +407,76 @@ export class AgentService {
   // ── Notify session after analysis completes ───────────────────────────────
   // Now returns the full analysis object attached to the response
 
-  async notifyAnalysisComplete(
-    sessionId:  string,
-    coinId:     string,
-    verdict:    string,
-    score:      number,
-    confidence: number,
-  ): Promise<ChatOutput> {
-    const session = await loadOrCreateSession(sessionId, coinId)
+ async notifyAnalysisComplete(
+  sessionId:  string,
+  coinId:     string,
+  verdict:    string,
+  score:      number,
+  confidence: number,
+): Promise<ChatOutput> {
+  const session = await loadOrCreateSession(sessionId, coinId)
+  const analysis = await AnalysisDoc.findOne({ coinId }).sort({ runAt: -1 }).lean()
+  const snapshot = await buildMarketSnapshot(coinId, false)
+  const emotion  = deriveEmotion(snapshot, sessionId)
 
-    // Fetch the full analysis doc that was just saved
-    const analysis = await AnalysisDoc.findOne({ coinId }).sort({ runAt: -1 }).lean()
+  const verdictEmoji: Record<string, string> = {
+    strong_buy: '🚀', buy: '📈', neutral: '⚖️', sell: '📉', strong_sell: '💀',
+  }
+  const emoji = verdictEmoji[verdict] ?? '📊'
 
-    // Build a rich, in-character narrative from the analysis data
-    const snapshot = await buildMarketSnapshot(coinId, false)
-    const emotion  = deriveEmotion(snapshot, sessionId)
-
-    // Compose a proper multi-sentence agent message with the full report
-    const verdictEmoji: Record<string, string> = {
-      strong_buy: '🚀', buy: '📈', neutral: '⚖️', sell: '📉', strong_sell: '💀',
-    }
-    const emoji = verdictEmoji[verdict] ?? '📊'
-
-    let richContent = `${emoji} Analysis complete for ${analysis?.coinName ?? coinId.toUpperCase()}! `
-
-    if (analysis) {
-      richContent += `My verdict: **${verdict.replace('_', ' ').toUpperCase()}** with a score of ${score > 0 ? '+' : ''}${score}/100 at ${confidence}% confidence. `
-
-      if (analysis.narrative) {
-        richContent += `${analysis.narrative} `
-      }
-
-      if (analysis.keyPoints?.length) {
-        richContent += `Key findings: ${analysis.keyPoints.slice(0, 3).join(' • ')}. `
-      }
-
-      if (analysis.risks?.length) {
-        richContent += `Watch out for: ${analysis.risks.slice(0, 2).join('; ')}.`
-      }
-    } else {
-      richContent += `Verdict: ${verdict.replace('_', ' ').toUpperCase()}, score ${score > 0 ? '+' : ''}${score}/100, confidence ${confidence}%.`
-    }
-
-    session.messages.push({
-      role:    'agent',
-      content: richContent,
-      emotion: emotion,
-      ts:      Date.now(),
-    })
-
-    if (session.messages.length > 20) session.messages = session.messages.slice(-20)
-    await persistSession(session)
-
-    // Build the analysisReport payload for rich frontend rendering
-    const analysisReport = analysis ? {
-      verdict:     analysis.verdict,
-      score:       analysis.score,
-      confidence:  analysis.confidence ?? 0,
-      narrative:   analysis.narrative,
-      keyPoints:   analysis.keyPoints ?? [],
-      risks:       analysis.risks ?? [],
-      skillsUsed:  analysis.skillsUsed ?? [],
-      skills:      (analysis.skills ?? []).map((s: any) => ({
-        name:    s.name,
-        verdict: s.verdict,
-        score:   s.score,
-        summary: s.summary,
-      })),
-      reasoning: (analysis.reasoning ?? []).map((r: any) => ({
-        step:     r.step,
-        phase:    r.phase,
-        title:    r.title,
-        detail:   r.detail,
-        score:    r.score,
-        decision: r.decision,
-      })),
-      coinName:   analysis.coinName,
-      symbol:     analysis.symbol,
-      priceAtRun: analysis.priceAtRun ?? 0,
-      runAt:      analysis.runAt instanceof Date ? analysis.runAt.toISOString() : String(analysis.runAt),
-    } : undefined
-
-    return {
-      sessionId,
-      content:         richContent,
-      emotion,
-      suggestAnalysis: false,
-      suggestAlert:    false,
-      history:         session.messages,
-      analysisReport,
-    }
+  let richContent = `${emoji} Analysis complete for ${analysis?.coinName ?? coinId.toUpperCase()}! `
+  if (analysis) {
+    richContent += `My verdict: **${verdict.replace('_', ' ').toUpperCase()}** with a score of ${score > 0 ? '+' : ''}${score}/100 at ${confidence}% confidence. `
+    if (analysis.narrative)  richContent += `${analysis.narrative} `
+    if (analysis.keyPoints?.length) richContent += `Key findings: ${analysis.keyPoints.slice(0, 3).join(' • ')}. `
+    if (analysis.risks?.length)     richContent += `Watch out for: ${analysis.risks.slice(0, 2).join('; ')}.`
+  } else {
+    richContent += `Verdict: ${verdict.replace('_', ' ').toUpperCase()}, score ${score > 0 ? '+' : ''}${score}/100, confidence ${confidence}%.`
   }
 
+  // ── Build report FIRST ──────────────────────────────────────────────
+  const analysisReport = analysis ? {
+    verdict:     analysis.verdict,
+    score:       analysis.score,
+    confidence:  analysis.confidence ?? 0,
+    narrative:   analysis.narrative,
+    keyPoints:   analysis.keyPoints ?? [],
+    risks:       analysis.risks ?? [],
+    skillsUsed:  analysis.skillsUsed ?? [],
+    skills:      (analysis.skills ?? []).map((s: any) => ({
+      name: s.name, verdict: s.verdict, score: s.score, summary: s.summary,
+    })),
+    reasoning: (analysis.reasoning ?? []).map((r: any) => ({
+      step: r.step, phase: r.phase, title: r.title, detail: r.detail, score: r.score, decision: r.decision,
+    })),
+    coinName:   analysis.coinName,
+    symbol:     analysis.symbol,
+    priceAtRun: analysis.priceAtRun ?? 0,
+    runAt:      analysis.runAt instanceof Date ? analysis.runAt.toISOString() : String(analysis.runAt),
+  } : undefined
+
+  // ── Push WITH report attached ───────────────────────────────────────
+  session.messages.push({
+    role:    'agent',
+    content: richContent,
+    emotion: emotion,
+    ts:      Date.now(),
+    report:  analysisReport,
+  })
+
+  if (session.messages.length > 20) session.messages = session.messages.slice(-20)
+  await persistSession(session)
+
+  return {
+    sessionId,
+    content: richContent,
+    emotion,
+    suggestAnalysis: false,
+    suggestAlert:    false,
+    history:         session.messages,
+    analysisReport,
+  }
+}
   // ── Session helpers ───────────────────────────────────────────────────────
 
   async getSession(sessionId: string): Promise<AgentChatSession | null> {

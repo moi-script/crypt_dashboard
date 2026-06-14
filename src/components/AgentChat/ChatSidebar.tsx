@@ -21,6 +21,7 @@ interface ChatSidebarProps {
     emotion:          AgentEmotion | null;
     mood:             { accent: string; softBg: string; textColor: string; label: string; emoji: string };
     isGenerating:     boolean;
+    deleteSession: (sid: string) => Promise<void>;
     startNewSession:  () => void;
     switchToSession:  (id: string) => void;
   };
@@ -271,6 +272,25 @@ export function ChatSidebar({ isOpen, onClose, coinId, engine }: ChatSidebarProp
                           </p>
                         </div>
                       </button>
+
+                       <button
+    onClick={async (e) => {
+      e.stopPropagation();
+      if (confirm("Delete this session?")) {
+        await engine.deleteSession(s.sessionId);
+      }
+    }}
+    style={{
+      flexShrink: 0, width: 24, height: 24, marginRight: 4,
+      background: "transparent", border: "none", cursor: "pointer",
+      color: "rgba(255,255,255,0.25)", fontSize: 14,
+    }}
+    title="Delete session"
+  >
+    ×
+  </button>
+
+
                     </div>
                   );
                 })}
@@ -280,12 +300,12 @@ export function ChatSidebar({ isOpen, onClose, coinId, engine }: ChatSidebarProp
         </div>
 
         {/* Footer */}
-        <div style={{ padding: "12px 16px", borderTop: "1px solid rgba(255,255,255,0.05)", flexShrink: 0 }}>
+        {/* <div style={{ padding: "12px 16px", borderTop: "1px solid rgba(255,255,255,0.05)", flexShrink: 0 }}>
           <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 6, fontSize: 11, color: "rgba(255,255,255,0.25)", fontFamily: "var(--font-mono)" }}>
             <span style={{ width: 6, height: 6, borderRadius: "50%", background: "#00e5a0", opacity: 0.6, animation: "pulse 2s ease-in-out infinite" }} />
-            System Online
+            Conversation
           </div>
-        </div>
+        </div> */}
       </div>
     </>
   );

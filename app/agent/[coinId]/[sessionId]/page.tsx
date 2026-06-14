@@ -1,6 +1,5 @@
 // src/app/agent/[coinId]/[sessionId]/page.tsx
 import { AgentChat } from "@/components/AgentChat";
-
 export default async function AgentSessionPage({
   params,
 }: {
