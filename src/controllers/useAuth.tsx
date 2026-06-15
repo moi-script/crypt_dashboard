@@ -8,6 +8,7 @@ import {
   useMemo,
   useState,
 } from "react";
+import { useRouter } from "next/navigation";
 import { authService } from "@/services/auth.service";
 import { tokenStore } from "@/services/api.client";
 import type { Credentials, User } from "@/models/auth.model";
@@ -27,6 +28,7 @@ const AuthContext = createContext<AuthContextValue | null>(null);
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [status, setStatus] = useState<Status>("loading");
+  const router = useRouter();
 
   // Hydrate the session on first mount if a token is already present.
   useEffect(() => {
@@ -67,10 +69,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const register = useCallback((c: Credentials) => handle(authService.register, c), [handle]);
 
   const logout = useCallback(async () => {
-    await authService.logout();
-    setUser(null);
-    setStatus("anon");
-  }, []);
+    try {
+      await authService.logout();
+    } finally {
+      setUser(null);
+      setStatus("anon");
+      router.push("/login");
+    }
+  }, [router]);
 
   const value = useMemo(
     () => ({ user, status, login, register, logout }),

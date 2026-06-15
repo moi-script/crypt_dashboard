@@ -282,6 +282,9 @@ export interface ChatInput {
   coinId?:      string
   userId?:      string
   isAnalysing?: boolean
+  userMsgId?:   string   // stable client id for the user message
+  agentMsgId?:  string   // stable client id for the agent message (toolResult target)
+  persist?:     boolean  // when false, generate a reply but don't store it (narration)
 }
 
 export interface ChatOutput {
@@ -314,7 +317,7 @@ export interface ChatOutput {
 export class AgentService {
 
   async chat(input: ChatInput): Promise<ChatOutput> {
-    const { sessionId, message, coinId = 'bitcoin', userId, isAnalysing } = input
+    const { sessionId, message, coinId = 'bitcoin', userId, isAnalysing, userMsgId, agentMsgId, persist = true } = input
 
     const session  = await loadOrCreateSession(sessionId, coinId, userId)
     const snapshot = await buildMarketSnapshot(coinId, isAnalysing)
@@ -334,14 +337,16 @@ export class AgentService {
       lastAnalysis = await AnalysisDoc.findOne({ coinId }).sort({ runAt: -1 }).lean()
     } catch { /* ignore */ }
 
-    session.messages.push({ role: 'user', content: message, ts: Date.now() })
+    if (persist) session.messages.push({ role: 'user', content: message, ts: Date.now(), mid: userMsgId })
 
     // ── Skip API call when analysis is running ────────────────────────────────
     if (isAnalysing) {
       const content = ANALYSIS_CANNED[emotion.emotion] ?? 'Running analysis, stand by...'
-      session.messages.push({ role: 'agent', content, emotion, ts: Date.now() })
-      if (session.messages.length > 20) session.messages = session.messages.slice(-20)
-      persistSession(session).catch(() => {})
+      if (persist) {
+        session.messages.push({ role: 'agent', content, emotion, ts: Date.now(), mid: agentMsgId })
+        if (session.messages.length > 20) session.messages = session.messages.slice(-20)
+        persistSession(session).catch(() => {})
+      }
       return {
         sessionId, content, emotion,
         suggestAnalysis: false,
@@ -391,10 +396,11 @@ export class AgentService {
       content = this.fallbackResponse(emotion, message)
     }
 
-    session.messages.push({ role: 'agent', content, emotion: responseEmotion, ts: Date.now() })
-    if (session.messages.length > 20) session.messages = session.messages.slice(-20)
-
-    persistSession(session).catch(() => {})
+    if (persist) {
+      session.messages.push({ role: 'agent', content, emotion: responseEmotion, ts: Date.now(), mid: agentMsgId })
+      if (session.messages.length > 20) session.messages = session.messages.slice(-20)
+      persistSession(session).catch(() => {})
+    }
 
     return {
       sessionId, content,
@@ -402,6 +408,53 @@ export class AgentService {
       suggestAnalysis, suggestAlert,
       history:         session.messages,
     }
+  }
+
+  // ── Upsert a tool result onto an agent message (idempotent by `mid`) ──────
+  // Matches the message by its stable client id (`mid`), falling back to `ts`
+  // for legacy messages. If found, patches toolResult/content/emotion in place;
+  // if missing and `createIfMissing` is set (chip tools, which never go through
+  // /chat/stream), appends a fresh agent message. Updates the in-memory cache
+  // AND the DB via persistSession's full $set — no positional `$` operator, so
+  // no "did not find the match" errors, and the patch survives the next turn.
+  async upsertToolMessage(
+    sessionId: string,
+    params: {
+      mid:             string
+      toolResult:      Record<string, unknown>
+      content?:        string
+      emotion?:        AgentEmotion
+      fallbackTs?:     number
+      createIfMissing?: boolean
+    },
+  ): Promise<boolean> {
+    const { mid, toolResult, content, emotion, fallbackTs, createIfMissing } = params
+    const session = await loadOrCreateSession(sessionId, 'bitcoin')
+
+    const msg =
+      session.messages.find(m => m.mid === mid) ??
+      (fallbackTs ? session.messages.find(m => m.ts === fallbackTs) : undefined)
+
+    if (msg) {
+      msg.toolResult = toolResult
+      if (content !== undefined) msg.content = content
+      if (emotion) msg.emotion = emotion
+    } else if (createIfMissing) {
+      session.messages.push({
+        role:    'agent',
+        content: content ?? '',
+        emotion,
+        ts:      Date.now(),
+        mid,
+        toolResult,
+      })
+      if (session.messages.length > 20) session.messages = session.messages.slice(-20)
+    } else {
+      return false
+    }
+
+    await persistSession(session)
+    return true
   }
 
   // ── Notify session after analysis completes ───────────────────────────────

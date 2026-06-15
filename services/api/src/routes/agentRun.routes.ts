@@ -20,5 +20,4 @@ router.put('/config',         updateConfig)
 router.post('/trigger',       triggerRun)
 router.get('/',               listRuns)
 router.get('/:runId',         getRun)
-
 export default router
