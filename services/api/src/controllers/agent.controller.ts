@@ -55,7 +55,7 @@ export const agentController = {
 
   // ── 3. NDJSON Streaming Chat ──────────────────────────────────────────────────
   async streamChat(req: Request, res: Response) {
-    const { sessionId, message, coinId = "bitcoin" } = req.body;
+    const { sessionId, message, coinId = "bitcoin", userMsgId, agentMsgId, persist } = req.body;
 
     if (!sessionId || !message) {
       return res.status(400).json({ error: "Missing sessionId or message" });
@@ -75,6 +75,9 @@ export const agentController = {
         coinId,
         userId:      getUserId(req),
         isAnalysing: req.body.isAnalysing ?? false,
+        userMsgId,
+        agentMsgId,
+        persist:     persist !== false,
       });
 
       const words = output.content.split(" ");
@@ -98,32 +101,10 @@ export const agentController = {
         send({ type: "suggest_analysis" });
       }
 
-      // ── Persist user + agent messages (with report/tool data) to the session ──
-      try {
-        const now = Date.now();
-        const userMsg = {
-          role:    "user" as const,
-          content: message,
-          ts:      now,
-        };
-        const agentMsg = {
-          role:      "agent" as const,
-          content:   output.content,
-          emotion:   output.emotion,
-          ts:        now + 1,
-          report:    output.analysisReport ?? undefined,
-        };
-
-        await AgentSessionDoc.updateOne(
-          { sessionId },
-          {
-            $push: { messages: { $each: [userMsg, agentMsg] } },
-            $set:  { currentEmotion: output.emotion, updatedAt: new Date() },
-          },
-        );
-      } catch (persistErr: any) {
-        console.warn("[AgentController] Failed to persist chat messages:", persistErr.message);
-      }
+      // Messages are persisted inside agentService.chat() (keyed by the
+      // client-supplied userMsgId/agentMsgId as `mid`). No second write here —
+      // a duplicate $push with server-generated timestamps is what previously
+      // made tool results impossible to locate.
 
       send({ type: "done" });
       res.end();
@@ -167,6 +148,40 @@ export const agentController = {
       return res.status(500).json({ error: "Failed to fetch sessions" });
     }
   },
+async saveToolResult(req: Request, res: Response) {
+  try {
+    const { sessionId } = req.params;
+    const { messageId, toolResult, ts, content, emotion } = req.body;
+
+    if (!toolResult?.type) {
+      return res.status(400).json({ error: "Missing toolResult.type" });
+    }
+    if (!messageId) {
+      return res.status(400).json({ error: "Missing messageId" });
+    }
+
+    // Upsert by the stable client id (`mid`), with `ts` as a legacy fallback.
+    // createIfMissing covers chip tools, whose message never goes through
+    // /chat/stream and so isn't persisted server-side beforehand.
+    const ok = await agentService.upsertToolMessage(String(sessionId), {
+      mid:             String(messageId),
+      toolResult,
+      content:         typeof content === "string" ? content : undefined,
+      emotion:         emotion ?? undefined,
+      fallbackTs:      typeof ts === "number" ? ts : undefined,
+      createIfMissing: true,
+    });
+
+    if (!ok) {
+      return res.status(404).json({ error: "Message not found for given id" });
+    }
+
+    return res.status(200).json({ ok: true });
+  } catch (error) {
+    console.error("[AgentController] Error saving tool result:", error);
+    return res.status(500).json({ error: "Failed to save tool result" });
+  }
+},
 
   // ── 6. Clear Session ──────────────────────────────────────────────────────────
   async clearSession(req: Request, res: Response) {

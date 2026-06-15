@@ -57,6 +57,8 @@ export interface AgentChatMessage {
   emotion?: AgentEmotion
   report?: AgentAnalysisReport
   ts:      number             // unix ms
+  mid?:    string             // stable client-generated id, shared across tiers
+  toolResult?: Record<string, unknown>
 }
 
 export interface AgentChatSession {

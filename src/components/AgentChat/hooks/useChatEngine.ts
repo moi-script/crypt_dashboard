@@ -6,7 +6,7 @@ import { apiClient } from "@/services/api.client";
 import { API_URL, tokenStore } from "@/services/api.client";
 import type { ToolResult } from "@/components/AgentToolCards";
 import type { AnalysisReport } from "@/components/ReportBubble";
-
+import { agentService } from "@/services/agent.service.frontend";
 // ── Emotion types ─────────────────────────────────────────────────────────────
 export type EmotionType = "happy" | "depressed" | "nervous" | "frustrated" | "shocked" | "thinking";
 
@@ -58,9 +58,16 @@ export interface SessionListItem {
 
 // ── Raw session shape returned by GET /agent/sessions ─────────────────────────
 interface RawSession {
-  sessionId:      string;
-  coinId:         string;
-  messages:       { role: string; content: string; ts: number }[];
+  sessionId: string;
+  coinId:    string;
+  messages: {
+    role:        string;
+    content:     string;
+    ts:          number;
+    emotion?:    AgentEmotion;
+    toolResult?: ToolResult;
+    report?:     AnalysisReport;
+  }[];
   currentEmotion: AgentEmotion;
   createdAt:      string | number;
   updatedAt:      string | number;
@@ -82,6 +89,31 @@ function rawToItem(s: RawSession): SessionListItem {
     currentEmotion: s.currentEmotion,
     messageCount:   msgs.filter(m => m.content !== "__init__").length,
   };
+}
+
+// ── Token validity check ────────────────────────────────────────────────────
+// Presence of a token in localStorage is not enough — a stale/expired token
+// can linger after logout if no request happened to trigger the 401 refresh
+// flow. Decode the JWT payload and check `exp`; clear the store if expired
+// so subsequent checks short-circuit immediately.
+function hasValidToken(): boolean {
+  const t = tokenStore.access;
+  if (!t) return false;
+  try {
+    const payloadB64 = t.split(".")[1];
+    if (!payloadB64) return false;
+    const payload = JSON.parse(atob(payloadB64.replace(/-/g, "+").replace(/_/g, "/")));
+    if (typeof payload.exp !== "number") return true; // no exp claim — assume valid
+    if (payload.exp * 1000 <= Date.now()) {
+      tokenStore.clear();
+      return false;
+    }
+    return true;
+  } catch {
+    // Unparseable token — treat as invalid and clear it
+    tokenStore.clear();
+    return false;
+  }
 }
 
 // ── Tool types ────────────────────────────────────────────────────────────────
@@ -216,11 +248,11 @@ export function useChatEngine({ coinId, userId }: { coinId: string; userId: stri
 
 
   // ── Session list fetch ────────────────────────────────────────────────────
-  // Uses tokenStore.access directly instead of relying on userId prop timing.
-  // This means it works even when userId hasn't propagated from parent yet.
+  // Gated on an actually-valid (non-expired) token, not mere presence —
+  // a stale token left in localStorage after logout/expiry must not cause
+  // session data to be fetched/displayed.
   const refreshSessionList = useCallback(async () => {
-    // Use token presence as the auth check — more reliable than waiting for userId prop
-    if (!tokenStore.access) return;
+    if (!hasValidToken()) return;
     try {
       const raw = await apiClient.get<RawSession[]>("/agent/sessions");
       setSessions(
@@ -245,16 +277,18 @@ export function useChatEngine({ coinId, userId }: { coinId: string; userId: stri
     if (isAuthed) {
       // Always fetch when we have a userId — catches both initial load and re-auth
       refreshSessionList();
-    } else if (!wasAuthed && !isAuthed && tokenStore.access) {
-      // userId prop is still undefined/null but token exists — fetch anyway
+    } else if (!wasAuthed && !isAuthed && hasValidToken()) {
+      // userId prop is still undefined/null but a valid token exists — fetch anyway
       // This covers the race where AgentView renders before useAuth resolves
       refreshSessionList();
     }
+    // If neither userId nor a valid token is present, do nothing — this is
+    // a genuine guest, even if a stale token blob is sitting in storage.
   }, [userId, refreshSessionList]);
 
-  // ── Also fetch on mount if token exists (catches page refresh with token) ──
+  // ── Also fetch on mount if a valid token exists (catches page refresh) ─────
   useEffect(() => {
-    if (tokenStore.access) {
+    if (hasValidToken()) {
       refreshSessionList();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -274,12 +308,30 @@ export function useChatEngine({ coinId, userId }: { coinId: string; userId: stri
           `/agent/session/${activeSessionId}`
         );
 
+              console.log("[useChatEngine] GET /agent/session raw messages:",
+        data.messages?.map(m => ({
+          role: m.role,
+          contentPreview: m.content?.slice(0, 40),
+          hasToolResult: !!(m as any).toolResult,
+          toolResultType: (m as any).toolResult?.type,
+          hasReport: !!(m as any).report,
+          reportVerdict: (m as any).report?.verdict,
+        }))
+      );
+
         
         if (!isMounted) return;
         const real = (data.messages ?? []).filter(m => m.content && m.content !== "__init__");
+         console.log("[useChatEngine] After filter, messages with cards:",
+        real.filter(m => (m as any).toolResult || (m as any).report).length,
+        "/", real.length
+      );
+
+        
         setMessages(real);
         setEmotion(data.currentEmotion ?? null);
-      } catch {
+      } catch(err) {
+         console.error("[useChatEngine] Failed to load session:", err);
         if (isMounted) setError("Failed to load chat history.");
       } finally {
         if (isMounted) setIsRestoring(false);
@@ -455,7 +507,10 @@ const runFullAnalysis = useCallback(async (coinIdForAnalysis: string, agentMsgId
           "Content-Type":  "application/json",
           "Authorization": `Bearer ${tokenStore.access ?? ""}`,
         },
-        body: JSON.stringify({ sessionId: activeSessionId, message: prompt, coinId }),
+        // persist:false — narration augments an existing bubble; it must not
+        // create its own stored turn (the bubble is persisted by its owner flow
+        // via saveToolResult, keyed by mid).
+        body: JSON.stringify({ sessionId: activeSessionId, message: prompt, coinId, persist: false }),
       });
 
       if (!response.ok || !response.body) {
@@ -492,20 +547,45 @@ const runFullAnalysis = useCallback(async (coinIdForAnalysis: string, agentMsgId
     }
   }, [activeSessionId, coinId]);
 
+  // Snapshot a message's current content/emotion/ts without subscribing.
+  const readMessageState = useCallback((msgId: string) =>
+    new Promise<{ content?: string; emotion?: AgentEmotion; ts?: number }>(resolve => {
+      setMessages(prev => {
+        const m = prev.find(x => x.id === msgId);
+        resolve({ content: m?.content, emotion: m?.emotion, ts: m?.ts });
+        return prev;
+      });
+    }), []);
+
   const executeToolInline = useCallback(async (intent: PendingToolIntent, agentMsgId: string) => {
     setMessages(prev => prev.map(m => m.id === agentMsgId ? { ...m, toolLoading: true, clarification: undefined } : m));
     try {
       const result = await dispatchTool(intent);
       setMessages(prev => prev.map(m => m.id === agentMsgId ? { ...m, toolLoading: false, toolResult: result } : m));
+
       let currentText = "";
       setMessages(prev => { currentText = prev.find(m => m.id === agentMsgId)?.content ?? ""; return prev; });
       await narrateToolResult(result, agentMsgId, currentText);
-    } catch {
+
+      // Persist AFTER narration so the stored content includes the narration.
+      // Keyed by mid=agentMsgId; the message was already persisted by the main
+      // /chat/stream turn, so this upserts content + the tool-result card.
+      if (activeSessionId) {
+        const final = await readMessageState(agentMsgId);
+        agentService.saveToolResult(activeSessionId, agentMsgId, result, final.ts, {
+          content: final.content,
+          emotion: final.emotion,
+        }).catch(err => console.error("[useChatEngine] saveToolResult FAILED:", err));
+      } else {
+        console.warn("[useChatEngine] No activeSessionId — toolResult NOT persisted");
+      }
+    } catch(err) {
+        console.error("[useChatEngine] executeToolInline FAILED:", err);
       setMessages(prev => prev.map(m =>
         m.id === agentMsgId ? { ...m, toolLoading: false, isStreaming: false, content: m.content || "⚠️ Tool call failed." } : m
       ));
     }
-  }, [narrateToolResult]);
+  }, [narrateToolResult, activeSessionId, readMessageState]);
 
   const resolveClarification = useCallback((
     agentMsgId: string, intent: PendingToolIntent,
@@ -516,37 +596,51 @@ const runFullAnalysis = useCallback(async (coinIdForAnalysis: string, agentMsgId
     executeToolInline(resolved, agentMsgId);
   }, [executeToolInline]);
 
-  const dispatchToolChip = useCallback(async (tool: ToolName, symbol?: string) => {
-    const ts  = Date.now();
-    const id  = `tool_${ts}`;
-    const sym = symbol ?? coinToSymbol(coinId);
+const dispatchToolChip = useCallback(async (tool: ToolName, symbol?: string) => {
+  const ts  = Date.now();
+  const id  = `tool_${ts}`;
+  const sym = symbol ?? coinToSymbol(coinId);
 
-    const THINKING: Record<ToolName, string> = {
-      chart_analyze:      "Let me pull the chart analysis…",
-      chart_primitives:   "Fetching indicators and market structure…",
-      intelligence_scan:  "Scanning the market for opportunities…",
-      intelligence_coin:  "Running a deep-dive on this coin…",
-      orderblocks_active: "Checking active order blocks…",
-      orderblocks_sync:   "Syncing order blocks from chain…",
-      agent_runs:         "Pulling recent agent run history…",
-    };
+  const THINKING: Record<ToolName, string> = {
+    chart_analyze:      "Let me pull the chart analysis…",
+    chart_primitives:   "Fetching indicators and market structure…",
+    intelligence_scan:  "Scanning the market for opportunities…",
+    intelligence_coin:  "Running a deep-dive on this coin…",
+    orderblocks_active: "Checking active order blocks…",
+    orderblocks_sync:   "Syncing order blocks from chain…",
+    agent_runs:         "Pulling recent agent run history…",
+  };
 
-    setMessages(prev => [...prev, {
-      id, role: "agent", content: THINKING[tool],
-      ts, emotion: emotion ?? undefined, toolLoading: true,
-    }]);
+  setMessages(prev => [...prev, {
+    id, role: "agent", content: THINKING[tool],
+    ts, emotion: emotion ?? undefined, toolLoading: true,
+  }]);
 
-    try {
-      const result = await dispatchTool({ tool, symbol: sym });
-      setMessages(prev => prev.map(m => m.id === id ? { ...m, toolLoading: false, toolResult: result } : m));
-      await narrateToolResult(result, id, "");
-    } catch {
-      setMessages(prev => prev.map(m =>
-        m.id === id ? { ...m, toolLoading: false, isStreaming: false, content: "⚠️ Tool call failed." } : m
-      ));
+  try {
+    const result = await dispatchTool({ tool, symbol: sym });
+    setMessages(prev => prev.map(m => m.id === id ? { ...m, toolLoading: false, toolResult: result } : m));
+
+    await narrateToolResult(result, id, "");
+
+    // Persist AFTER narration. The chip message never went through /chat/stream,
+    // so the server upserts it (createIfMissing) keyed by mid=id, storing the
+    // narrated content + tool-result card so it survives a reload.
+    if (activeSessionId) {
+      const final = await readMessageState(id);
+      agentService.saveToolResult(activeSessionId, id, result, final.ts ?? ts, {
+        content: final.content,
+        emotion: final.emotion,
+      }).catch(err => console.error("[useChatEngine] (chip) saveToolResult FAILED:", err));
+    } else {
+      console.warn("[useChatEngine] (chip) No activeSessionId — toolResult NOT persisted");
     }
-  }, [coinId, emotion, narrateToolResult]);
-
+  } catch (err) {
+    console.error("[useChatEngine] dispatchToolChip FAILED:", err);
+    setMessages(prev => prev.map(m =>
+      m.id === id ? { ...m, toolLoading: false, isStreaming: false, content: "⚠️ Tool call failed." } : m
+    ));
+  }
+}, [coinId, emotion, narrateToolResult, activeSessionId, readMessageState]);
   // ── Send message ──────────────────────────────────────────────────────────
   const sendMessage = useCallback(async (text: string) => {
     if (!text.trim() || isGenerating || !activeSessionId) return;
@@ -612,7 +706,7 @@ const runFullAnalysis = useCallback(async (coinIdForAnalysis: string, agentMsgId
           "Content-Type":  "application/json",
           "Authorization": `Bearer ${tokenStore.access ?? ""}`,
         },
-        body:   JSON.stringify({ sessionId: activeSessionId, message: text, coinId }),
+        body:   JSON.stringify({ sessionId: activeSessionId, message: text, coinId, userMsgId, agentMsgId }),
         signal: abortControllerRef.current.signal,
       });
 
