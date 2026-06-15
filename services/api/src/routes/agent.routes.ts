@@ -25,6 +25,7 @@ router.post("/chat/stream", agentController.streamChat);
 
 // ── Analysis Pipeline Callback ────────────────────────────────────────────────
 router.post("/analysis-complete", agentController.notifyAnalysisComplete);
+router.post('/session/:sessionId/tool-result', auth, agentController.saveToolResult);
 
 export default router;
 
