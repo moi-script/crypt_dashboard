@@ -1,5 +1,5 @@
 import { apiClient } from "./api.client";
-
+import type { ToolResult } from "@/components/AgentToolCards";
 // ── Emotion ───────────────────────────────────────────────────────────────────
 
 export interface AgentEmotion {
@@ -246,6 +246,20 @@ export const agentService = {
     const qs = q.toString();
     return apiClient.get<AgentSession>(`/agent/session/${sessionId}${qs ? `?${qs}` : ""}`);
   },
+saveToolResult: (
+  sessionId: string,
+  messageId: string,
+  toolResult: ToolResult,
+  ts?: number,
+  extra?: { content?: string; emotion?: unknown },
+) =>
+  apiClient.post<{ ok: boolean }>(`/agent/session/${sessionId}/tool-result`, {
+    messageId,
+    toolResult,
+    ts,
+    content: extra?.content,
+    emotion: extra?.emotion,
+  }),
 
   getUserSessions: (userId: string) =>
     apiClient.get<AgentSession[]>(`/agent/sessions/user/${userId}`),

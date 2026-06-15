@@ -25,11 +25,10 @@ export interface IAgentMessage {
   content:   string
   emotion?:  IStoredEmotion
   ts:        number
-  report?:  Record<string, unknown>   // arbitrary nested AnalysisReport JSON
-
-
+  mid?:      string                       // stable client-generated id, shared across tiers
+  report?:     Record<string, unknown>
+  toolResult?: Record<string, unknown>   // { type, symbol?, data } — mirrors frontend ToolResult
 }
-
 // ── Full session document ─────────────────────────────────────────────────────
 
 export interface IAgentSession {
@@ -53,13 +52,15 @@ const EmotionSchema = new Schema<IStoredEmotion>({
 }, { _id: false })
 
 const MessageSchema = new Schema<IAgentMessage>({
-  role:    { type: String, enum: ['user', 'agent'], required: true },
-  content: { type: String, required: true },
-  emotion: { type: EmotionSchema, default: undefined },
-  ts:      { type: Number, required: true },
-  //  report:  { type: Schema.Types.Mixed, default: undefined }, // ← add this
-   report:  { type: Schema.Types.Mixed, default: undefined },
+  role:       { type: String, enum: ['user', 'agent'], required: true },
+  content:    { type: String, required: true },
+  emotion:    { type: EmotionSchema, default: undefined },
+  ts:         { type: Number, required: true },
+  mid:        { type: String, default: undefined, index: true },
+  report:     { type: Schema.Types.Mixed, default: undefined },
+  toolResult: { type: Schema.Types.Mixed, default: undefined },
 }, { _id: false })
+
 
 const AgentSessionSchema = new Schema<IAgentSession>({
   sessionId:      { type: String, required: true, unique: true, index: true },
