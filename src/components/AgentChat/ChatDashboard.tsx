@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback } from "react";
 import { apiClient } from "@/services/api.client";
+import { useAuth } from "@/controllers/useAuth";
 import { PaperWalletDashboard } from "../PaperWalletDashboard";
 import type { ChatMessage } from "./hooks/useChatEngine";
 
@@ -279,6 +280,8 @@ function ConfigTab({ accentColor }: { accentColor: string }) {
   const [schedulerOn, setSchedulerOn] = useState(false);
   const [loading,     setLoading]     = useState(true);
   const [toggling,    setToggling]    = useState(false);
+  const { user } = useAuth();
+  const [walletUsd, setWalletUsd] = useState<number | null>(null);
 
   useEffect(() => {
     apiClient.get<{ config: AgentConfig; schedulerActive: boolean }>("/agent-runs/config")
@@ -287,11 +290,17 @@ function ConfigTab({ accentColor }: { accentColor: string }) {
       .finally(() => setLoading(false));
   }, []);
 
+  useEffect(() => {
+    apiClient.get<{ totalValueUsd: number }>("/paper-wallet")
+      .then(w => setWalletUsd(w.totalValueUsd))
+      .catch(() => {});
+  }, []);
+
   const toggle = async () => {
     if (!config) return;
     setToggling(true);
     try {
-      const res = await apiClient.post<{ ok: boolean; config: AgentConfig }>("/agent-runs/config", { enabled: !config.enabled });
+      const res = await apiClient.put<{ ok: boolean; config: AgentConfig }>("/agent-runs/config", { enabled: !config.enabled });
       setConfig(res.config);
     } catch { /* ignore */ } finally { setToggling(false); }
   };
@@ -301,6 +310,19 @@ function ConfigTab({ accentColor }: { accentColor: string }) {
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+      {/* Wallet binding */}
+      <div style={{ padding: "12px 14px", borderRadius: 10, background: "rgb(8,18,32)", border: "1px solid rgba(255,255,255,0.07)" }}>
+        <p style={{ fontSize: 10, color: "rgba(255,255,255,0.3)", letterSpacing: "0.08em", textTransform: "uppercase", margin: "0 0 6px", fontFamily: "var(--font-mono)" }}>Paper Wallet</p>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+          <span style={{ fontSize: 13, color: "rgba(255,255,255,0.55)" }}>
+            Attached to {user?.email ?? "your account"}
+          </span>
+          <span style={{ fontSize: 13, fontWeight: 700, color: accentColor, fontFamily: "var(--font-mono)" }}>
+            {walletUsd != null ? `$${walletUsd.toFixed(2)}` : "—"}
+          </span>
+        </div>
+      </div>
+
       {/* Loop toggle */}
       <div style={{ padding: "14px 14px", borderRadius: 10, background: "rgb(8,18,32)", border: `1px solid ${config.enabled ? "#00e5a030" : "rgba(255,255,255,0.07)"}` }}>
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
