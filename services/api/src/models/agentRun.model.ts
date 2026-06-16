@@ -50,6 +50,7 @@ const ExecutionResultSchema = new Schema({
 
 const AgentRunSchema = new Schema<AgentRunRecord>({
   runId:           { type: String, required: true, unique: true },
+  userId:          { type: String, required: true, index: true },
   strategy:        { type: String, required: true },
   mode:            { type: String, enum: ['paper', 'cex', 'onchain'], required: true },
   startedAt:       { type: Date, required: true },
@@ -67,6 +68,7 @@ const AgentRunSchema = new Schema<AgentRunRecord>({
 
 AgentRunSchema.index({ strategy: 1, startedAt: -1 })
 AgentRunSchema.index({ status: 1, startedAt: -1 })
+AgentRunSchema.index({ userId: 1, startedAt: -1 })
 
 // TTL — keep runs for 90 days
 AgentRunSchema.index({ startedAt: 1 }, { expireAfterSeconds: 90 * 24 * 60 * 60 })

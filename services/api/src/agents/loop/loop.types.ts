@@ -78,6 +78,7 @@ export type AgentRunStatus = 'running' | 'completed' | 'failed' | 'blocked' | 'p
 
 export interface AgentRunRecord {
   runId: string
+  userId: string
   strategy: string
   mode: AgentMode
   startedAt: Date
