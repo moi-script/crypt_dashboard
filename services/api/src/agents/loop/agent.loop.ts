@@ -61,11 +61,11 @@ async function loadWalletState(userId: string, config: AgentConfig): Promise<Wal
 
   let dailyPnlUsd = 0
   try {
-    const closedToday = await PositionDoc.find({ isOpen: false, exitAt: { $gte: today }, mode: config.mode }).lean()
+    const closedToday = await PositionDoc.find({ userId, isOpen: false, exitAt: { $gte: today }, mode: config.mode }).lean()
     dailyPnlUsd = closedToday.reduce((s, p) => s + (p.realizedPnlUsd ?? 0), 0)
   } catch { /* DB may not be ready */ }
 
-  const openCount = await PositionDoc.countDocuments({ isOpen: true, mode: config.mode }).catch(() => 0)
+  const openCount = await PositionDoc.countDocuments({ userId, isOpen: true, mode: config.mode }).catch(() => 0)
 
   const balances: Record<string, number> = {}
   for (const b of wallet.balances) balances[b.symbol] = b.valueUsd
