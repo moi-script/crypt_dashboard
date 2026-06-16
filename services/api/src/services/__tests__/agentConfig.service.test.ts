@@ -1,5 +1,6 @@
 import { connectTestDb, clearTestDb, disconnectTestDb } from '../../__tests__/helpers/db'
 import { getOrCreateConfig, patchConfig } from '../agentConfig.service'
+import { AgentConfigDoc } from '../../models/agentConfig.model'
 
 beforeAll(connectTestDb)
 afterEach(clearTestDb)
@@ -34,11 +35,13 @@ test('requireManualApproval can be disabled in paper mode', async () => {
   expect((await getOrCreateConfig('user-a')).requireManualApproval).toBe(false)
 })
 
-test('requireManualApproval cannot be disabled once mode is not paper', async () => {
+test('requireManualApproval cannot be disabled when mode is not paper', async () => {
   await getOrCreateConfig('user-a')
-  // mode is locked to paper in this phase, so this should still succeed —
-  // the guard only triggers if a future phase allows mode to be cex/onchain.
-  // This test documents the paper-only guard by checking the stored mode directly.
-  const before = await getOrCreateConfig('user-a')
-  expect(before.mode).toBe('paper')
+  // Reach into the doc directly to simulate a future phase where mode isn't paper —
+  // patchConfig itself always strips mode from patches, so this is the only way
+  // to exercise the guard today.
+  await AgentConfigDoc.updateOne({ userId: 'user-a' }, { $set: { mode: 'cex' } })
+
+  await expect(patchConfig('user-a', { requireManualApproval: false }))
+    .rejects.toThrow('Cannot disable manual approval outside paper mode')
 })
