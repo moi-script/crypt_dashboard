@@ -56,13 +56,20 @@ export const chartSignalStrategy: Strategy = {
         continue
       }
 
-      const primitives = await buildMarketPrimitives(binanceSymbol)
-      const results = [
-        runSmartMoneyStrategy(primitives),
-        runWyckoffStrategy(primitives),
-        runElliottStrategy(primitives),
-        runHarmonicStrategy(primitives),
-      ]
+      let results: ChartStrategyResult[]
+      try {
+        const primitives = await buildMarketPrimitives(binanceSymbol)
+        results = [
+          runSmartMoneyStrategy(primitives),
+          runWyckoffStrategy(primitives),
+          runElliottStrategy(primitives),
+          runHarmonicStrategy(primitives),
+        ]
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err)
+        lines.push(`${symbol}: skipped — primitives fetch failed: ${message}`)
+        continue
+      }
 
       for (const result of results) {
         if (result.skipped || !result.signal) {
@@ -82,7 +89,6 @@ export const chartSignalStrategy: Strategy = {
     }
 
     const qualifying = candidates.filter(c =>
-      !openSymbols.has(c.result.signal?.symbol ?? '') &&
       (c.result.signal?.confidence ?? 0) >= config.minSignalConfidence,
     )
     const best = qualifying.sort((a, b) => (b.result.signal!.confidence) - (a.result.signal!.confidence))[0]
@@ -98,7 +104,7 @@ export const chartSignalStrategy: Strategy = {
       const intent: TradeIntent = {
         type: 'propose_trade',
         tokenIn: 'USDC',
-        tokenOut: signal.symbol,
+        tokenOut: best.symbol,
         amountUsd: config.maxTradeUsd,
         maxSlippageBps: 50,
         rationale: signal.reasoning,
@@ -112,7 +118,7 @@ export const chartSignalStrategy: Strategy = {
         reasoning: signal.reasoning,
         toolCallTrace: [`chartSignal:${signal.framework}`],
       }
-      lines.push(`>>> ACTING on ${signal.symbol} ${signal.framework} signal (confidence ${signal.confidence})`)
+      lines.push(`>>> ACTING on ${best.symbol} ${signal.framework} signal (confidence ${signal.confidence})`)
     }
 
     return {
