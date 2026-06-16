@@ -2,6 +2,10 @@ import { connectTestDb, clearTestDb, disconnectTestDb } from '../../__tests__/he
 import { PaperWalletDoc, TradeTransactionDoc } from '../paperWallet.model'
 
 beforeAll(connectTestDb)
+// Ensure the unique index on userId is built before the uniqueness test runs —
+// autoIndex builds asynchronously, so under full-suite timing it may not be
+// ready in time for the duplicate-insert assertion otherwise.
+beforeAll(async () => { await PaperWalletDoc.init() })
 afterEach(clearTestDb)
 afterAll(disconnectTestDb)
 
