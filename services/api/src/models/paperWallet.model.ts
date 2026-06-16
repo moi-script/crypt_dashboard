@@ -24,6 +24,7 @@ export interface ITokenBalance {
 // ── Paper wallet document ─────────────────────────────────────────────────────
 
 export interface IPaperWallet {
+  userId:        string          // owning user's ID
   walletId:      string          // e.g. "paper-default"
   mode:          'paper'
   balances:      ITokenBalance[]
@@ -44,7 +45,8 @@ const TokenBalanceSchema = new Schema<ITokenBalance>({
 }, { _id: false })
 
 const PaperWalletSchema = new Schema<IPaperWallet>({
-  walletId:         { type: String, required: true, unique: true },
+  userId:           { type: String, required: true, unique: true, index: true },
+  walletId:         { type: String, required: true },
   mode:             { type: String, enum: ['paper'], default: 'paper' },
   balances:         { type: [TokenBalanceSchema], default: [] },
   totalValueUsd:    { type: Number, default: 5000 },
@@ -63,6 +65,7 @@ export type TradeStatus = 'filled' | 'partial' | 'rejected' | 'cancelled'
 export interface ITradeTransaction {
   txId:            string          // unique transaction ID
   runId:           string          // which AgentRun triggered this
+  userId:          string          // owning user's ID
   orderId?:        string
   walletId:        string
 
@@ -102,8 +105,9 @@ export interface ITradeTransaction {
 const TradeTransactionSchema = new Schema<ITradeTransaction>({
   txId:              { type: String, required: true, unique: true },
   runId:             { type: String, required: true },
+  userId:            { type: String, required: true, index: true },
   orderId:           String,
-  walletId:          { type: String, required: true, default: 'paper-default' },
+  walletId:          { type: String, required: true },
 
   side:              { type: String, enum: ['buy', 'sell'], required: true },
   tokenIn:           { type: String, required: true },
@@ -136,7 +140,7 @@ const TradeTransactionSchema = new Schema<ITradeTransaction>({
   executedAt:        { type: Date, required: true },
 }, { timestamps: true })
 
-TradeTransactionSchema.index({ walletId: 1, executedAt: -1 })
+TradeTransactionSchema.index({ userId: 1, executedAt: -1 })
 TradeTransactionSchema.index({ runId: 1 })
 TradeTransactionSchema.index({ tokenOut: 1, executedAt: -1 })
 

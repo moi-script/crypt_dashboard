@@ -5,7 +5,7 @@
  * These cross agent/loop, agent/policy, and models boundaries.
  */
 
-import type { AgentMode } from '../../config/agent.config'
+import type { AgentMode, AgentConfig } from '../../config/agent.config'
 
 // ── Decision ──────────────────────────────────────────────────────────────────
 
@@ -78,6 +78,7 @@ export type AgentRunStatus = 'running' | 'completed' | 'failed' | 'blocked' | 'p
 
 export interface AgentRunRecord {
   runId: string
+  userId: string
   strategy: string
   mode: AgentMode
   startedAt: Date
@@ -105,4 +106,15 @@ export interface ExecutionResult {
   errorMessage?: string
   simulatedPnlUsd?: number       // paper mode only
   executedAt: Date
+}
+
+// ── Execution context (threads per-user config + metadata to executors) ───────
+
+export interface ExecutionContext {
+  userId:     string
+  config:     AgentConfig
+  runId:      string
+  strategy:   string
+  rationale:  string
+  confidence: number
 }

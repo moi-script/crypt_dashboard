@@ -9,6 +9,7 @@ import { Schema, model } from 'mongoose'
 
 export interface IPosition {
   positionId:   string
+  userId?:      string
   mode:         'paper' | 'cex' | 'onchain'
   tokenIn:      string
   tokenOut:     string
@@ -30,6 +31,7 @@ export interface IPosition {
 
 const PositionSchema = new Schema<IPosition>({
   positionId:     { type: String, required: true, unique: true },
+  userId:         { type: String, index: true },
   mode:           { type: String, enum: ['paper', 'cex', 'onchain'], required: true },
   tokenIn:        { type: String, required: true },
   tokenOut:       { type: String, required: true },
@@ -64,6 +66,7 @@ export const PositionDoc = model<IPosition>('Position', PositionSchema)
 
 export interface IOrder {
   orderId:        string
+  userId?:        string
   positionId?:    string
   runId:          string
   mode:           'paper' | 'cex' | 'onchain'
@@ -85,6 +88,7 @@ export interface IOrder {
 
 const OrderSchema = new Schema<IOrder>({
   orderId:         { type: String, required: true, unique: true },
+  userId:          { type: String, index: true },
   positionId:      String,
   runId:           { type: String, required: true },
   mode:            { type: String, enum: ['paper', 'cex', 'onchain'], required: true },

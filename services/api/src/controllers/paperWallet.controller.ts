@@ -7,7 +7,8 @@
  * POST /api/paper-wallet/reset        — reset wallet to $5000 USDC (dev only)
  */
 
-import type { Request, Response, NextFunction } from 'express'
+import type { Response, NextFunction } from 'express'
+import type { AuthRequest }            from '../middleware/auth'
 import {
   getOrCreateWallet,
   getTradeHistory,
@@ -15,32 +16,23 @@ import {
   resetWallet,
 } from '../services/paperWallet.service'
 
-export async function getWallet(_req: Request, res: Response, next: NextFunction) {
-  try {
-    const wallet = await getOrCreateWallet()
-    res.json(wallet)
-  } catch (err) { next(err) }
+export async function getWallet(req: AuthRequest, res: Response, next: NextFunction) {
+  try { res.json(await getOrCreateWallet(req.userId!)) } catch (err) { next(err) }
 }
 
-export async function getTrades(req: Request, res: Response, next: NextFunction) {
+export async function getTrades(req: AuthRequest, res: Response, next: NextFunction) {
   try {
-    const limit  = Math.min(parseInt(req.query.limit as string)  || 50,  200)
-    const skip   = Math.max(parseInt(req.query.skip  as string)  || 0,   0)
-    const trades = await getTradeHistory(limit, skip)
+    const limit  = Math.min(parseInt(req.query.limit as string) || 50, 200)
+    const skip   = Math.max(parseInt(req.query.skip  as string) || 0, 0)
+    const trades = await getTradeHistory(req.userId!, limit, skip)
     res.json({ trades, count: trades.length, skip, limit })
   } catch (err) { next(err) }
 }
 
-export async function getStats(_req: Request, res: Response, next: NextFunction) {
-  try {
-    const stats = await getTradeStats()
-    res.json(stats)
-  } catch (err) { next(err) }
+export async function getStats(req: AuthRequest, res: Response, next: NextFunction) {
+  try { res.json(await getTradeStats(req.userId!)) } catch (err) { next(err) }
 }
 
-export async function postReset(_req: Request, res: Response, next: NextFunction) {
-  try {
-    const wallet = await resetWallet()
-    res.json({ ok: true, wallet })
-  } catch (err) { next(err) }
+export async function postReset(req: AuthRequest, res: Response, next: NextFunction) {
+  try { res.json({ ok: true, wallet: await resetWallet(req.userId!) }) } catch (err) { next(err) }
 }

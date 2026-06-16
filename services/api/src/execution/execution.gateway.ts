@@ -11,9 +11,8 @@
  *   4. Return ExecutionResult
  */
 
-import type { Intent, ExecutionResult, WalletState } from '../agents/loop/loop.types'
+import type { Intent, ExecutionResult, WalletState, ExecutionContext } from '../agents/loop/loop.types'
 import type { AgentMode }                            from '../config/agent.config'
-import { agentConfig }                               from '../config/agent.config'
 import { riskEngine }                                from '../risk/risk.engine'
 import { executePaper }                              from './modes/paper.executor'
 // import { executeCex }                                from './modes/cex.executor'
@@ -31,15 +30,16 @@ export interface GatewayResult {
 export async function executeIntent(
   intent:      Intent,
   walletState: WalletState,
+  ctx:         ExecutionContext,
 ): Promise<GatewayResult> {
-  const mode = agentConfig.mode as AgentMode
+  const mode = ctx.config.mode as AgentMode
 
   // ── 1. Kill switch ──────────────────────────────────────────────────────────
-  if (!agentConfig.enabled) {
+  if (!ctx.config.enabled) {
     return {
       riskPassed: false,
       riskBlockedBy: 'KillSwitch',
-      riskReason: 'Agent is disabled (agentConfig.enabled = false). Set enabled=true to resume.',
+      riskReason: 'Agent is disabled for this user. Enable it to resume.',
       execution: {
         status:       'blocked_by_risk',
         riskRejectionReason: 'Kill switch active',
@@ -77,7 +77,7 @@ export async function executeIntent(
   }
 
   // ── 4. Manual approval gate ──────────────────────────────────────────────────
-  if (agentConfig.requireManualApproval && intent.type === 'propose_trade') {
+  if (ctx.config.requireManualApproval && intent.type === 'propose_trade') {
     console.log(`[ExecutionGateway] Trade intent queued for manual approval: ${JSON.stringify(intent)}`)
     return {
       riskPassed:     true,
@@ -94,7 +94,10 @@ export async function executeIntent(
   try {
     switch (mode) {
       case 'paper':
-        result = await executePaper(intent)
+        result = await executePaper(intent, {
+          userId: ctx.userId, runId: ctx.runId, strategy: ctx.strategy,
+          rationale: ctx.rationale, confidence: ctx.confidence,
+        })
         break
       case 'cex':
         result = await executeCex(intent)
