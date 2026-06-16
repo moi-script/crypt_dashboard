@@ -48,6 +48,7 @@ function simulateSlippage(amountUsd: number, maxSlippageBps: number): number {
 
 // Carries the agent context so the trade recorder can attach metadata
 export interface PaperExecutorContext {
+  userId:     string
   runId:      string
   strategy:   string
   rationale:  string
@@ -56,7 +57,7 @@ export interface PaperExecutorContext {
 
 export async function executePaper(
   intent: Intent,
-  agentCtx?: PaperExecutorContext,
+  agentCtx: PaperExecutorContext,
 ): Promise<ExecutionResult> {
   const now = new Date()
 
@@ -86,7 +87,7 @@ export async function executePaper(
 
     try {
       // ── 1. Check wallet has enough balance ─────────────────────────────────
-      const wallet = await getOrCreateWallet()
+      const wallet = await getOrCreateWallet(agentCtx.userId)
       const tokenInBal = wallet.balances.find(
         b => b.symbol.toUpperCase() === trade.tokenIn.toUpperCase()
       )
@@ -124,8 +125,8 @@ export async function executePaper(
 
       // ── 4. Record to wallet + trade history ────────────────────────────────
       try {
-        await recordTrade({
-          runId:           agentCtx?.runId    ?? `run-paper-${Date.now()}`,
+        await recordTrade(agentCtx.userId, {
+          runId:           agentCtx.runId,
           orderId,
           tokenIn:         trade.tokenIn,
           tokenOut:        trade.tokenOut,
@@ -134,9 +135,9 @@ export async function executePaper(
           entryPrice:      outPrice,
           feesUsd:         fee,
           slippagePct:     slippage * 100,
-          strategy:        agentCtx?.strategy   ?? 'manual',
-          rationale:       agentCtx?.rationale  ?? trade.rationale,
-          confidence:      agentCtx?.confidence ?? 0,
+          strategy:        agentCtx.strategy,
+          rationale:       agentCtx.rationale,
+          confidence:      agentCtx.confidence,
         })
       } catch (recordErr: any) {
         // Recording failure must NOT block the execution result

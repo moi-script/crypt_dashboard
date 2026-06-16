@@ -14,10 +14,10 @@
 
 import OpenAI from 'openai'
 
-import { agentConfig }                    from '../../config/agent.config'
 import { buildAgentSystemPrompt }         from './prompts/agent.system.prompt'
 import { getToolSchemas, dispatch, isActTool, isReadTool, clearCandleCache } from '../tools/tool.registry'
 import type { Decision, Intent, LoopContext }              from '../loop/loop.types'
+import type { AgentConfig }                                from '../../config/agent.config'
 import type { ToolCall, ToolContext }                      from '../tools/tool.types'
 import { MarketRegime }                                    from '../chartAnalysis.types'
 
@@ -64,6 +64,7 @@ type Message =
 export async function runPolicyEngine(
   ctx:                    LoopContext,
   strategyContextSummary: string,
+  config:                 AgentConfig,
 ): Promise<Decision> {
   // Clear the candle cache at the start of each policy engine run
   // so tool calls in this run start fresh but share within the run
@@ -71,21 +72,21 @@ export async function runPolicyEngine(
 
   const toolCtx: ToolContext = {
     strategy: ctx.strategy,
-    dryRun:   agentConfig.mode === 'paper',
+    dryRun:   config.mode === 'paper',
   }
 
   const walletSummary = [
-    `Mode: ${agentConfig.mode}`,
+    `Mode: ${config.mode}`,
     `Total value: $${ctx.walletState.totalValueUsd.toFixed(2)}`,
     `Daily PnL: $${ctx.walletState.dailyPnlUsd.toFixed(2)}`,
     `Open positions: ${ctx.walletState.openPositions}`,
   ].join(' | ')
 
   const systemPrompt = buildAgentSystemPrompt({
-    mode:          agentConfig.mode,
+    mode:          config.mode,
     strategy:      ctx.strategy,
     walletSummary,
-    maxTradeUsd:   agentConfig.maxTradeUsd,
+    maxTradeUsd:   config.maxTradeUsd,
   })
 
   const messages: Message[] = [
