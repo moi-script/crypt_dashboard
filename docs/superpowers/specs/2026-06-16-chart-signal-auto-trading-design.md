@@ -123,13 +123,31 @@ minSignalConfidence: number  // new, default 55
 ## Guardrails on opening a position
 
 Opening a `chartSignal` trade goes through the exact same gates every other
-strategy already uses — no new code needed here:
+strategy already uses:
 
 - `riskEngine.validate()` (position sizing, daily loss limits, etc.)
 - `config.requireManualApproval` (if true, the trade is queued as
   `pending_approval` exactly like any other `propose_trade`)
 - `executionGateway` routes to `executePaper` in paper mode only — `cex` and
   `onchain` modes are untouched by this feature.
+
+### Addendum: the manual-approval gate currently has no release valve
+
+While planning the implementation, found that `patchConfig()`
+(`services/api/src/services/agentConfig.service.ts:27-29`) unconditionally
+throws if a caller tries to set `requireManualApproval: false` — there is no
+way to ever disable it via the API. There is also no approve/reject endpoint
+anywhere for a `pending_approval` `AgentRunDoc` — once a trade lands in that
+state, it sits there permanently. This means that even with real signals,
+no opening trade could ever actually fill today. This is likely the more
+fundamental cause of "the agent never trades" than the missing strategies.
+
+Fix: relax `patchConfig()` to allow `requireManualApproval: false` **only
+when `mode === 'paper'`** (the user's current config, or the patch result if
+`mode` is also being read from the existing doc). `cex` and `onchain` modes
+keep the hard block — manual approval can never be disabled for real-money
+execution. This lets the user flip `chartSignal` trades to auto-execute in
+paper mode while leaving the live-money safety rail untouched.
 
 ## Position monitor (the close/exit mechanism)
 
