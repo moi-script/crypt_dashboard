@@ -180,10 +180,17 @@ scheduler tick
 - **Routes:** requests without a token → 401; user A cannot read user B's runs,
   wallet, or stats.
 
+## Resolved decisions
+
+1. **Migration:** start fresh per-user. The legacy global `paper-default` wallet
+   and its trades are left orphaned (paper data, no real value); new per-user
+   wallets are auto-provisioned. No backfill script.
+2. **Config endpoint:** align on `PUT /api/agent-runs/config`. Update the
+   frontend `ConfigTab` toggle to call PUT (it currently posts).
+3. **`walletId` field:** keep as a derived display id (`paper-<userId>`), but
+   `userId` is the unique lookup key.
+
 ## Open questions for the plan
 
-1. Keep `walletId` as a display field or drop it entirely in favor of `userId`?
-2. Migration: assign legacy global wallet to an owner, or start fresh? (Leaning
-   "start fresh".)
-3. Concurrency cap value for the fan-out pool.
-4. Align config endpoint on `PUT` or `POST`.
+1. Concurrency cap value for the fan-out pool (default to a small constant,
+   e.g. 4, tunable later).
