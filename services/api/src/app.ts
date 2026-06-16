@@ -16,6 +16,7 @@ import agentRunRoutes                          from './routes/agentRun.routes'
 import positionRoutes                          from './routes/position.routes'
 import { opportunityRouter }                   from './routes/position.routes'
 import { startScheduler, isSchedulerRunning }  from './agents/loop/scheduler'
+import { startPositionMonitor, isPositionMonitorRunning } from './agents/loop/positionMonitor'
 import agent from './routes/agent.routes';
 // ── S03 routes ────────────────────────────────────────────────────────────────
 import intelligenceRouter  from './routes/intelligence.routes'
@@ -96,6 +97,9 @@ async function start() {
   // Guard: prevents double-start on hot-reload
   if (!isSchedulerRunning()) {
     startScheduler()
+  }
+  if (!isPositionMonitorRunning()) {
+    startPositionMonitor()
   }
 
   server.listen(4000, () => console.log('API ready on :4000'))
