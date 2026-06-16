@@ -10,21 +10,22 @@
  * PUT  /api/agent-runs/config      — patch agent config (admin)
  */
 
-import type { Request, Response, NextFunction } from 'express'
-import { AgentRunDoc }                           from '../models/agentRun.model'
-import { agentConfig, patchConfig }              from '../config/agent.config'
-import { triggerOneTick, isSchedulerRunning }    from '../agents/loop/scheduler'
-import { checkKeyPresence }                      from '../execution/wallet/keystore'
+import type { Response, NextFunction }           from 'express'
+import type { AuthRequest }                      from '../middleware/auth'
+import { AgentRunDoc }                            from '../models/agentRun.model'
+import { getOrCreateConfig, patchConfig }         from '../services/agentConfig.service'
+import { triggerOneTick, isSchedulerRunning }     from '../agents/loop/scheduler'
+import { checkKeyPresence }                       from '../execution/wallet/keystore'
 
 // ── List recent runs ──────────────────────────────────────────────────────────
 
-export async function listRuns(req: Request, res: Response, next: NextFunction) {
+export async function listRuns(req: AuthRequest, res: Response, next: NextFunction) {
   try {
     const limit    = Math.min(parseInt(req.query.limit as string) || 20, 100)
     const strategy = req.query.strategy as string | undefined
     const status   = req.query.status   as string | undefined
 
-    const filter: Record<string, unknown> = {}
+    const filter: Record<string, unknown> = { userId: req.userId }
     if (strategy) filter.strategy = strategy
     if (status)   filter.status   = status
 
@@ -41,10 +42,10 @@ export async function listRuns(req: Request, res: Response, next: NextFunction) 
 
 // ── Get one run (full detail) ─────────────────────────────────────────────────
 
-export async function getRun(req: Request, res: Response, next: NextFunction) {
+export async function getRun(req: AuthRequest, res: Response, next: NextFunction) {
   try {
     const { runId } = req.params
-    const run = await AgentRunDoc.findOne({ runId }).lean()
+    const run = await AgentRunDoc.findOne({ runId, userId: req.userId }).lean()
     if (!run) return res.status(404).json({ error: `Run "${runId}" not found` })
     res.json(run)
   } catch (err) { next(err) }
@@ -52,15 +53,15 @@ export async function getRun(req: Request, res: Response, next: NextFunction) {
 
 // ── Manually trigger one tick ─────────────────────────────────────────────────
 
-export async function triggerRun(req: Request, res: Response, next: NextFunction) {
+export async function triggerRun(req: AuthRequest, res: Response, next: NextFunction) {
   try {
     // Non-blocking — trigger and return immediately
     const { wait } = req.query
     if (wait === 'true') {
-      await triggerOneTick()
+      await triggerOneTick(req.userId!)
       res.json({ triggered: true, waited: true })
     } else {
-      triggerOneTick().catch(err =>
+      triggerOneTick(req.userId!).catch(err =>
         console.error('[agentRun.controller] Manual trigger failed:', err.message)
       )
       res.json({ triggered: true, waited: false })
@@ -72,21 +73,23 @@ export async function triggerRun(req: Request, res: Response, next: NextFunction
 
 // ── Get current config ────────────────────────────────────────────────────────
 
-export async function getConfig(_req: Request, res: Response) {
-  res.json({
-    config:          agentConfig,
-    schedulerActive: isSchedulerRunning(),
-    keyPresence:     checkKeyPresence(),
-  })
+export async function getConfig(req: AuthRequest, res: Response, next: NextFunction) {
+  try {
+    const config = await getOrCreateConfig(req.userId!)
+    res.json({
+      config,
+      schedulerActive: isSchedulerRunning(),
+      keyPresence:     checkKeyPresence(),
+    })
+  } catch (err) { next(err) }
 }
 
 // ── Patch config ──────────────────────────────────────────────────────────────
 
-export async function updateConfig(req: Request, res: Response, next: NextFunction) {
+export async function updateConfig(req: AuthRequest, res: Response, next: NextFunction) {
   try {
-    const patch = req.body
-    patchConfig(patch)
-    res.json({ ok: true, config: agentConfig })
+    const config = await patchConfig(req.userId!, req.body)
+    res.json({ ok: true, config })
   } catch (err: any) {
     next(err)
   }
@@ -94,23 +97,23 @@ export async function updateConfig(req: Request, res: Response, next: NextFuncti
 
 // ── Get run stats ─────────────────────────────────────────────────────────────
 
-export async function getStats(_req: Request, res: Response, next: NextFunction) {
+export async function getStats(req: AuthRequest, res: Response, next: NextFunction) {
   try {
     const [total, completed, failed, blocked, pending] = await Promise.all([
-      AgentRunDoc.countDocuments({}),
-      AgentRunDoc.countDocuments({ status: 'completed' }),
-      AgentRunDoc.countDocuments({ status: 'failed' }),
-      AgentRunDoc.countDocuments({ status: 'blocked' }),
-      AgentRunDoc.countDocuments({ status: 'pending_approval' }),
+      AgentRunDoc.countDocuments({ userId: req.userId }),
+      AgentRunDoc.countDocuments({ userId: req.userId, status: 'completed' }),
+      AgentRunDoc.countDocuments({ userId: req.userId, status: 'failed' }),
+      AgentRunDoc.countDocuments({ userId: req.userId, status: 'blocked' }),
+      AgentRunDoc.countDocuments({ userId: req.userId, status: 'pending_approval' }),
     ])
 
     // Last 24h
     const since24h = new Date(Date.now() - 24 * 60 * 60 * 1000)
-    const last24h  = await AgentRunDoc.countDocuments({ startedAt: { $gte: since24h } })
+    const last24h  = await AgentRunDoc.countDocuments({ userId: req.userId, startedAt: { $gte: since24h } })
 
     // Most common intent types (last 100 runs)
     const recentDecisions = await AgentRunDoc
-      .find({ decision: { $ne: null } })
+      .find({ userId: req.userId, decision: { $ne: null } })
       .sort({ startedAt: -1 })
       .limit(100)
       .select('decision.intent.type')
