@@ -13,7 +13,9 @@
  */
 
 // import { nanoid } from 'nanoid'
-import { agentConfig }     from '../../config/agent.config'
+import { getOrCreateConfig } from '@/services/agentConfig.service'
+import { getOrCreateWallet } from '@/services/paperWallet.service'
+import type { AgentConfig }  from '@/config/agent.config'
 // import { runPolicyEngine } from '../policy/policy.engine'
 import { runPolicyEngine } from '../policy/policy.engine'
 // import { executeIntent }   from '../../execution/execution.gateway'
@@ -51,28 +53,28 @@ const STRATEGIES: Record<string, Strategy> = {
 
 // ── Wallet state (paper mode) ─────────────────────────────────────────────────
 
-async function loadWalletState(): Promise<WalletState> {
-  // In paper mode: read from PositionDoc to compute current balances + PnL
+async function loadWalletState(userId: string, config: AgentConfig): Promise<WalletState> {
+  const wallet = await getOrCreateWallet(userId)
+
   const today = new Date()
   today.setHours(0, 0, 0, 0)
 
   let dailyPnlUsd = 0
   try {
-    const closedToday = await PositionDoc.find({
-      isOpen: false,
-      exitAt: { $gte: today },
-      mode:   agentConfig.mode,
-    }).lean()
+    const closedToday = await PositionDoc.find({ isOpen: false, exitAt: { $gte: today }, mode: config.mode }).lean()
     dailyPnlUsd = closedToday.reduce((s, p) => s + (p.realizedPnlUsd ?? 0), 0)
   } catch { /* DB may not be ready */ }
 
-  const openCount = await PositionDoc.countDocuments({ isOpen: true, mode: agentConfig.mode }).catch(() => 0)
+  const openCount = await PositionDoc.countDocuments({ isOpen: true, mode: config.mode }).catch(() => 0)
+
+  const balances: Record<string, number> = {}
+  for (const b of wallet.balances) balances[b.symbol] = b.valueUsd
 
   return {
-    mode:            agentConfig.mode,
-    balances:        { USDC: 5000 },  // initial paper wallet — production: pull from DB
-    openPositions:   openCount,
-    totalValueUsd:   5000,
+    mode:          config.mode,
+    balances,
+    openPositions: openCount,
+    totalValueUsd: wallet.totalValueUsd,
     dailyPnlUsd,
   }
 }
@@ -116,8 +118,10 @@ async function persistOpportunities(
 // ── Persist order + position from execution result ────────────────────────────
 
 async function persistExecution(
-  runId:          string,
-  intent:         any,
+  userId:          string,
+  mode:            AgentConfig['mode'],
+  runId:           string,
+  intent:          any,
   executionResult: any,
 ): Promise<void> {
   if (intent.type !== 'propose_trade') return
@@ -127,26 +131,28 @@ async function persistExecution(
     await OrderDoc.create({
       orderId,
       runId,
-      mode:           agentConfig.mode,
-      intentType:     intent.type,
-      tokenIn:        intent.tokenIn,
-      tokenOut:       intent.tokenOut,
-      amountUsd:      intent.amountUsd,
-      status:         executionResult.status,
+      userId,
+      mode,
+      intentType:      intent.type,
+      tokenIn:         intent.tokenIn,
+      tokenOut:        intent.tokenOut,
+      amountUsd:       intent.amountUsd,
+      status:          executionResult.status,
       filledAmountUsd: executionResult.filledAmountUsd,
-      entryPrice:     executionResult.entryPrice,
-      feesUsd:        executionResult.feesUsd,
-      txHash:         executionResult.txHash,
-      blockNumber:    executionResult.blockNumber,
-      riskBlockedBy:  executionResult.riskRejectionReason,
-      errorMessage:   executionResult.errorMessage,
-      executedAt:     executionResult.executedAt,
+      entryPrice:      executionResult.entryPrice,
+      feesUsd:         executionResult.feesUsd,
+      txHash:          executionResult.txHash,
+      blockNumber:     executionResult.blockNumber,
+      riskBlockedBy:   executionResult.riskRejectionReason,
+      errorMessage:    executionResult.errorMessage,
+      executedAt:      executionResult.executedAt,
     })
 
     if (executionResult.status === 'filled' && executionResult.filledAmountUsd) {
       await PositionDoc.create({
         positionId:     `pos-${generateMyId(10 as number)}`,
-        mode:           agentConfig.mode,
+        userId,
+        mode,
         tokenIn:        intent.tokenIn,
         tokenOut:       intent.tokenOut,
         entryAmountUsd: executionResult.filledAmountUsd,
@@ -166,104 +172,63 @@ async function persistExecution(
 
 // ── Main loop tick ────────────────────────────────────────────────────────────
 
-export async function runLoopTick(): Promise<void> {
-  // Kill switch
-  if (!agentConfig.enabled) {
-    console.log('[AgentLoop] Skipping tick — agent is disabled.')
+export async function runLoopTick(userId: string): Promise<void> {
+  const config = await getOrCreateConfig(userId)
+
+  if (!config.enabled) {
+    console.log(`[AgentLoop] Skipping tick for ${userId} — agent disabled.`)
     return
   }
 
   const runId     = `run-${generateMyId(10 as number)}`
   const startedAt = new Date()
-  const strategy  = Object.entries(agentConfig.strategies).find(([, v]) => v)?.[0] ?? 'yieldHunter'
+  const strategy  = Object.entries(config.strategies).find(([, v]) => v)?.[0] ?? 'yieldHunter'
 
-  console.log(`[AgentLoop] Tick starting: runId=${runId} strategy=${strategy} mode=${agentConfig.mode}`)
+  console.log(`[AgentLoop] Tick: user=${userId} runId=${runId} strategy=${strategy} mode=${config.mode}`)
 
-  // Create the run document as 'running'
   let runDoc: any
   try {
-    runDoc = await AgentRunDoc.create({
-      runId,
-      strategy,
-      mode:      agentConfig.mode,
-      startedAt,
-      status:    'running',
-    })
+    runDoc = await AgentRunDoc.create({ runId, userId, strategy, mode: config.mode, startedAt, status: 'running' })
   } catch (err: any) {
     console.error('[AgentLoop] Failed to create AgentRunDoc:', err.message)
     return
   }
 
   try {
-    // ── 1. Load wallet state ──────────────────────────────────────────────────
-    const walletState = await loadWalletState()
+    const walletState = await loadWalletState(userId, config)
 
-    // ── 2. Build strategy context ─────────────────────────────────────────────
     const strategyImpl = STRATEGIES[strategy]
-    if (!strategyImpl) {
-      throw new Error(`Strategy "${strategy}" not found in registry.`)
-    }
+    if (!strategyImpl) throw new Error(`Strategy "${strategy}" not found in registry.`)
 
-    const loopCtx: LoopContext = {
-      runId,
-      strategy,
-      startedAt:       startedAt.getTime(),
-      contextSummary:  '',
-      walletState,
-      marketData:      {},
-    }
-
+    const loopCtx: LoopContext = { runId, strategy, startedAt: startedAt.getTime(), contextSummary: '', walletState, marketData: {} }
     const strategyResult = await strategyImpl.buildContext(loopCtx)
 
-    // ── 3. Build context summary for LLM ──────────────────────────────────────
     const { text: contextSummary } = buildContextSummary(loopCtx, strategyResult.contextSummary)
     loopCtx.contextSummary = contextSummary
 
-    // Persist detected opportunities
     await persistOpportunities(strategy, runId, strategyResult.metadata)
 
-    // ── 4. Run policy engine (LLM tool-call loop) ─────────────────────────────
-    const decision = await runPolicyEngine(loopCtx, contextSummary)
+    const decision = await runPolicyEngine(loopCtx, contextSummary, config)
 
-    console.log(`[AgentLoop] Decision: ${decision.intent.type} (confidence ${decision.confidence}%)`)
-    console.log(`[AgentLoop] Rationale: ${decision.reasoning.slice(0, 120)}`)
-    console.log(`[AgentLoop] Tool calls: ${decision.toolCallTrace.join(' → ')}`)
-
-    // ── 5. Execute (via gateway → risk engine → executor) ─────────────────────
-    const gateway = await executeIntent(decision.intent, walletState)
-
-    console.log(`[AgentLoop] Execution: status=${gateway.execution.status} riskPassed=${gateway.riskPassed}`)
-
-    // ── 6. Persist order/position if trade executed ───────────────────────────
-    await persistExecution(runId, decision.intent, gateway.execution)
-
-    // ── 7. Update AgentRunDoc with final outcome ──────────────────────────────
-    const finalStatus: AgentRunRecord['status'] = gateway.pendingApproval
-      ? 'pending_approval'
-      : !gateway.riskPassed
-      ? 'blocked'
-      : 'completed'
-
-    await AgentRunDoc.updateOne({ runId }, {
-      $set: {
-        completedAt:     new Date(),
-        status:          finalStatus,
-        contextSnapshot: contextSummary.slice(0, 2000),  // cap to avoid huge docs
-        decision,
-        executionResult: gateway.execution,
-      },
+    const gateway = await executeIntent(decision.intent, walletState, {
+      userId, config, runId, strategy,
+      rationale: decision.reasoning, confidence: decision.confidence,
     })
 
-    console.log(`[AgentLoop] Tick complete: runId=${runId} status=${finalStatus}`)
+    await persistExecution(userId, config.mode, runId, decision.intent, gateway.execution)
 
+    const finalStatus: AgentRunRecord['status'] = gateway.pendingApproval
+      ? 'pending_approval'
+      : !gateway.riskPassed ? 'blocked' : 'completed'
+
+    await AgentRunDoc.updateOne({ runId }, { $set: {
+      completedAt: new Date(), status: finalStatus,
+      contextSnapshot: contextSummary.slice(0, 2000), decision, executionResult: gateway.execution,
+    } })
+
+    console.log(`[AgentLoop] Tick complete: runId=${runId} status=${finalStatus}`)
   } catch (err: any) {
     console.error(`[AgentLoop] Tick failed: ${err.message}`)
-    await AgentRunDoc.updateOne({ runId }, {
-      $set: {
-        completedAt:  new Date(),
-        status:       'failed',
-        errorMessage: err.message,
-      },
-    }).catch(() => {})
+    await AgentRunDoc.updateOne({ runId }, { $set: { completedAt: new Date(), status: 'failed', errorMessage: err.message } }).catch(() => {})
   }
 }
