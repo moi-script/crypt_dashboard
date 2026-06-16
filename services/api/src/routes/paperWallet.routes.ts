@@ -4,6 +4,7 @@
  */
 
 import { Router } from 'express'
+import { auth }   from '../middleware/auth'
 import {
   getWallet,
   getTrades,
@@ -12,10 +13,11 @@ import {
 } from '../controllers/paperWallet.controller'
 
 const router = Router()
+router.use(auth)
 
-router.get('/',        getWallet)
-router.get('/trades',  getTrades)
-router.get('/stats',   getStats)
-router.post('/reset',  postReset)
+router.get('/',       getWallet)
+router.get('/trades', getTrades)
+router.get('/stats',  getStats)
+router.post('/reset', postReset)
 
 export default router
