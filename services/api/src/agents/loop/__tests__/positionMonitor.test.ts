@@ -117,12 +117,12 @@ test('continues closing remaining positions when one position fails to close', a
   }) as any
 
   const originalUpdateOne = PositionDoc.updateOne.bind(PositionDoc)
-  const updateOneSpy = jest.spyOn(PositionDoc, 'updateOne').mockImplementation(((filter: any, ...rest: any[]) => {
+  const updateOneSpy = jest.spyOn(PositionDoc, 'updateOne').mockImplementation((filter?: any, update?: any) => {
     if (filter?.positionId === 'pos-fail') {
-      return Promise.reject(new Error('simulated transient DB error'))
+      return Promise.reject(new Error('simulated transient DB error')) as any
     }
-    return originalUpdateOne(filter, ...rest)
-  }) as any)
+    return originalUpdateOne(filter, update)
+  })
 
   const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {})
 
