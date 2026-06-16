@@ -15,18 +15,20 @@ import { PaperWalletDoc, TradeTransactionDoc, type ITokenBalance } from '../mode
 import type { ITradeTransaction } from '../models/paperWallet.model'
 import { generateMyId } from '../utils/nanoid'
 
-const WALLET_ID      = 'paper-default'
 const INITIAL_USD    = 5000
 const STABLE_TOKENS  = new Set(['USDC', 'USDT', 'DAI', 'USDC.e'])
 
+const walletIdFor = (userId: string) => `paper-${userId}`
+
 // ── Bootstrap / get wallet ────────────────────────────────────────────────────
 
-export async function getOrCreateWallet() {
-  let wallet = await PaperWalletDoc.findOne({ walletId: WALLET_ID })
+export async function getOrCreateWallet(userId: string) {
+  let wallet = await PaperWalletDoc.findOne({ userId })
 
   if (!wallet) {
     wallet = await PaperWalletDoc.create({
-      walletId:      WALLET_ID,
+      userId,
+      walletId:      walletIdFor(userId),
       mode:          'paper',
       initialUsd:    INITIAL_USD,
       totalValueUsd: INITIAL_USD,
@@ -42,7 +44,7 @@ export async function getOrCreateWallet() {
       realizedPnlUsd:   0,
       unrealizedPnlUsd: 0,
     })
-    console.log(`[PaperWallet] Created new paper wallet with $${INITIAL_USD} USDC`)
+    console.log(`[PaperWallet] Created paper wallet for ${userId} with $${INITIAL_USD} USDC`)
   }
 
   return wallet
@@ -71,8 +73,8 @@ export interface RecordTradeInput {
   confidence:     number
 }
 
-export async function recordTrade(input: RecordTradeInput): Promise<ITradeTransaction> {
-  const wallet = await getOrCreateWallet()
+export async function recordTrade(userId: string, input: RecordTradeInput): Promise<ITradeTransaction> {
+  const wallet = await getOrCreateWallet(userId)
 
   const tokenInSymbol  = input.tokenIn.toUpperCase()
   const tokenOutSymbol = input.tokenOut.toUpperCase()
@@ -144,7 +146,7 @@ export async function recordTrade(input: RecordTradeInput): Promise<ITradeTransa
 
   // Save updated wallet
   await PaperWalletDoc.updateOne(
-    { walletId: WALLET_ID },
+    { userId },
     {
       $set: {
         balances,
@@ -161,8 +163,9 @@ export async function recordTrade(input: RecordTradeInput): Promise<ITradeTransa
   const tx = await TradeTransactionDoc.create({
     txId,
     runId:             input.runId,
+    userId,
     orderId:           input.orderId,
-    walletId:          WALLET_ID,
+    walletId:          walletIdFor(userId),
     side,
     tokenIn:           tokenInSymbol,
     tokenOut:          tokenOutSymbol,
@@ -193,18 +196,18 @@ export async function recordTrade(input: RecordTradeInput): Promise<ITradeTransa
 
 // ── Query helpers ─────────────────────────────────────────────────────────────
 
-export async function getTradeHistory(limit = 50, skip = 0) {
+export async function getTradeHistory(userId: string, limit = 50, skip = 0) {
   return TradeTransactionDoc
-    .find({ walletId: WALLET_ID })
+    .find({ userId })
     .sort({ executedAt: -1 })
     .skip(skip)
     .limit(limit)
     .lean()
 }
 
-export async function getTradeStats() {
-  const wallet = await getOrCreateWallet()
-  const allTrades = await TradeTransactionDoc.find({ walletId: WALLET_ID }).lean()
+export async function getTradeStats(userId: string) {
+  const wallet = await getOrCreateWallet(userId)
+  const allTrades = await TradeTransactionDoc.find({ userId }).lean()
 
   const totalTrades  = allTrades.length
   const buys         = allTrades.filter(t => t.side === 'buy')
@@ -247,8 +250,8 @@ export async function getTradeStats() {
   }
 }
 
-export async function resetWallet() {
-  await PaperWalletDoc.deleteOne({ walletId: WALLET_ID })
-  await TradeTransactionDoc.deleteMany({ walletId: WALLET_ID })
-  return getOrCreateWallet()
+export async function resetWallet(userId: string) {
+  await PaperWalletDoc.deleteOne({ userId })
+  await TradeTransactionDoc.deleteMany({ userId })
+  return getOrCreateWallet(userId)
 }
