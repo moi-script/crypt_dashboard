@@ -97,6 +97,48 @@ test('leaves a position open when price is between stop loss and take profit', a
   expect(position?.isOpen).toBe(true)
 })
 
+test('continues closing remaining positions when one position fails to close', async () => {
+  await seedWalletHoldingBtc('user-fail')
+  await seedWalletHoldingBtc('user-ok')
+  await PositionDoc.create({
+    positionId: 'pos-fail', userId: 'user-fail', mode: 'paper', tokenIn: 'USDC', tokenOut: 'BTC',
+    entryAmountUsd: 1000, entryPrice: 50000, entryAt: new Date(), isOpen: true,
+    strategy: 'chartSignal', runId: 'run-1', stopLossPrice: 49000, takeProfitPrice: 53000,
+  })
+  await PositionDoc.create({
+    positionId: 'pos-ok', userId: 'user-ok', mode: 'paper', tokenIn: 'USDC', tokenOut: 'BTC',
+    entryAmountUsd: 1000, entryPrice: 50000, entryAt: new Date(), isOpen: true,
+    strategy: 'chartSignal', runId: 'run-1', stopLossPrice: 49000, takeProfitPrice: 53000,
+  })
+
+  global.fetch = jest.fn(async (url: string) => {
+    if (url.includes('bitcoin')) return { json: async () => ({ bitcoin: { usd: 48500 } }) } as any
+    return { json: async () => ({ 'usd-coin': { usd: 1 } }) } as any
+  }) as any
+
+  const originalUpdateOne = PositionDoc.updateOne.bind(PositionDoc)
+  const updateOneSpy = jest.spyOn(PositionDoc, 'updateOne').mockImplementation(((filter: any, ...rest: any[]) => {
+    if (filter?.positionId === 'pos-fail') {
+      return Promise.reject(new Error('simulated transient DB error'))
+    }
+    return originalUpdateOne(filter, ...rest)
+  }) as any)
+
+  const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {})
+
+  await expect(runPositionMonitorSweep()).resolves.not.toThrow()
+
+  updateOneSpy.mockRestore()
+  warnSpy.mockRestore()
+
+  const failedPosition = await PositionDoc.findOne({ positionId: 'pos-fail' }).lean()
+  expect(failedPosition?.isOpen).toBe(true)
+
+  const okPosition = await PositionDoc.findOne({ positionId: 'pos-ok' }).lean()
+  expect(okPosition?.isOpen).toBe(false)
+  expect(okPosition?.exitPrice).toBe(48500)
+})
+
 test('ignores positions without a stop loss or take profit set', async () => {
   await seedWalletHoldingBtc('user-legacy')
   await PositionDoc.create({

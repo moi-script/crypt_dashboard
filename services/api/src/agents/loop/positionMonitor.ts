@@ -101,7 +101,11 @@ export async function runPositionMonitorSweep(): Promise<void> {
     const hitTakeProfit = position.takeProfitPrice !== undefined && currentPrice >= position.takeProfitPrice
     if (!hitStopLoss && !hitTakeProfit) continue
 
-    await closePosition(position, currentPrice, hitStopLoss ? 'stop_loss' : 'take_profit')
+    try {
+      await closePosition(position, currentPrice, hitStopLoss ? 'stop_loss' : 'take_profit')
+    } catch (err: any) {
+      console.warn(`[PositionMonitor] Error processing position ${position.positionId}:`, err.message)
+    }
   }
 }
 
