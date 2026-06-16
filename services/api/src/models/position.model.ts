@@ -27,6 +27,10 @@ export interface IPosition {
   runId:        string      // which AgentRun opened this
   orderId?:     string
   txHash?:      string      // on-chain only
+  stopLossPrice?:   number
+  takeProfitPrice?: number
+  framework?:       string   // 'SmartMoney' | 'Wyckoff' | 'ElliottWave' | 'Harmonic'
+  confidence?:      number   // 0-100, from the originating signal
 }
 
 const PositionSchema = new Schema<IPosition>({
@@ -49,6 +53,10 @@ const PositionSchema = new Schema<IPosition>({
   runId:          { type: String, required: true },
   orderId:        String,
   txHash:         String,
+  stopLossPrice:   Number,
+  takeProfitPrice: Number,
+  framework:       String,
+  confidence:      Number,
 }, { timestamps: true })
 
 PositionSchema.index({ isOpen: 1, mode: 1 })

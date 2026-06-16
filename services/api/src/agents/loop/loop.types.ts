@@ -23,6 +23,9 @@ export interface TradeIntent {
   maxSlippageBps: number
   rationale: string
   venue?: string         // 'binance' | 'uniswap_v3_base' | etc.
+  stopLossPrice?: number     // set by chartSignal strategy only
+  takeProfitPrice?: number   // set by chartSignal strategy only
+  framework?: string         // 'SmartMoney' | 'Wyckoff' | 'ElliottWave' | 'Harmonic'
 }
 
 export interface AlertIntent {
@@ -65,11 +68,13 @@ export interface WalletState {
 
 export interface LoopContext {
   runId: string
+  userId: string
   strategy: string
   startedAt: number
   contextSummary: string            // what the LLM sees
   walletState: WalletState
   marketData: Record<string, unknown>
+  config: AgentConfig
 }
 
 // ── AgentRun record (persisted) ───────────────────────────────────────────────
