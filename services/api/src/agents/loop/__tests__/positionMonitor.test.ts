@@ -154,3 +154,83 @@ test('ignores positions without a stop loss or take profit set', async () => {
   const position = await PositionDoc.findOne({ positionId: 'pos-legacy' }).lean()
   expect(position?.isOpen).toBe(true)
 })
+
+// ── Limit-order activation / expiry ─────────────────────────────────────────
+
+const future = () => new Date(Date.now() + 60 * 60 * 1000)
+const past   = () => new Date(Date.now() - 60 * 1000)
+
+async function seedPending(userId: string, positionId: string, entryExpiresAt: Date) {
+  await getOrCreateWallet(userId)  // fresh 5000 USDC
+  await PositionDoc.create({
+    positionId, userId, mode: 'paper', status: 'pending', isOpen: false,
+    tokenIn: 'USDC', tokenOut: 'BTC', entryAmountUsd: 100, entryAt: new Date(),
+    strategy: 'chartSignal', runId: 'run-1',
+    stopLossPrice: 49000, takeProfitPrice: 53000,
+    entryZoneLow: 50000, entryZoneHigh: 51000, entryExpiresAt,
+  })
+}
+
+const usdcAmount = async (userId: string) => {
+  const wallet = await PaperWalletDoc.findOne({ userId }).lean()
+  return wallet?.balances.find(b => b.symbol === 'USDC')?.amount
+}
+
+test('fills a pending limit order when price re-enters the entry zone', async () => {
+  await seedPending('user-fill', 'pos-pending', future())
+
+  global.fetch = jest.fn(async (url: string) => {
+    if (url.includes('bitcoin')) return { json: async () => ({ bitcoin: { usd: 50500 } }) } as any  // inside [50000, 51000]
+    return { json: async () => ({ 'usd-coin': { usd: 1 } }) } as any
+  }) as any
+
+  await runPositionMonitorSweep()
+
+  const position = await PositionDoc.findOne({ positionId: 'pos-pending' }).lean()
+  expect(position?.status).toBe('open')
+  expect(position?.isOpen).toBe(true)
+  expect(position?.entryPrice).toBe(50500)
+  expect(position?.orderId).toBeDefined()
+
+  const orders = await OrderDoc.find({ positionId: 'pos-pending' }).lean()
+  expect(orders).toHaveLength(1)
+  expect(orders[0].intentType).toBe('open_position')
+
+  expect(await usdcAmount('user-fill')).toBeLessThan(5000)  // wallet debited on fill
+})
+
+test('leaves a pending limit order pending when price is outside the entry zone', async () => {
+  await seedPending('user-wait', 'pos-wait', future())
+
+  global.fetch = jest.fn(async (url: string) => {
+    if (url.includes('bitcoin')) return { json: async () => ({ bitcoin: { usd: 52000 } }) } as any  // above [50000, 51000]
+    return { json: async () => ({ 'usd-coin': { usd: 1 } }) } as any
+  }) as any
+
+  await runPositionMonitorSweep()
+
+  const position = await PositionDoc.findOne({ positionId: 'pos-wait' }).lean()
+  expect(position?.status).toBe('pending')
+  expect(position?.isOpen).toBe(false)
+  expect(await usdcAmount('user-wait')).toBe(5000)  // untouched
+})
+
+test('cancels a pending limit order once it has expired, even if price is in the zone', async () => {
+  await seedPending('user-exp', 'pos-exp', past())
+
+  global.fetch = jest.fn(async (url: string) => {
+    if (url.includes('bitcoin')) return { json: async () => ({ bitcoin: { usd: 50500 } }) } as any  // in zone, but expired
+    return { json: async () => ({ 'usd-coin': { usd: 1 } }) } as any
+  }) as any
+
+  await runPositionMonitorSweep()
+
+  const position = await PositionDoc.findOne({ positionId: 'pos-exp' }).lean()
+  expect(position?.status).toBe('cancelled')
+  expect(position?.isOpen).toBe(false)
+  expect(position?.entryPrice).toBeUndefined()  // never filled
+
+  const orders = await OrderDoc.find({ positionId: 'pos-exp' }).lean()
+  expect(orders).toHaveLength(0)
+  expect(await usdcAmount('user-exp')).toBe(5000)  // untouched
+})

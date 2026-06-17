@@ -43,8 +43,14 @@ export const chartSignalStrategy: Strategy = {
   async buildContext(ctx: LoopContext): Promise<StrategyResult> {
     const config = ctx.config as AgentConfig
 
+    // Skip symbols that already have a pending (limit order awaiting fill) or
+    // open position — don't stack duplicate orders each tick.
     const openSymbols = new Set(
-      await PositionDoc.find({ userId: ctx.userId, isOpen: true, mode: 'paper' }).distinct('tokenOut'),
+      await PositionDoc.find({
+        userId: ctx.userId,
+        mode: 'paper',
+        status: { $in: ['pending', 'open'] },
+      }).distinct('tokenOut'),
     )
 
     const lines: string[] = [`=== CHART SIGNAL — ${new Date().toISOString()} ===`]
@@ -110,6 +116,8 @@ export const chartSignalStrategy: Strategy = {
         rationale: signal.reasoning,
         stopLossPrice: signal.stop_loss,
         takeProfitPrice: signal.take_profit_levels[0],
+        entryZoneLow: signal.entry_zone.low,
+        entryZoneHigh: signal.entry_zone.high,
         framework: signal.framework,
       }
       deterministicDecision = {

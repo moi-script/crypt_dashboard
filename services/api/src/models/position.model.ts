@@ -7,21 +7,25 @@
 
 import { Schema, model } from 'mongoose'
 
+export type PositionStatus = 'pending' | 'open' | 'closed' | 'cancelled'
+
 export interface IPosition {
   positionId:   string
   userId?:      string
   mode:         'paper' | 'cex' | 'onchain'
+  /** pending = limit order awaiting fill, open = filled & live, closed = exited, cancelled = limit expired unfilled */
+  status:       PositionStatus
   tokenIn:      string
   tokenOut:     string
   entryAmountUsd: number
-  entryPrice:   number
+  entryPrice?:  number       // set on fill; undefined while pending
   entryFeesUsd: number
   entryAt:      Date
   exitPrice?:   number
   exitAmountUsd?: number
   exitFeesUsd?: number
   exitAt?:      Date
-  isOpen:       boolean
+  isOpen:       boolean       // kept in sync with status === 'open'
   realizedPnlUsd?: number
   strategy:     string
   runId:        string      // which AgentRun opened this
@@ -29,6 +33,9 @@ export interface IPosition {
   txHash?:      string      // on-chain only
   stopLossPrice?:   number
   takeProfitPrice?: number
+  entryZoneLow?:    number   // limit-order entry zone (pending positions)
+  entryZoneHigh?:   number
+  entryExpiresAt?:  Date     // cancel the pending limit order after this time
   framework?:       string   // 'SmartMoney' | 'Wyckoff' | 'ElliottWave' | 'Harmonic'
   confidence?:      number   // 0-100, from the originating signal
 }
@@ -37,10 +44,11 @@ const PositionSchema = new Schema<IPosition>({
   positionId:     { type: String, required: true, unique: true },
   userId:         { type: String, index: true },
   mode:           { type: String, enum: ['paper', 'cex', 'onchain'], required: true },
+  status:         { type: String, enum: ['pending', 'open', 'closed', 'cancelled'], default: 'open' },
   tokenIn:        { type: String, required: true },
   tokenOut:       { type: String, required: true },
   entryAmountUsd: { type: Number, required: true },
-  entryPrice:     { type: Number, required: true },
+  entryPrice:     { type: Number },
   entryFeesUsd:   { type: Number, default: 0 },
   entryAt:        { type: Date,   required: true },
   exitPrice:      Number,
@@ -55,11 +63,15 @@ const PositionSchema = new Schema<IPosition>({
   txHash:         String,
   stopLossPrice:   Number,
   takeProfitPrice: Number,
+  entryZoneLow:    Number,
+  entryZoneHigh:   Number,
+  entryExpiresAt:  Date,
   framework:       String,
   confidence:      Number,
 }, { timestamps: true })
 
 PositionSchema.index({ isOpen: 1, mode: 1 })
+PositionSchema.index({ status: 1, mode: 1 })
 PositionSchema.index({ strategy: 1, entryAt: -1 })
 
 export const PositionDoc = model<IPosition>('Position', PositionSchema)

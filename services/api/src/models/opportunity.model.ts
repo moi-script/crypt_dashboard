@@ -19,6 +19,7 @@ export type OpportunityType =
 
 export interface IOpportunity {
   opportunityId: string
+  userId?:       string
   type:          OpportunityType
   strategy:      string
   runId:         string
@@ -37,6 +38,7 @@ export interface IOpportunity {
 
 const OpportunitySchema = new Schema<IOpportunity>({
   opportunityId: { type: String, required: true, unique: true },
+  userId:        { type: String, index: true },
   type:          { type: String, enum: ['yield_anomaly','price_spike','volume_spike','airdrop_signal','sentiment_shift'], required: true },
   strategy:      { type: String, required: true },
   runId:         { type: String, required: true },

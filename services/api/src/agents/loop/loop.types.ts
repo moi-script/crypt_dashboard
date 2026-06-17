@@ -25,6 +25,8 @@ export interface TradeIntent {
   venue?: string         // 'binance' | 'uniswap_v3_base' | etc.
   stopLossPrice?: number     // set by chartSignal strategy only
   takeProfitPrice?: number   // set by chartSignal strategy only
+  entryZoneLow?: number      // set by chartSignal strategy only — limit-order entry zone
+  entryZoneHigh?: number     // set by chartSignal strategy only — limit-order entry zone
   framework?: string         // 'SmartMoney' | 'Wyckoff' | 'ElliottWave' | 'Harmonic'
 }
 
@@ -97,7 +99,7 @@ export interface AgentRunRecord {
 
 // ── ExecutionResult ───────────────────────────────────────────────────────────
 
-export type ExecutionStatus = 'filled' | 'rejected' | 'pending' | 'blocked_by_risk' | 'manual_approval_required' | 'error'
+export type ExecutionStatus = 'filled' | 'rejected' | 'pending' | 'pending_limit' | 'blocked_by_risk' | 'manual_approval_required' | 'error'
 
 export interface ExecutionResult {
   status: ExecutionStatus

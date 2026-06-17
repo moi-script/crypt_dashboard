@@ -6,16 +6,17 @@
  * GET /api/positions/pnl/summary — all-time PnL breakdown
  */
 
-import type { Request, Response, NextFunction } from 'express'
-import { PositionDoc, OrderDoc }                from '../models/position.model'
+import type { Response, NextFunction } from 'express'
+import type { AuthRequest }            from '../middleware/auth'
+import { PositionDoc, OrderDoc }       from '../models/position.model'
 
-export async function listPositions(req: Request, res: Response, next: NextFunction) {
+export async function listPositions(req: AuthRequest, res: Response, next: NextFunction) {
   try {
     const mode    = (req.query.mode as string) ?? 'paper'
     const isOpen  = req.query.open === 'true' ? true : req.query.open === 'false' ? false : undefined
     const limit   = Math.min(parseInt(req.query.limit as string) || 50, 200)
 
-    const filter: Record<string, unknown> = { mode }
+    const filter: Record<string, unknown> = { mode, userId: req.userId! }
     if (isOpen !== undefined) filter.isOpen = isOpen
 
     const positions = await PositionDoc
@@ -28,13 +29,13 @@ export async function listPositions(req: Request, res: Response, next: NextFunct
   } catch (err) { next(err) }
 }
 
-export async function getDailyPnl(_req: Request, res: Response, next: NextFunction) {
+export async function getDailyPnl(req: AuthRequest, res: Response, next: NextFunction) {
   try {
     const today = new Date()
     today.setHours(0, 0, 0, 0)
 
     const closedToday = await PositionDoc
-      .find({ isOpen: false, exitAt: { $gte: today } })
+      .find({ userId: req.userId!, status: 'closed', exitAt: { $gte: today } })
       .lean()
 
     const totalPnlUsd  = closedToday.reduce((s, p) => s + (p.realizedPnlUsd ?? 0), 0)
@@ -52,9 +53,9 @@ export async function getDailyPnl(_req: Request, res: Response, next: NextFuncti
   } catch (err) { next(err) }
 }
 
-export async function getPnlSummary(_req: Request, res: Response, next: NextFunction) {
+export async function getPnlSummary(req: AuthRequest, res: Response, next: NextFunction) {
   try {
-    const allClosed = await PositionDoc.find({ isOpen: false }).lean()
+    const allClosed = await PositionDoc.find({ userId: req.userId!, status: 'closed' }).lean()
 
     const totalPnl   = allClosed.reduce((s, p) => s + (p.realizedPnlUsd ?? 0), 0)
     const totalTrades = allClosed.length
@@ -64,8 +65,8 @@ export async function getPnlSummary(_req: Request, res: Response, next: NextFunc
     const avgWin  = wins.length  > 0 ? wins.reduce((s, p)   => s + (p.realizedPnlUsd ?? 0), 0) / wins.length  : 0
     const avgLoss = losses.length > 0 ? losses.reduce((s, p) => s + (p.realizedPnlUsd ?? 0), 0) / losses.length : 0
 
-    const openCount  = await PositionDoc.countDocuments({ isOpen: true })
-    const orderCount = await OrderDoc.countDocuments({})
+    const openCount  = await PositionDoc.countDocuments({ userId: req.userId!, isOpen: true })
+    const orderCount = await OrderDoc.countDocuments({ userId: req.userId! })
 
     res.json({
       totalPnlUsd:   parseFloat(totalPnl.toFixed(4)),

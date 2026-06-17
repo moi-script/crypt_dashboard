@@ -10,6 +10,7 @@
  */
 
 import type { RegisteredTool, ToolContext } from './tool.types'
+import { PositionDoc } from '../../models/position.model'
 // ── get_price ─────────────────────────────────────────────────────────────────
 interface CoinResponse {
   name: string
@@ -189,22 +190,31 @@ const getWalletStateTool: RegisteredTool = {
   },
   handler: async (args, ctx: ToolContext) => {
     const includePositions = (args.includePositions as boolean) ?? false
-    const BASE = process.env.API_BASE_URL ?? 'http://localhost:4000'
 
-    // In paper mode, query the simulated PositionDoc from the API
+    // Query the simulated PositionDoc collection directly, scoped to the
+    // calling account. (Previously this hit the HTTP API unauthenticated,
+    // which both leaked cross-account data and breaks now that the
+    // positions routes require a token.)
     try {
-      const [paperPos, dailyPnl] = await Promise.allSettled([
-        includePositions
-          ? fetch(`${BASE}/api/positions?mode=paper`).then(r => r.json() as Promise<any[]>)
-          : Promise.resolve([]),
-        fetch(`${BASE}/api/positions/pnl/daily`).then(r => r.json() as Promise<{ totalPnlUsd?: number }>),
-      ])
+      const openPositions = includePositions && ctx.userId
+        ? await PositionDoc.find({ userId: ctx.userId, isOpen: true, mode: 'paper' }).lean()
+        : []
+
+      let dailyPnlUsd = 0
+      if (ctx.userId) {
+        const today = new Date()
+        today.setHours(0, 0, 0, 0)
+        const closedToday = await PositionDoc
+          .find({ userId: ctx.userId, isOpen: false, exitAt: { $gte: today } })
+          .lean()
+        dailyPnlUsd = closedToday.reduce((s, p) => s + (p.realizedPnlUsd ?? 0), 0)
+      }
 
       return {
         mode: ctx.dryRun ? 'paper' : 'live',
         paperBalance: { USDC: 5000, ETH: 0 },   // initial paper wallet
-        openPositions: paperPos.status === 'fulfilled' ? paperPos.value : [],
-        dailyPnlUsd: dailyPnl.status === 'fulfilled' ? (dailyPnl.value?.totalPnlUsd ?? 0) : 0,
+        openPositions,
+        dailyPnlUsd,
       }
     } catch (err: any) {
       return { error: err.message, mode: 'paper' }

@@ -20,11 +20,11 @@ import type { TradeIntent } from './loop.types'
 type ExitReason = 'stop_loss' | 'take_profit'
 
 async function closePosition(
-  position: { positionId: string; userId?: string; tokenIn: string; tokenOut: string; entryAmountUsd: number; entryPrice: number; strategy: string; confidence?: number },
+  position: { positionId: string; userId?: string; tokenIn: string; tokenOut: string; entryAmountUsd: number; entryPrice?: number; strategy: string; confidence?: number },
   exitPrice: number,
   reason: ExitReason,
 ): Promise<void> {
-  if (!position.userId) return
+  if (!position.userId || !position.entryPrice) return
 
   const unitsHeld = position.entryAmountUsd / position.entryPrice
   const closeIntent: TradeIntent = {
@@ -68,6 +68,7 @@ async function closePosition(
   })
 
   await PositionDoc.updateOne({ positionId: position.positionId }, { $set: {
+    status: 'closed',
     isOpen: false,
     exitPrice,
     exitAmountUsd: result.filledAmountUsd,
@@ -78,21 +79,117 @@ async function closePosition(
   console.log(`[PositionMonitor] Closed ${position.positionId} (${reason}) — PnL: $${(result.simulatedPnlUsd ?? 0).toFixed(2)}`)
 }
 
+// ── Limit-order activation ──────────────────────────────────────────────────
+// Fill a pending limit order once price has re-entered the entry zone. Goes
+// straight to executePaper (same bypass rationale as closePosition).
+
+async function activateLimitPosition(
+  position: { positionId: string; userId?: string; tokenIn: string; tokenOut: string; entryAmountUsd: number; strategy: string; stopLossPrice?: number; takeProfitPrice?: number; confidence?: number },
+  fillPrice: number,
+): Promise<void> {
+  if (!position.userId) return
+
+  const buyIntent: TradeIntent = {
+    type: 'propose_trade',
+    tokenIn: position.tokenIn,
+    tokenOut: position.tokenOut,
+    amountUsd: position.entryAmountUsd,
+    maxSlippageBps: 50,
+    rationale: `Limit entry filled — price re-entered zone at $${fillPrice.toFixed(4)}`,
+    stopLossPrice: position.stopLossPrice,
+    takeProfitPrice: position.takeProfitPrice,
+  }
+
+  const runId = `monitor-${generateMyId(10)}`
+  const result = await executePaper(buyIntent, {
+    userId: position.userId,
+    runId,
+    strategy: position.strategy,
+    rationale: buyIntent.rationale,
+    confidence: position.confidence ?? 0,
+  })
+
+  if (result.status !== 'filled') {
+    console.warn(`[PositionMonitor] Limit fill rejected for ${position.positionId}: ${result.errorMessage ?? result.status}`)
+    return
+  }
+
+  const orderId = result.orderId ?? `order-${generateMyId(10)}`
+  await OrderDoc.create({
+    orderId,
+    runId,
+    userId: position.userId,
+    mode: 'paper',
+    intentType: 'open_position',
+    tokenIn: buyIntent.tokenIn,
+    tokenOut: buyIntent.tokenOut,
+    amountUsd: buyIntent.amountUsd,
+    status: result.status,
+    filledAmountUsd: result.filledAmountUsd,
+    entryPrice: result.entryPrice,
+    feesUsd: result.feesUsd,
+    executedAt: result.executedAt,
+    positionId: position.positionId,
+  })
+
+  await PositionDoc.updateOne({ positionId: position.positionId }, { $set: {
+    status: 'open',
+    isOpen: true,
+    entryPrice: result.entryPrice,
+    entryAmountUsd: result.filledAmountUsd,
+    entryFeesUsd: result.feesUsd ?? 0,
+    entryAt: result.executedAt,
+    orderId,
+  } })
+
+  console.log(`[PositionMonitor] Opened ${position.positionId} (limit fill) at $${(result.entryPrice ?? fillPrice).toFixed(4)}`)
+}
+
 export async function runPositionMonitorSweep(): Promise<void> {
   const openPositions = await PositionDoc.find({
-    isOpen: true,
+    status: 'open',
     mode: 'paper',
     $or: [{ stopLossPrice: { $exists: true } }, { takeProfitPrice: { $exists: true } }],
   }).lean()
 
-  if (openPositions.length === 0) return
+  const pendingPositions = await PositionDoc.find({
+    status: 'pending',
+    mode: 'paper',
+  }).lean()
 
-  const uniqueSymbols = [...new Set(openPositions.map(p => p.tokenOut))]
+  if (openPositions.length === 0 && pendingPositions.length === 0) return
+
+  const uniqueSymbols = [...new Set([...openPositions, ...pendingPositions].map(p => p.tokenOut))]
   const prices: Record<string, number> = {}
   for (const symbol of uniqueSymbols) {
     prices[symbol] = await getLivePrice(symbol)
   }
 
+  // ── Pending limit orders: expire or activate ──────────────────────────────
+  const now = Date.now()
+  for (const position of pendingPositions) {
+    try {
+      if (position.entryExpiresAt && now > new Date(position.entryExpiresAt).getTime()) {
+        await PositionDoc.updateOne({ positionId: position.positionId }, { $set: { status: 'cancelled', isOpen: false } })
+        console.log(`[PositionMonitor] Cancelled expired limit order ${position.positionId}`)
+        continue
+      }
+
+      const currentPrice = prices[position.tokenOut]
+      if (!currentPrice) continue
+
+      const inZone =
+        position.entryZoneLow  !== undefined && position.entryZoneHigh !== undefined &&
+        currentPrice >= position.entryZoneLow && currentPrice <= position.entryZoneHigh
+      if (!inZone) continue
+
+      await activateLimitPosition(position, currentPrice)
+    } catch (err: any) {
+      console.warn(`[PositionMonitor] Error processing pending position ${position.positionId}:`, err.message)
+    }
+  }
+
+  // ── Open positions: stop-loss / take-profit ───────────────────────────────
   for (const position of openPositions) {
     const currentPrice = prices[position.tokenOut]
     if (!currentPrice) continue

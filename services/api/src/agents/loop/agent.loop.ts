@@ -39,6 +39,11 @@ import type { LoopContext, WalletState, AgentRunRecord, TradeIntent } from './lo
 import type { Strategy } from '../policy/strategies/strategy.types'
 
 import { generateMyId } from '@/utils/nanoid'
+
+// How long a pending limit order waits for price to re-enter the entry zone
+// before it's cancelled. Defaults to 6h.
+const LIMIT_ORDER_TTL_MS = Number(process.env.LIMIT_ORDER_TTL_MS) || 6 * 60 * 60 * 1000
+
 // ── Strategy registry ─────────────────────────────────────────────────────────
 
 const STRATEGIES: Record<string, Strategy> = {
@@ -84,6 +89,7 @@ async function loadWalletState(userId: string, config: AgentConfig): Promise<Wal
 // ── Detect and persist opportunities ─────────────────────────────────────────
 
 async function persistOpportunities(
+  userId:        string,
   strategyName:  string,
   runId:         string,
   metadata:      Record<string, unknown>,
@@ -96,6 +102,7 @@ async function persistOpportunities(
 
     const docs = spikedPools.slice(0, 5).map(pool => ({
       opportunityId: `opp-${runId}-${pool.pool?.slice(0, 8) ?? generateMyId(6 as number)}`,
+      userId,
       type:          'yield_anomaly' as const,
       strategy:      strategyName,
       runId,
@@ -130,6 +137,8 @@ async function persistExecution(
 ): Promise<void> {
   if (intent.type !== 'propose_trade') return
 
+  const isLimit = executionResult.status === 'pending_limit'
+
   try {
     const orderId = executionResult.orderId ?? `order-${generateMyId(10 as number)}`
     await OrderDoc.create({
@@ -137,11 +146,11 @@ async function persistExecution(
       runId,
       userId,
       mode,
-      intentType:      intent.type,
+      intentType:      isLimit ? 'limit_entry' : intent.type,
       tokenIn:         intent.tokenIn,
       tokenOut:        intent.tokenOut,
       amountUsd:       intent.amountUsd,
-      status:          executionResult.status,
+      status:          isLimit ? 'pending' : executionResult.status,
       filledAmountUsd: executionResult.filledAmountUsd,
       entryPrice:      executionResult.entryPrice,
       feesUsd:         executionResult.feesUsd,
@@ -152,11 +161,38 @@ async function persistExecution(
       executedAt:      executionResult.executedAt,
     })
 
-    if (executionResult.status === 'filled' && executionResult.filledAmountUsd) {
+    if (isLimit) {
+      // Limit order: record a PENDING position. The position monitor fills it
+      // (flips to 'open') once price re-enters the entry zone, or cancels it
+      // after entryExpiresAt.
       await PositionDoc.create({
         positionId:      `pos-${generateMyId(10 as number)}`,
         userId,
         mode,
+        status:          'pending',
+        tokenIn:         intent.tokenIn,
+        tokenOut:        intent.tokenOut,
+        entryAmountUsd:  intent.amountUsd,
+        entryFeesUsd:    0,
+        entryAt:         executionResult.executedAt,
+        isOpen:          false,
+        strategy,
+        runId,
+        orderId,
+        stopLossPrice:   intent.stopLossPrice,
+        takeProfitPrice: intent.takeProfitPrice,
+        entryZoneLow:    intent.entryZoneLow,
+        entryZoneHigh:   intent.entryZoneHigh,
+        entryExpiresAt:  new Date(Date.now() + LIMIT_ORDER_TTL_MS),
+        framework:       intent.framework,
+        confidence,
+      })
+    } else if (executionResult.status === 'filled' && executionResult.filledAmountUsd) {
+      await PositionDoc.create({
+        positionId:      `pos-${generateMyId(10 as number)}`,
+        userId,
+        mode,
+        status:          'open',
         tokenIn:         intent.tokenIn,
         tokenOut:        intent.tokenOut,
         entryAmountUsd:  executionResult.filledAmountUsd,
@@ -214,7 +250,7 @@ export async function runLoopTick(userId: string): Promise<void> {
     const { text: contextSummary } = buildContextSummary(loopCtx, strategyResult.contextSummary)
     loopCtx.contextSummary = contextSummary
 
-    await persistOpportunities(strategy, runId, strategyResult.metadata)
+    await persistOpportunities(userId, strategy, runId, strategyResult.metadata)
 
     const decision = strategyResult.deterministicDecision
       ?? await runPolicyEngine(loopCtx, contextSummary, config)
