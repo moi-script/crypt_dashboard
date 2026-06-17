@@ -78,7 +78,8 @@ export type AgentRunStatus =
   | "completed"
   | "failed"
   | "blocked"
-  | "pending_approval";
+  | "pending_approval"
+  | "rejected";
 
 export type ExecutionStatus =
   | "filled"
@@ -129,6 +130,55 @@ export interface AgentRun {
   decision?:       AgentRunDecision;
   executionResult?: AgentRunExecution;
   errorMessage?:   string;
+  chartSnapshot?:  ChartSnapshot;
+}
+
+// ── Chart snapshot ────────────────────────────────────────────────────────────
+
+export interface ChartOverlay {
+  supportResistance: Array<{
+    price:    number
+    type:     'support' | 'resistance'
+    strength: 'strong' | 'moderate' | 'weak'
+  }>
+  trendlines: Array<{
+    p1:        { time: number; price: number }
+    p2:        { time: number; price: number }
+    direction: 'up' | 'down'
+  }>
+  orderBlocks?:     Array<{ high: number; low: number; type: 'bullish' | 'bearish'; status: string }>
+  elliottPivots?:   Array<{ price: number; timestamp: number; waveLabel: string }>
+  wyckoffRange?:    { high: number; low: number; phase: string }
+  harmonicPattern?: { name: string; prz_high: number; prz_low: number; xabcd: Record<string, number>; xabcd_ts: Record<string, number> }
+}
+
+export interface ChartSnapshot {
+  symbol:           string
+  binanceSymbol:    string
+  framework:        string
+  snapshotAt:       string
+  entryZone:        { low: number; high: number }
+  stopLoss:         number
+  takeProfitLevels: number[]
+  confidence:       number
+  overlays:         ChartOverlay
+}
+
+export interface Candle {
+  timestamp: number
+  open:      number
+  high:      number
+  low:       number
+  close:     number
+  volume:    number
+}
+
+export interface ApprovalRun {
+  runId:          string
+  strategy:       string
+  startedAt:      string
+  decision?:      AgentRunDecision
+  chartSnapshot?: ChartSnapshot
 }
 
 export interface AgentConfig {
@@ -338,3 +388,28 @@ saveToolResult: (
   getOpportunitySummary: () =>
     apiClient.get<OpportunitySummary>("/opportunities/summary"),
 };
+
+// ── Approval & chart service functions ────────────────────────────────────────
+
+export async function listApprovals(): Promise<ApprovalRun[]> {
+  const data = await apiClient.get<{ approvals: ApprovalRun[] }>('/agent-runs/approvals')
+  return data.approvals ?? []
+}
+
+export async function approveRun(runId: string): Promise<{ status: string }> {
+  return apiClient.post<{ status: string }>(`/agent-runs/${runId}/approve`, {})
+}
+
+export async function rejectRun(runId: string): Promise<void> {
+  await apiClient.post(`/agent-runs/${runId}/reject`, {})
+}
+
+export async function getOhlcv(
+  symbol: string,
+  timeframe: string,
+  limit = 300,
+): Promise<{ candles: Candle[] }> {
+  return apiClient.get<{ candles: Candle[] }>(
+    `/chart/ohlcv/${symbol}?timeframe=${timeframe}&limit=${limit}`,
+  )
+}
