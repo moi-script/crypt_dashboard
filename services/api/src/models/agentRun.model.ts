@@ -7,22 +7,54 @@
  */
 
 import { Schema, model } from 'mongoose'
-import type { AgentRunRecord, Decision, ExecutionResult } from '../agents/loop/loop.types'
+import type { AgentRunRecord, Decision, ExecutionResult, ChartSnapshot, ChartOverlay } from '../agents/loop/loop.types'
 
 // ── Sub-schemas ───────────────────────────────────────────────────────────────
 
+const ChartOverlaySchema = new Schema<ChartOverlay>({
+  supportResistance: [{ price: Number, type: String, strength: String, _id: false }],
+  trendlines:        [{
+    p1: { time: Number, price: Number, _id: false },
+    p2: { time: Number, price: Number, _id: false },
+    direction: String,
+    _id: false,
+  }],
+  orderBlocks:     [{ high: Number, low: Number, type: String, status: String, _id: false }],
+  elliottPivots:   [{ price: Number, timestamp: Number, waveLabel: String, _id: false }],
+  wyckoffRange:    { high: Number, low: Number, phase: String, _id: false },
+  harmonicPattern: { name: String, prz_high: Number, prz_low: Number, xabcd: Schema.Types.Mixed, xabcd_ts: Schema.Types.Mixed, _id: false },
+}, { _id: false })
+
+const ChartSnapshotSchema = new Schema<ChartSnapshot>({
+  symbol:           String,
+  binanceSymbol:    String,
+  framework:        String,
+  snapshotAt:       Date,
+  entryZone:        { low: Number, high: Number, _id: false },
+  stopLoss:         Number,
+  takeProfitLevels: [Number],
+  confidence:       Number,
+  overlays:         { type: ChartOverlaySchema, default: undefined },
+}, { _id: false })
+
 const IntentSchema = new Schema({
-  type:           { type: String, required: true },
-  tokenIn:        String,
-  tokenOut:       String,
-  amountUsd:      Number,
-  maxSlippageBps: Number,
-  rationale:      String,
-  venue:          String,
-  coinId:         String,
-  condition:      String,
-  threshold:      Number,
-  targetWeights:  Schema.Types.Mixed,
+  type:             { type: String, required: true },
+  tokenIn:          String,
+  tokenOut:         String,
+  amountUsd:        Number,
+  maxSlippageBps:   Number,
+  rationale:        String,
+  venue:            String,
+  coinId:           String,
+  condition:        String,
+  threshold:        Number,
+  targetWeights:    Schema.Types.Mixed,
+  // ── chartSignal fields ──────────────────────────
+  stopLossPrice:    Number,
+  takeProfitPrice:  Number,
+  entryZoneLow:     Number,
+  entryZoneHigh:    Number,
+  framework:        String,
 }, { _id: false })
 
 const DecisionSchema = new Schema({
@@ -57,12 +89,13 @@ const AgentRunSchema = new Schema<AgentRunRecord>({
   completedAt:     Date,
   status:          {
     type:    String,
-    enum:    ['running', 'completed', 'failed', 'blocked', 'pending_approval'],
+    enum:    ['running', 'completed', 'failed', 'blocked', 'pending_approval', 'rejected'],
     default: 'running',
   },
   contextSnapshot: { type: String, default: '' },
   decision:        DecisionSchema,
   executionResult: ExecutionResultSchema,
+  chartSnapshot:   { type: ChartSnapshotSchema, default: undefined },
   errorMessage:    String,
 }, { timestamps: true })
 

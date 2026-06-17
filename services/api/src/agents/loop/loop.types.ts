@@ -81,7 +81,39 @@ export interface LoopContext {
 
 // ── AgentRun record (persisted) ───────────────────────────────────────────────
 
-export type AgentRunStatus = 'running' | 'completed' | 'failed' | 'blocked' | 'pending_approval'
+export type AgentRunStatus = 'running' | 'completed' | 'failed' | 'blocked' | 'pending_approval' | 'rejected'
+
+// ── Chart snapshot (persisted per chartSignal run that produces a signal) ─────
+
+export interface ChartOverlay {
+  supportResistance: Array<{
+    price:    number
+    type:     'support' | 'resistance'
+    strength: 'strong' | 'moderate' | 'weak'
+  }>
+  trendlines: Array<{
+    p1:        { time: number; price: number }   // Unix ms timestamp
+    p2:        { time: number; price: number }
+    direction: 'up' | 'down'
+  }>
+  // Framework-specific (only one field is populated per run):
+  orderBlocks?:     Array<{ high: number; low: number; type: 'bullish' | 'bearish'; status: string }>
+  elliottPivots?:   Array<{ price: number; timestamp: number; waveLabel: string }>
+  wyckoffRange?:    { high: number; low: number; phase: string }
+  harmonicPattern?: { name: string; prz_high: number; prz_low: number; xabcd: Record<string, number>; xabcd_ts: Record<string, number> }
+}
+
+export interface ChartSnapshot {
+  symbol:           string          // 'BTC' | 'ETH'
+  binanceSymbol:    string          // 'BTCUSDT' | 'ETHUSDT'
+  framework:        string          // 'SmartMoney' | 'Wyckoff' | 'ElliottWave' | 'Harmonic'
+  snapshotAt:       Date
+  entryZone:        { low: number; high: number }
+  stopLoss:         number
+  takeProfitLevels: number[]
+  confidence:       number
+  overlays:         ChartOverlay    // derived from 4H analysis; rendered on all timeframe views
+}
 
 export interface AgentRunRecord {
   runId: string
@@ -95,6 +127,7 @@ export interface AgentRunRecord {
   decision: Decision | null
   executionResult?: ExecutionResult
   errorMessage?: string
+  chartSnapshot?:  ChartSnapshot   // ← add this line
 }
 
 // ── ExecutionResult ───────────────────────────────────────────────────────────
