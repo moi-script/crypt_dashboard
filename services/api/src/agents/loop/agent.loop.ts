@@ -35,7 +35,7 @@ import { rebalanceStrategy } from '../policy/strategies/rebalance.strategy'
 import { airdropWatchStrategy } from '../policy/strategies/airdropWatch.strategy'
 // import { airdropWatchStrategy } from '../policy/strategies/airdropWatch.strategy'
 import { chartSignalStrategy } from '../policy/strategies/chartSignal.strategy'
-import type { LoopContext, WalletState, AgentRunRecord, TradeIntent } from './loop.types'
+import type { LoopContext, WalletState, AgentRunRecord, TradeIntent, ExecutionResult } from './loop.types'
 import type { Strategy } from '../policy/strategies/strategy.types'
 
 import { generateMyId } from '@/utils/nanoid'
@@ -276,4 +276,40 @@ export async function runLoopTick(userId: string): Promise<void> {
     console.error(`[AgentLoop] Tick failed: ${err.message}`)
     await AgentRunDoc.updateOne({ runId }, { $set: { completedAt: new Date(), status: 'failed', errorMessage: err.message } }).catch(() => {})
   }
+}
+
+// ── Manual approval actions ───────────────────────────────────────────────────
+
+export async function approveRun(userId: string, runId: string): Promise<ExecutionResult> {
+  const run = await AgentRunDoc.findOne({ runId, userId, status: 'pending_approval' }).lean()
+  if (!run) throw Object.assign(new Error(`Run "${runId}" not found`), { statusCode: 404 })
+
+  const intent    = run.decision!.intent
+  const confidence = run.decision!.confidence
+  const rationale  = run.decision!.reasoning
+
+  const config      = await getOrCreateConfig(userId)
+  const replayConfig: AgentConfig = { ...config, requireManualApproval: false, enabled: true }
+  const walletState = await loadWalletState(userId, replayConfig)
+
+  const gateway = await executeIntent(intent as any, walletState, {
+    userId, config: replayConfig, runId, strategy: run.strategy, rationale, confidence,
+  })
+
+  await persistExecution(userId, replayConfig.mode, runId, intent, gateway.execution, run.strategy, confidence)
+
+  const finalStatus = !gateway.riskPassed ? 'blocked' : 'completed'
+  await AgentRunDoc.updateOne({ runId }, {
+    $set: { status: finalStatus, executionResult: gateway.execution, completedAt: new Date() },
+  })
+
+  return gateway.execution
+}
+
+export async function rejectRun(userId: string, runId: string): Promise<void> {
+  const result = await AgentRunDoc.updateOne(
+    { runId, userId, status: 'pending_approval' },
+    { $set: { status: 'rejected', completedAt: new Date() } },
+  )
+  if (result.matchedCount === 0) throw Object.assign(new Error(`Run "${runId}" not found`), { statusCode: 404 })
 }
