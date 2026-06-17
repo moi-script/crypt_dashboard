@@ -71,6 +71,8 @@ test('a qualifying long signal becomes a propose_trade intent with SL/TP', async
   expect(decision.intent.tokenIn).toBe('USDC')
   expect(decision.intent.stopLossPrice).toBe(49000)
   expect(decision.intent.takeProfitPrice).toBe(53000)
+  expect(decision.intent.entryZoneLow).toBe(50000)
+  expect(decision.intent.entryZoneHigh).toBe(51000)
   expect(decision.intent.framework).toBe('SmartMoney')
   expect(decision.confidence).toBe(80)
 })

@@ -89,6 +89,23 @@ export async function executeIntent(
     }
   }
 
+  // ── 4b. Limit-order deferral (paper only) ────────────────────────────────────
+  // chartSignal entries are pullback setups: don't market-fill now. Defer the
+  // fill — the position monitor opens the position once price re-enters the
+  // entry zone. We only signal intent here; persistExecution records a pending
+  // position and the monitor handles activation/expiry.
+  if (
+    mode === 'paper' &&
+    intent.type === 'propose_trade' &&
+    intent.entryZoneLow !== undefined &&
+    intent.entryZoneHigh !== undefined
+  ) {
+    return {
+      riskPassed: true,
+      execution: { status: 'pending_limit', executedAt: new Date() },
+    }
+  }
+
   // ── 5. Route to executor ─────────────────────────────────────────────────────
   let result: ExecutionResult
   try {

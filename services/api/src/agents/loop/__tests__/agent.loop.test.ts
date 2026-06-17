@@ -40,7 +40,7 @@ beforeEach(() => {
   }) as any
 })
 
-test('a chartSignal tick opens a position with stop loss / take profit, bypassing the LLM', async () => {
+test('a chartSignal tick records a pending limit order (not an immediate fill), bypassing the LLM', async () => {
   await getOrCreateWallet('user-cs')
   await AgentConfigDoc.create({
     userId: 'user-cs', ...DEFAULT_AGENT_CONFIG, enabled: true, requireManualApproval: false,
@@ -56,5 +56,11 @@ test('a chartSignal tick opens a position with stop loss / take profit, bypassin
   expect(positions[0].takeProfitPrice).toBe(53000)
   expect(positions[0].framework).toBe('SmartMoney')
   expect(positions[0].confidence).toBe(90)
-  expect(positions[0].isOpen).toBe(true)
+  // Limit order: pending until price re-enters the entry zone — not filled yet.
+  expect(positions[0].status).toBe('pending')
+  expect(positions[0].isOpen).toBe(false)
+  expect(positions[0].entryZoneLow).toBe(50000)
+  expect(positions[0].entryZoneHigh).toBe(51000)
+  expect(positions[0].entryPrice).toBeUndefined()
+  expect(positions[0].entryExpiresAt).toBeDefined()
 })

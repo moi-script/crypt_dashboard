@@ -35,7 +35,7 @@ export async function getDailyPnl(req: AuthRequest, res: Response, next: NextFun
     today.setHours(0, 0, 0, 0)
 
     const closedToday = await PositionDoc
-      .find({ userId: req.userId!, isOpen: false, exitAt: { $gte: today } })
+      .find({ userId: req.userId!, status: 'closed', exitAt: { $gte: today } })
       .lean()
 
     const totalPnlUsd  = closedToday.reduce((s, p) => s + (p.realizedPnlUsd ?? 0), 0)
@@ -55,7 +55,7 @@ export async function getDailyPnl(req: AuthRequest, res: Response, next: NextFun
 
 export async function getPnlSummary(req: AuthRequest, res: Response, next: NextFunction) {
   try {
-    const allClosed = await PositionDoc.find({ userId: req.userId!, isOpen: false }).lean()
+    const allClosed = await PositionDoc.find({ userId: req.userId!, status: 'closed' }).lean()
 
     const totalPnl   = allClosed.reduce((s, p) => s + (p.realizedPnlUsd ?? 0), 0)
     const totalTrades = allClosed.length

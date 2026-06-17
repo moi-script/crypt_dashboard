@@ -29,6 +29,7 @@ async function seedClosed(userId: string, pnl: number) {
     ...base,
     positionId: `pos-${userId}-${pnl}`,
     userId,
+    status: 'closed',
     isOpen: false,
     exitPrice: 1900,
     exitAt: new Date(),
