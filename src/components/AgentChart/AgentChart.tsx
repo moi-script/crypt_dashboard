@@ -19,20 +19,12 @@ interface Props {
   compact?:  boolean;   // true = mini mode: only entry/SL/TP lines
 }
 
-const FRAMEWORK_COLORS: Record<string, string> = {
-  SmartMoney:  "#36b6ff",
-  Wyckoff:     "#a78bfa",
-  ElliottWave: "#ffb020",
-  Harmonic:    "#00e5a0",
-};
-
 function toSec(ms: number): UTCTimestamp {
   return Math.floor(ms / 1000) as UTCTimestamp;
 }
 
 export function AgentChart({ snapshot, timeframe, height, compact = false }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
-  const chartRef     = useRef<IChartApi | null>(null);
 
   const drawOverlays = useCallback((chart: IChartApi) => {
     const { overlays, entryZone, stopLoss, takeProfitLevels } = snapshot;
@@ -108,7 +100,6 @@ export function AgentChart({ snapshot, timeframe, height, compact = false }: Pro
       crosshair:  { mode: 1 },
       timeScale:  { timeVisible: true, secondsVisible: false },
     });
-    chartRef.current = chart;
 
     const candleSeries = chart.addSeries(CandlestickSeries, {
       upColor:   "#00e5a0",
@@ -146,9 +137,13 @@ export function AgentChart({ snapshot, timeframe, height, compact = false }: Pro
           text:     "Signal",
         }]);
       })
-      .catch(() => {/* ignore — chart still renders with overlays */});
+      .catch(() => {
+        if (containerRef.current) {
+          containerRef.current.innerHTML = '<p style="color:rgba(255,85,114,0.7);text-align:center;padding:20px;font-size:12px;font-family:monospace">Chart data unavailable</p>'
+        }
+      });
 
-    return () => { chart.remove(); chartRef.current = null; };
+    return () => { chart.remove(); };
   }, [snapshot, timeframe, height, drawOverlays]);
 
   return <div ref={containerRef} style={{ width: "100%", height }} />;
