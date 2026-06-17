@@ -100,3 +100,36 @@ export async function getPrimitives(req: Request, res: Response): Promise<void> 
     res.status(500).json({ success: false, error: 'Primitives fetch failed' });
   }
 }
+
+// ─── GET /api/chart/ohlcv/:symbol ───────────────────────────
+// Returns OHLCV candles for a given symbol and timeframe
+import { ohlcvIngest } from '../read/ingestion/ohlcv.ingest'
+import type { Timeframe } from '../read/ingestion/ohlcv.ingest'
+
+const ALLOWED_SYMBOLS   = new Set(['BTCUSDT', 'ETHUSDT'])
+const ALLOWED_TIMEFRAMES = new Set<Timeframe>(['1m', '5m', '15m', '1h', '4h', '1d', '1w'])
+
+export async function getOhlcv(req: Request, res: Response): Promise<void> {
+  try {
+    const symbol    = ((req.params.symbol ?? '') as string).toUpperCase()
+    const timeframe = ((req.query.timeframe ?? '4h') as string) as Timeframe
+    const limit     = Math.min(parseInt((req.query.limit ?? '') as string) || 300, 500)
+
+    if (!ALLOWED_SYMBOLS.has(symbol)) {
+      res.status(400).json({ error: `Symbol "${symbol}" not supported. Use BTCUSDT or ETHUSDT.` })
+      return
+    }
+    if (!ALLOWED_TIMEFRAMES.has(timeframe)) {
+      res.status(400).json({ error: `Timeframe "${timeframe}" not supported.` })
+      return
+    }
+
+    const candleMap = await ohlcvIngest.fetchMultiTimeframe(symbol, [timeframe], limit)
+    const candles   = candleMap[timeframe] ?? []
+
+    res.json({ symbol, timeframe, candles })
+  } catch (err) {
+    console.error('[ChartAnalysisController] getOhlcv error:', err);
+    res.status(500).json({ error: 'OHLCV fetch failed' });
+  }
+}
