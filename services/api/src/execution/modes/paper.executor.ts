@@ -110,6 +110,29 @@ export async function executePaper(
         getLivePrice(trade.tokenOut),
       ])
 
+      // ── 2b. Validate SL/TP against the actual fill price ────────────────────
+      // Spot/long-only: the position buys tokenOut and exits on SL/TP of that
+      // token. The chart strategies size SL/TP from an order-block zone, but we
+      // fill at the *current* market price — which can already sit outside that
+      // zone (e.g. price ran above TP). Opening such a position would make the
+      // position monitor close it instantly at ~entry for a fee-only loss, so
+      // reject it here before any balance is debited. Only opening trades carry
+      // SL/TP (closes from the monitor leave them undefined).
+      if (trade.takeProfitPrice !== undefined && outPrice >= trade.takeProfitPrice) {
+        return {
+          status:       'rejected',
+          errorMessage: `Fill price $${outPrice.toFixed(4)} is already at/above take-profit $${trade.takeProfitPrice.toFixed(4)} — skipping trade`,
+          executedAt:   now,
+        }
+      }
+      if (trade.stopLossPrice !== undefined && outPrice <= trade.stopLossPrice) {
+        return {
+          status:       'rejected',
+          errorMessage: `Fill price $${outPrice.toFixed(4)} is already at/below stop-loss $${trade.stopLossPrice.toFixed(4)} — skipping trade`,
+          executedAt:   now,
+        }
+      }
+
       // ── 3. Simulate execution ──────────────────────────────────────────────
       const slippage     = simulateSlippage(trade.amountUsd, trade.maxSlippageBps ?? 50)
       const fee          = trade.amountUsd * PAPER_FEE_PCT

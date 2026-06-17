@@ -23,6 +23,42 @@ test('getLivePrice resolves a known symbol to its USD price', async () => {
   expect(price).toBe(2000)
 })
 
+test('rejects an opening buy whose fill price is already at/above the take-profit', async () => {
+  await getOrCreateWallet('user-tp')
+  const res = await executePaper(
+    { type: 'propose_trade', tokenIn: 'USDC', tokenOut: 'ETH', amountUsd: 100, maxSlippageBps: 50,
+      rationale: 'x', stopLossPrice: 1850, takeProfitPrice: 1950 },  // fill is $2000 → already past TP
+    { userId: 'user-tp', runId: 'r', strategy: 'chartSignal', rationale: 'x', confidence: 90 },
+  )
+  expect(res.status).toBe('rejected')
+  expect(res.errorMessage).toMatch(/take-profit/i)
+
+  // wallet must NOT have been debited
+  const wallet = await getOrCreateWallet('user-tp')
+  expect(wallet.balances.find(b => b.symbol === 'USDC')!.amount).toBe(5000)
+})
+
+test('rejects an opening buy whose fill price is already at/below the stop-loss', async () => {
+  await getOrCreateWallet('user-slr')
+  const res = await executePaper(
+    { type: 'propose_trade', tokenIn: 'USDC', tokenOut: 'ETH', amountUsd: 100, maxSlippageBps: 50,
+      rationale: 'x', stopLossPrice: 2050, takeProfitPrice: 2200 },  // fill is $2000 → already past SL
+    { userId: 'user-slr', runId: 'r', strategy: 'chartSignal', rationale: 'x', confidence: 90 },
+  )
+  expect(res.status).toBe('rejected')
+  expect(res.errorMessage).toMatch(/stop-loss/i)
+})
+
+test('fills an opening buy when the fill price sits between stop-loss and take-profit', async () => {
+  await getOrCreateWallet('user-ok')
+  const res = await executePaper(
+    { type: 'propose_trade', tokenIn: 'USDC', tokenOut: 'ETH', amountUsd: 100, maxSlippageBps: 50,
+      rationale: 'x', stopLossPrice: 1900, takeProfitPrice: 2100 },  // fill $2000 is in range
+    { userId: 'user-ok', runId: 'r', strategy: 'chartSignal', rationale: 'x', confidence: 90 },
+  )
+  expect(res.status).toBe('filled')
+})
+
 test('a closing sell surfaces realizedPnlUsd into simulatedPnlUsd', async () => {
   await getOrCreateWallet('user-pnl')
 
