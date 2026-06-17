@@ -84,6 +84,7 @@ async function loadWalletState(userId: string, config: AgentConfig): Promise<Wal
 // ── Detect and persist opportunities ─────────────────────────────────────────
 
 async function persistOpportunities(
+  userId:        string,
   strategyName:  string,
   runId:         string,
   metadata:      Record<string, unknown>,
@@ -96,6 +97,7 @@ async function persistOpportunities(
 
     const docs = spikedPools.slice(0, 5).map(pool => ({
       opportunityId: `opp-${runId}-${pool.pool?.slice(0, 8) ?? generateMyId(6 as number)}`,
+      userId,
       type:          'yield_anomaly' as const,
       strategy:      strategyName,
       runId,
@@ -214,7 +216,7 @@ export async function runLoopTick(userId: string): Promise<void> {
     const { text: contextSummary } = buildContextSummary(loopCtx, strategyResult.contextSummary)
     loopCtx.contextSummary = contextSummary
 
-    await persistOpportunities(strategy, runId, strategyResult.metadata)
+    await persistOpportunities(userId, strategy, runId, strategyResult.metadata)
 
     const decision = strategyResult.deterministicDecision
       ?? await runPolicyEngine(loopCtx, contextSummary, config)

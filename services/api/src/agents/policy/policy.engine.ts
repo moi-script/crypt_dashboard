@@ -71,6 +71,7 @@ export async function runPolicyEngine(
   clearCandleCache()
 
   const toolCtx: ToolContext = {
+    userId:   ctx.userId,
     strategy: ctx.strategy,
     dryRun:   config.mode === 'paper',
   }

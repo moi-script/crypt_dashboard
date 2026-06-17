@@ -53,6 +53,7 @@ export type ToolHandler = (
 
 export interface ToolContext {
   sessionId?: string
+  userId?: string         // owning account — scopes wallet/position reads
   coinId?: string
   strategy?: string
   dryRun?: boolean        // if true, read tools skip external calls and return mocked data
