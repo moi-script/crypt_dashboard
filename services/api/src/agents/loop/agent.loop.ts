@@ -262,6 +262,12 @@ export async function runLoopTick(userId: string): Promise<void> {
 
     await persistExecution(userId, config.mode, runId, decision.intent, gateway.execution, strategy, decision.confidence)
 
+    // Save chart snapshot for chartSignal runs that produced a signal
+    const chartSnapshot = strategyResult.metadata?.chartSnapshot as import('@/agents/loop/loop.types').ChartSnapshot | undefined
+    if (chartSnapshot) {
+      await AgentRunDoc.updateOne({ runId }, { $set: { chartSnapshot } }).catch(() => {})
+    }
+
     const finalStatus: AgentRunRecord['status'] = gateway.pendingApproval
       ? 'pending_approval'
       : !gateway.riskPassed ? 'blocked' : 'completed'
