@@ -30,7 +30,7 @@ const SYMBOL_TO_ID: Record<string, string> = {
   'USDC.e': 'usd-coin',
 }
 
-async function getLivePrice(symbol: string): Promise<number> {
+export async function getLivePrice(symbol: string): Promise<number> {
   const coinId = SYMBOL_TO_ID[symbol.toUpperCase()] ?? symbol.toLowerCase()
   try {
     const res  = await fetch(`${BASE_URL}/api/simple/price?ids=${coinId}&vs=usd`)
@@ -124,8 +124,9 @@ export async function executePaper(
       )
 
       // ── 4. Record to wallet + trade history ────────────────────────────────
+      let realizedPnlUsd = 0
       try {
-        await recordTrade(agentCtx.userId, {
+        const tx = await recordTrade(agentCtx.userId, {
           runId:           agentCtx.runId,
           orderId,
           tokenIn:         trade.tokenIn,
@@ -133,12 +134,14 @@ export async function executePaper(
           amountUsd:       trade.amountUsd,
           filledAmountUsd: netAmountUsd,
           entryPrice:      outPrice,
+          priceInUsd:      inPrice,
           feesUsd:         fee,
           slippagePct:     slippage * 100,
           strategy:        agentCtx.strategy,
           rationale:       agentCtx.rationale,
           confidence:      agentCtx.confidence,
         })
+        realizedPnlUsd = tx.realizedPnlUsd ?? 0
       } catch (recordErr: any) {
         // Recording failure must NOT block the execution result
         console.warn('[PaperExecutor] Failed to record trade to wallet:', recordErr.message)
@@ -150,7 +153,7 @@ export async function executePaper(
         filledAmountUsd: netAmountUsd,
         entryPrice:      outPrice,
         feesUsd:         fee,
-        simulatedPnlUsd: 0,  // closed PnL computed by wallet service on sell
+        simulatedPnlUsd: realizedPnlUsd,  // 0 on buys, real PnL on sells
         executedAt:      now,
       }
     } catch (err: any) {

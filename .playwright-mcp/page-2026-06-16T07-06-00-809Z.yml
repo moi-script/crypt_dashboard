@@ -1,0 +1,29 @@
+- generic [ref=e1]:
+  - generic [ref=e3]:
+    - link "₿ CRPTX Terminal Professional crypto platform" [ref=e4] [cursor=pointer]:
+      - /url: /
+      - generic [ref=e6]: ₿
+      - generic [ref=e7]:
+        - generic [ref=e8]: CRPTX Terminal
+        - generic [ref=e9]: Professional crypto platform
+    - generic [ref=e10]:
+      - generic [ref=e11]:
+        - generic [ref=e12]: auth // session start
+        - generic [ref=e13]:
+          - text: $ establishing session…
+          - generic [ref=e14]: ▋
+      - generic [ref=e15]:
+        - generic [ref=e16]:
+          - generic [ref=e17]: Email Address
+          - textbox "trader@terminal.io" [active] [ref=e18]
+        - generic [ref=e19]:
+          - generic [ref=e20]: Password
+          - textbox "••••••••" [ref=e21]
+        - button "Enter Terminal →" [ref=e22] [cursor=pointer]
+        - generic [ref=e23]:
+          - text: No account?
+          - link "Register" [ref=e24] [cursor=pointer]:
+            - /url: /register
+    - paragraph [ref=e25]: Backend offline? Any credentials start a demo session.
+  - button "Open Next.js Dev Tools" [ref=e31] [cursor=pointer]:
+    - img [ref=e32]

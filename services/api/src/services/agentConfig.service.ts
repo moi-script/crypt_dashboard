@@ -18,14 +18,16 @@ export async function patchConfig(
   userId: string,
   patch: Partial<AgentConfig>,
 ): Promise<AgentConfig & { userId: string }> {
-  await getOrCreateConfig(userId)  // ensure it exists
+  const existing = await getOrCreateConfig(userId)  // ensure it exists
 
   const safePatch: Partial<AgentConfig> = { ...patch }
   // Phase 1: paper only — never allow graduating execution mode via the API.
   delete (safePatch as any).mode
 
-  if (safePatch.requireManualApproval === false) {
-    throw new Error('Cannot disable manual approval in paper phase')
+  // Manual approval can only be disabled in paper mode — real-money modes
+  // (cex/onchain) must always require a human to release a trade.
+  if (safePatch.requireManualApproval === false && existing.mode !== 'paper') {
+    throw new Error('Cannot disable manual approval outside paper mode')
   }
 
   const doc = await AgentConfigDoc.findOneAndUpdate(

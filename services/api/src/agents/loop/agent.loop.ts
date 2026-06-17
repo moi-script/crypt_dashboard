@@ -34,6 +34,7 @@ import { rebalanceStrategy } from '../policy/strategies/rebalance.strategy'
 // import { airdropWatchStrategy } from '../policy/strategies/airdropWatch.strategy'
 import { airdropWatchStrategy } from '../policy/strategies/airdropWatch.strategy'
 // import { airdropWatchStrategy } from '../policy/strategies/airdropWatch.strategy'
+import { chartSignalStrategy } from '../policy/strategies/chartSignal.strategy'
 import type { LoopContext, WalletState, AgentRunRecord, TradeIntent } from './loop.types'
 import type { Strategy } from '../policy/strategies/strategy.types'
 
@@ -44,6 +45,7 @@ const STRATEGIES: Record<string, Strategy> = {
   yieldHunter:  yieldHunterStrategy,
   rebalance:    rebalanceStrategy,
   airdropWatch: airdropWatchStrategy,
+  chartSignal:  chartSignalStrategy,
 }
 // async function generateMyId(idNumb : number) {
 //   const { nanoid } = await import('nanoid');
@@ -123,6 +125,8 @@ async function persistExecution(
   runId:           string,
   intent:          any,
   executionResult: any,
+  strategy:        string,
+  confidence:      number,
 ): Promise<void> {
   if (intent.type !== 'propose_trade') return
 
@@ -150,19 +154,23 @@ async function persistExecution(
 
     if (executionResult.status === 'filled' && executionResult.filledAmountUsd) {
       await PositionDoc.create({
-        positionId:     `pos-${generateMyId(10 as number)}`,
+        positionId:      `pos-${generateMyId(10 as number)}`,
         userId,
         mode,
-        tokenIn:        intent.tokenIn,
-        tokenOut:       intent.tokenOut,
-        entryAmountUsd: executionResult.filledAmountUsd,
-        entryPrice:     executionResult.entryPrice ?? 0,
-        entryFeesUsd:   executionResult.feesUsd ?? 0,
-        entryAt:        executionResult.executedAt,
-        isOpen:         true,
-        strategy:       (intent as any).strategyName ?? 'unknown',
+        tokenIn:         intent.tokenIn,
+        tokenOut:        intent.tokenOut,
+        entryAmountUsd:  executionResult.filledAmountUsd,
+        entryPrice:      executionResult.entryPrice ?? 0,
+        entryFeesUsd:    executionResult.feesUsd ?? 0,
+        entryAt:         executionResult.executedAt,
+        isOpen:          true,
+        strategy,
         runId,
         orderId,
+        stopLossPrice:   intent.stopLossPrice,
+        takeProfitPrice: intent.takeProfitPrice,
+        framework:       intent.framework,
+        confidence,
       })
     }
   } catch (err: any) {
@@ -200,7 +208,7 @@ export async function runLoopTick(userId: string): Promise<void> {
     const strategyImpl = STRATEGIES[strategy]
     if (!strategyImpl) throw new Error(`Strategy "${strategy}" not found in registry.`)
 
-    const loopCtx: LoopContext = { runId, strategy, startedAt: startedAt.getTime(), contextSummary: '', walletState, marketData: {} }
+    const loopCtx: LoopContext = { runId, userId, strategy, startedAt: startedAt.getTime(), contextSummary: '', walletState, marketData: {}, config }
     const strategyResult = await strategyImpl.buildContext(loopCtx)
 
     const { text: contextSummary } = buildContextSummary(loopCtx, strategyResult.contextSummary)
@@ -208,14 +216,15 @@ export async function runLoopTick(userId: string): Promise<void> {
 
     await persistOpportunities(strategy, runId, strategyResult.metadata)
 
-    const decision = await runPolicyEngine(loopCtx, contextSummary, config)
+    const decision = strategyResult.deterministicDecision
+      ?? await runPolicyEngine(loopCtx, contextSummary, config)
 
     const gateway = await executeIntent(decision.intent, walletState, {
       userId, config, runId, strategy,
       rationale: decision.reasoning, confidence: decision.confidence,
     })
 
-    await persistExecution(userId, config.mode, runId, decision.intent, gateway.execution)
+    await persistExecution(userId, config.mode, runId, decision.intent, gateway.execution, strategy, decision.confidence)
 
     const finalStatus: AgentRunRecord['status'] = gateway.pendingApproval
       ? 'pending_approval'

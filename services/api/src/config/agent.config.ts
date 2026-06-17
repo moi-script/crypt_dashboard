@@ -26,7 +26,11 @@ export interface AgentConfig {
     yieldHunter: boolean
     rebalance: boolean
     airdropWatch: boolean
+    chartSignal: boolean
   }
+
+  /** Minimum confidence (0-100) a chart-signal must have to be acted on */
+  minSignalConfidence: number
 
   /** Coins/tokens the agent is allowed to reason about */
   watchlist: string[]
@@ -43,8 +47,9 @@ export const DEFAULT_AGENT_CONFIG: AgentConfig = {
   enabled: false,
   mode: 'paper',
   loopIntervalMs: 60_000,
-  strategies: { yieldHunter: true, rebalance: false, airdropWatch: false },
+  strategies: { yieldHunter: true, rebalance: false, airdropWatch: false, chartSignal: false },
   watchlist: ['bitcoin', 'ethereum', 'usd-coin', 'tether'],
   maxTradeUsd: 100,
   requireManualApproval: true,
+  minSignalConfidence: 55,
 }

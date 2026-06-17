@@ -60,6 +60,10 @@ interface Position {
   strategy:        string;
   entryAt:         string;
   mode:            string;
+  stopLossPrice?:   number;
+  takeProfitPrice?: number;
+  framework?:       string;
+  confidence?:      number;
 }
 
 interface PnlSummary {
@@ -445,8 +449,15 @@ function PositionsTab({ accentColor }: { accentColor: string }) {
               )}
             </div>
             <p style={{ fontSize: 11, color: "rgba(255,255,255,0.25)", margin: "5px 0 0", fontFamily: "var(--font-mono)" }}>
-              {pos.strategy} · {new Date(pos.entryAt).toLocaleString("en-GB", { dateStyle: "short", timeStyle: "short" })}
+              {pos.strategy}{pos.framework ? ` · ${pos.framework}` : ""}{pos.confidence !== undefined ? ` · ${pos.confidence}% conf` : ""} · {new Date(pos.entryAt).toLocaleString("en-GB", { dateStyle: "short", timeStyle: "short" })}
             </p>
+            {(pos.stopLossPrice !== undefined || pos.takeProfitPrice !== undefined) && (
+              <p style={{ fontSize: 11, color: "rgba(255,255,255,0.35)", margin: "3px 0 0", fontFamily: "var(--font-mono)" }}>
+                {pos.stopLossPrice !== undefined && <span style={{ color: "#ff5572" }}>SL ${pos.stopLossPrice.toFixed(2)}</span>}
+                {pos.stopLossPrice !== undefined && pos.takeProfitPrice !== undefined && "  ·  "}
+                {pos.takeProfitPrice !== undefined && <span style={{ color: "#00e5a0" }}>TP ${pos.takeProfitPrice.toFixed(2)}</span>}
+              </p>
+            )}
           </div>
         ))}
         {!loading && positions.length === 0 && <EmptyMsg msg="No positions yet — run the agent loop first." />}

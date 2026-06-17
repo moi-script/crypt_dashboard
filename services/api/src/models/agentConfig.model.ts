@@ -14,10 +14,12 @@ const AgentConfigSchema = new Schema<IAgentConfig>({
     yieldHunter:  { type: Boolean, default: true },
     rebalance:    { type: Boolean, default: false },
     airdropWatch: { type: Boolean, default: false },
+    chartSignal:  { type: Boolean, default: false },
   },
   watchlist:             { type: [String], default: ['bitcoin', 'ethereum', 'usd-coin', 'tether'] },
   maxTradeUsd:           { type: Number, default: 100 },
   requireManualApproval: { type: Boolean, default: true },
+  minSignalConfidence:   { type: Number, default: 55 },
 }, { timestamps: true })
 
 export const AgentConfigDoc = model<IAgentConfig>('AgentConfig', AgentConfigSchema)

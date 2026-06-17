@@ -66,6 +66,7 @@ export interface RecordTradeInput {
   amountUsd:      number
   filledAmountUsd: number
   entryPrice:     number       // price of tokenOut in USD
+  priceInUsd?:    number       // price of tokenIn in USD (only meaningful when tokenIn isn't a stablecoin)
   feesUsd:        number
   slippagePct:    number
   strategy:       string
@@ -79,7 +80,7 @@ export async function recordTrade(userId: string, input: RecordTradeInput): Prom
   const tokenInSymbol  = input.tokenIn.toUpperCase()
   const tokenOutSymbol = input.tokenOut.toUpperCase()
 
-  const priceInUsd  = STABLE_TOKENS.has(tokenInSymbol)  ? 1 : (input.entryPrice || 1)
+  const priceInUsd  = STABLE_TOKENS.has(tokenInSymbol) ? 1 : (input.priceInUsd ?? input.entryPrice ?? 1)
   const priceOutUsd = input.entryPrice || 1
 
   // How many units of tokenIn we're spending
@@ -132,8 +133,8 @@ export async function recordTrade(userId: string, input: RecordTradeInput): Prom
   if (side === 'sell') {
     const outBalance = balances.find(b => b.symbol.toUpperCase() === tokenInSymbol)
     const costBasis  = outBalance?.avgCostUsd ?? priceInUsd
-    realizedPnlUsd   = (priceOutUsd - costBasis) * amountIn - input.feesUsd
-    pnlPct           = costBasis > 0 ? ((priceOutUsd - costBasis) / costBasis) * 100 : 0
+    realizedPnlUsd   = (priceInUsd - costBasis) * amountIn - input.feesUsd
+    pnlPct           = costBasis > 0 ? ((priceInUsd - costBasis) / costBasis) * 100 : 0
   }
 
   // ── Total portfolio value ────────────────────────────────────────────────────

@@ -1,0 +1,1901 @@
+- generic [active] [ref=e1]:
+  - generic [ref=e2]:
+    - generic [ref=e190]:
+      - link "btc $66,333.00 ▲ 0.73% ●" [ref=e1874] [cursor=pointer]:
+        - /url: /coins/bitcoin
+        - generic [ref=e192]: btc
+        - generic [ref=e193]: $66,333.00
+        - generic [ref=e194]:
+          - generic [ref=e195]: ▲
+          - text: 0.73%
+        - generic [ref=e196]: ●
+      - link "eth $1,769.28 ▲ 2.80% ●" [ref=e1875] [cursor=pointer]:
+        - /url: /coins/ethereum
+        - generic [ref=e198]: eth
+        - generic [ref=e199]: $1,769.28
+        - generic [ref=e200]:
+          - generic [ref=e201]: ▲
+          - text: 2.80%
+        - generic [ref=e202]: ●
+      - link "usdt $0.9994 ▲ 0.00% ●" [ref=e203] [cursor=pointer]:
+        - /url: /coins/tether
+        - generic [ref=e204]: usdt
+        - generic [ref=e205]: $0.9994
+        - generic [ref=e206]:
+          - generic [ref=e207]: ▲
+          - text: 0.00%
+        - generic [ref=e208]: ●
+      - link "bnb $615.43 ▼ 0.26% ●" [ref=e1876] [cursor=pointer]:
+        - /url: /coins/binancecoin
+        - generic [ref=e210]: bnb
+        - generic [ref=e211]: $615.43
+        - generic [ref=e212]:
+          - generic [ref=e213]: ▼
+          - text: 0.26%
+        - generic [ref=e214]: ●
+      - link "xrp $1.23 ▲ 4.30% ●" [ref=e1877] [cursor=pointer]:
+        - /url: /coins/ripple
+        - generic [ref=e216]: xrp
+        - generic [ref=e217]: $1.23
+        - generic [ref=e218]:
+          - generic [ref=e219]: ▲
+          - text: 4.30%
+        - generic [ref=e220]: ●
+      - link "usdc $0.9997 ▲ 0.01% ●" [ref=e1878] [cursor=pointer]:
+        - /url: /coins/usd-coin
+        - generic [ref=e222]: usdc
+        - generic [ref=e223]: $0.9997
+        - generic [ref=e224]:
+          - generic [ref=e225]: ▲
+          - text: 0.01%
+        - generic [ref=e226]: ●
+      - link "sol $74.26 ▲ 4.24% ●" [ref=e1626] [cursor=pointer]:
+        - /url: /coins/solana
+        - generic [ref=e228]: sol
+        - generic [ref=e229]: $74.26
+        - generic [ref=e230]:
+          - generic [ref=e231]: ▲
+          - text: 4.24%
+        - generic [ref=e232]: ●
+      - link "trx $0.3179 ▼ 0.62% ●" [ref=e1627] [cursor=pointer]:
+        - /url: /coins/tron
+        - generic [ref=e234]: trx
+        - generic [ref=e235]: $0.3179
+        - generic [ref=e236]:
+          - generic [ref=e237]: ▼
+          - text: 0.62%
+        - generic [ref=e238]: ●
+      - link "figr_heloc $1.03 ▲ 1.27% ●" [ref=e239] [cursor=pointer]:
+        - /url: /coins/figure-heloc
+        - generic [ref=e240]: figr_heloc
+        - generic [ref=e241]: $1.03
+        - generic [ref=e242]:
+          - generic [ref=e243]: ▲
+          - text: 1.27%
+        - generic [ref=e244]: ●
+      - link "hype $72.22 ▲ 10.86% ●" [ref=e1879] [cursor=pointer]:
+        - /url: /coins/hyperliquid
+        - generic [ref=e246]: hype
+        - generic [ref=e247]: $72.22
+        - generic [ref=e248]:
+          - generic [ref=e249]: ▲
+          - text: 10.86%
+        - generic [ref=e250]: ●
+      - link "doge $0.0876 ▼ 1.00% ●" [ref=e1880] [cursor=pointer]:
+        - /url: /coins/dogecoin
+        - generic [ref=e252]: doge
+        - generic [ref=e253]: $0.0876
+        - generic [ref=e254]:
+          - generic [ref=e255]: ▼
+          - text: 1.00%
+        - generic [ref=e256]: ●
+      - link "usds $0.9997 ▲ 0.00% ●" [ref=e257] [cursor=pointer]:
+        - /url: /coins/usds
+        - generic [ref=e258]: usds
+        - generic [ref=e259]: $0.9997
+        - generic [ref=e260]:
+          - generic [ref=e261]: ▲
+          - text: 0.00%
+        - generic [ref=e262]: ●
+      - link "leo $9.70 ▼ 0.99% ●" [ref=e1630] [cursor=pointer]:
+        - /url: /coins/leo-token
+        - generic [ref=e264]: leo
+        - generic [ref=e265]: $9.70
+        - generic [ref=e266]:
+          - generic [ref=e267]: ▼
+          - text: 0.99%
+        - generic [ref=e268]: ●
+      - link "zec $520.61 ▲ 4.71% ●" [ref=e1881] [cursor=pointer]:
+        - /url: /coins/zcash
+        - generic [ref=e270]: zec
+        - generic [ref=e271]: $520.61
+        - generic [ref=e272]:
+          - generic [ref=e273]: ▲
+          - text: 4.71%
+        - generic [ref=e274]: ●
+      - link "rain $0.0137 ▲ 1.31% ●" [ref=e1882] [cursor=pointer]:
+        - /url: /coins/rain
+        - generic [ref=e276]: rain
+        - generic [ref=e277]: $0.0137
+        - generic [ref=e278]:
+          - generic [ref=e279]: ▲
+          - text: 1.31%
+        - generic [ref=e280]: ●
+      - link "xlm $0.2167 ▲ 14.19% ●" [ref=e1883] [cursor=pointer]:
+        - /url: /coins/stellar
+        - generic [ref=e282]: xlm
+        - generic [ref=e283]: $0.2167
+        - generic [ref=e284]:
+          - generic [ref=e285]: ▲
+          - text: 14.19%
+        - generic [ref=e286]: ●
+      - link "ada $0.1784 ▼ 1.34% ●" [ref=e1884] [cursor=pointer]:
+        - /url: /coins/cardano
+        - generic [ref=e288]: ada
+        - generic [ref=e289]: $0.1784
+        - generic [ref=e290]:
+          - generic [ref=e291]: ▼
+          - text: 1.34%
+        - generic [ref=e292]: ●
+      - link "xmr $346.54 ▲ 3.33% ●" [ref=e1885] [cursor=pointer]:
+        - /url: /coins/monero
+        - generic [ref=e294]: xmr
+        - generic [ref=e295]: $346.54
+        - generic [ref=e296]:
+          - generic [ref=e297]: ▲
+          - text: 3.33%
+        - generic [ref=e298]: ●
+      - link "wbt $54.32 ▲ 1.53% ●" [ref=e1492] [cursor=pointer]:
+        - /url: /coins/whitebit
+        - generic [ref=e300]: wbt
+        - generic [ref=e301]: $54.32
+        - generic [ref=e302]:
+          - generic [ref=e303]: ▲
+          - text: 1.53%
+        - generic [ref=e304]: ●
+      - link "cc $0.1644 ▼ 0.73% ●" [ref=e1636] [cursor=pointer]:
+        - /url: /coins/canton-network
+        - generic [ref=e306]: cc
+        - generic [ref=e307]: $0.1644
+        - generic [ref=e308]:
+          - generic [ref=e309]: ▼
+          - text: 0.73%
+        - generic [ref=e310]: ●
+      - link "link $8.25 ▲ 0.76% ●" [ref=e1637] [cursor=pointer]:
+        - /url: /coins/chainlink
+        - generic [ref=e312]: link
+        - generic [ref=e313]: $8.25
+        - generic [ref=e314]:
+          - generic [ref=e315]: ▲
+          - text: 0.76%
+        - generic [ref=e316]: ●
+      - link "gram $1.70 ▼ 4.76% ●" [ref=e1886] [cursor=pointer]:
+        - /url: /coins/the-open-network
+        - generic [ref=e318]: gram
+        - generic [ref=e319]: $1.70
+        - generic [ref=e320]:
+          - generic [ref=e321]: ▼
+          - text: 4.76%
+        - generic [ref=e322]: ●
+      - link "usd1 $1.00 ▲ 0.05% ●" [ref=e1639] [cursor=pointer]:
+        - /url: /coins/usd1-wlfi
+        - generic [ref=e324]: usd1
+        - generic [ref=e325]: $1.00
+        - generic [ref=e326]:
+          - generic [ref=e327]: ▲
+          - text: 0.05%
+        - generic [ref=e328]: ●
+      - link "bch $224.71 ▲ 5.59% ●" [ref=e1887] [cursor=pointer]:
+        - /url: /coins/bitcoin-cash
+        - generic [ref=e330]: bch
+        - generic [ref=e331]: $224.71
+        - generic [ref=e332]:
+          - generic [ref=e333]: ▲
+          - text: 5.59%
+        - generic [ref=e334]: ●
+      - link "usde $0.9995 ▲ 0.02% ●" [ref=e335] [cursor=pointer]:
+        - /url: /coins/ethena-usde
+        - generic [ref=e336]: usde
+        - generic [ref=e337]: $0.9995
+        - generic [ref=e338]:
+          - generic [ref=e339]: ▲
+          - text: 0.02%
+        - generic [ref=e340]: ●
+      - link "dai $0.9997 ▲ 0.00% ●" [ref=e341] [cursor=pointer]:
+        - /url: /coins/dai
+        - generic [ref=e342]: dai
+        - generic [ref=e343]: $0.9997
+        - generic [ref=e344]:
+          - generic [ref=e345]: ▲
+          - text: 0.00%
+        - generic [ref=e346]: ●
+      - link "m $2.99 ▲ 1.56% ●" [ref=e1888] [cursor=pointer]:
+        - /url: /coins/memecore
+        - generic [ref=e348]: m
+        - generic [ref=e349]: $2.99
+        - generic [ref=e350]:
+          - generic [ref=e351]: ▲
+          - text: 1.56%
+        - generic [ref=e352]: ●
+      - link "hbar $0.0824 ▲ 0.78% ●" [ref=e1889] [cursor=pointer]:
+        - /url: /coins/hedera-hashgraph
+        - generic [ref=e354]: hbar
+        - generic [ref=e355]: $0.0824
+        - generic [ref=e356]:
+          - generic [ref=e357]: ▲
+          - text: 0.78%
+        - generic [ref=e358]: ●
+      - link "ltc $45.60 ▲ 0.79% ●" [ref=e1643] [cursor=pointer]:
+        - /url: /coins/litecoin
+        - generic [ref=e360]: ltc
+        - generic [ref=e361]: $45.60
+        - generic [ref=e362]:
+          - generic [ref=e363]: ▲
+          - text: 0.79%
+        - generic [ref=e364]: ●
+      - link "sui $0.7886 ▼ 0.98% ●" [ref=e1890] [cursor=pointer]:
+        - /url: /coins/sui
+        - generic [ref=e366]: sui
+        - generic [ref=e367]: $0.7886
+        - generic [ref=e368]:
+          - generic [ref=e369]: ▼
+          - text: 0.98%
+        - generic [ref=e370]: ●
+      - link "near $2.42 ▲ 1.79% ●" [ref=e1891] [cursor=pointer]:
+        - /url: /coins/near
+        - generic [ref=e372]: near
+        - generic [ref=e373]: $2.42
+        - generic [ref=e374]:
+          - generic [ref=e375]: ▲
+          - text: 1.79%
+        - generic [ref=e376]: ●
+      - link "lab $10.02 ▼ 5.33% ●" [ref=e1892] [cursor=pointer]:
+        - /url: /coins/lab
+        - generic [ref=e378]: lab
+        - generic [ref=e379]: $10.02
+        - generic [ref=e380]:
+          - generic [ref=e381]: ▼
+          - text: 5.33%
+        - generic [ref=e382]: ●
+      - link "usyc $1.13 ▲ 0.00% ●" [ref=e383] [cursor=pointer]:
+        - /url: /coins/hashnote-usyc
+        - generic [ref=e384]: usyc
+        - generic [ref=e385]: $1.13
+        - generic [ref=e386]:
+          - generic [ref=e387]: ▲
+          - text: 0.00%
+        - generic [ref=e388]: ●
+      - link "avax $6.87 ▲ 1.30% ●" [ref=e1893] [cursor=pointer]:
+        - /url: /coins/avalanche-2
+        - generic [ref=e390]: avax
+        - generic [ref=e391]: $6.87
+        - generic [ref=e392]:
+          - generic [ref=e393]: ▲
+          - text: 1.30%
+        - generic [ref=e394]: ●
+      - link "shib $0.000005 ▼ 0.39% ●" [ref=e1894] [cursor=pointer]:
+        - /url: /coins/shiba-inu
+        - generic [ref=e396]: shib
+        - generic [ref=e397]: $0.000005
+        - generic [ref=e398]:
+          - generic [ref=e399]: ▼
+          - text: 0.39%
+        - generic [ref=e400]: ●
+      - link "cro $0.0622 ▲ 0.18% ●" [ref=e1895] [cursor=pointer]:
+        - /url: /coins/crypto-com-chain
+        - generic [ref=e402]: cro
+        - generic [ref=e403]: $0.0622
+        - generic [ref=e404]:
+          - generic [ref=e405]: ▲
+          - text: 0.18%
+        - generic [ref=e406]: ●
+      - link "pyusd $1.00 ▲ 0.04% ●" [ref=e1649] [cursor=pointer]:
+        - /url: /coins/paypal-usd
+        - generic [ref=e408]: pyusd
+        - generic [ref=e409]: $1.00
+        - generic [ref=e410]:
+          - generic [ref=e411]: ▲
+          - text: 0.04%
+        - generic [ref=e412]: ●
+      - link "usdg $1.00 ▲ 0.01% ●" [ref=e1896] [cursor=pointer]:
+        - /url: /coins/global-dollar
+        - generic [ref=e414]: usdg
+        - generic [ref=e415]: $1.00
+        - generic [ref=e416]:
+          - generic [ref=e417]: ▲
+          - text: 0.01%
+        - generic [ref=e418]: ●
+      - link "xaut $4,306.86 ▲ 0.36% ●" [ref=e1897] [cursor=pointer]:
+        - /url: /coins/tether-gold
+        - generic [ref=e420]: xaut
+        - generic [ref=e421]: $4,306.86
+        - generic [ref=e422]:
+          - generic [ref=e423]: ▲
+          - text: 0.36%
+        - generic [ref=e424]: ●
+      - link "tao $264.37 ▼ 6.12% ●" [ref=e1898] [cursor=pointer]:
+        - /url: /coins/bittensor
+        - generic [ref=e426]: tao
+        - generic [ref=e427]: $264.37
+        - generic [ref=e428]:
+          - generic [ref=e429]: ▼
+          - text: 6.12%
+        - generic [ref=e430]: ●
+      - link "buidl $1.00 ▲ 0.00% ●" [ref=e431] [cursor=pointer]:
+        - /url: /coins/blackrock-usd-institutional-digital-liquidity-fund
+        - generic [ref=e432]: buidl
+        - generic [ref=e433]: $1.00
+        - generic [ref=e434]:
+          - generic [ref=e435]: ▲
+          - text: 0.00%
+        - generic [ref=e436]: ●
+      - link "usdy $1.12 ▼ 0.65% ●" [ref=e437] [cursor=pointer]:
+        - /url: /coins/ondo-us-dollar-yield
+        - generic [ref=e438]: usdy
+        - generic [ref=e439]: $1.12
+        - generic [ref=e440]:
+          - generic [ref=e441]: ▼
+          - text: 0.65%
+        - generic [ref=e442]: ●
+      - link "wld $0.5960 ▲ 1.38% ●" [ref=e1899] [cursor=pointer]:
+        - /url: /coins/worldcoin-wld
+        - generic [ref=e444]: wld
+        - generic [ref=e445]: $0.5960
+        - generic [ref=e446]:
+          - generic [ref=e447]: ▲
+          - text: 1.38%
+        - generic [ref=e448]: ●
+      - link "paxg $4,316.76 ▲ 0.36% ●" [ref=e1900] [cursor=pointer]:
+        - /url: /coins/pax-gold
+        - generic [ref=e450]: paxg
+        - generic [ref=e451]: $4,316.76
+        - generic [ref=e452]:
+          - generic [ref=e453]: ▲
+          - text: 0.36%
+        - generic [ref=e454]: ●
+      - link "wlfi $0.0601 ▼ 1.73% ●" [ref=e1901] [cursor=pointer]:
+        - /url: /coins/world-liberty-financial
+        - generic [ref=e456]: wlfi
+        - generic [ref=e457]: $0.0601
+        - generic [ref=e458]:
+          - generic [ref=e459]: ▼
+          - text: 1.73%
+        - generic [ref=e460]: ●
+      - link "mnt $0.5764 ▲ 0.59% ●" [ref=e1902] [cursor=pointer]:
+        - /url: /coins/mantle
+        - generic [ref=e462]: mnt
+        - generic [ref=e463]: $0.5764
+        - generic [ref=e464]:
+          - generic [ref=e465]: ▲
+          - text: 0.59%
+        - generic [ref=e466]: ●
+      - link "uni $2.94 ▲ 13.30% ●" [ref=e1903] [cursor=pointer]:
+        - /url: /coins/uniswap
+        - generic [ref=e468]: uni
+        - generic [ref=e469]: $2.94
+        - generic [ref=e470]:
+          - generic [ref=e471]: ▲
+          - text: 13.30%
+        - generic [ref=e472]: ●
+      - link "ondo $0.3725 ▼ 2.09% ●" [ref=e1904] [cursor=pointer]:
+        - /url: /coins/ondo-finance
+        - generic [ref=e474]: ondo
+        - generic [ref=e475]: $0.3725
+        - generic [ref=e476]:
+          - generic [ref=e477]: ▼
+          - text: 2.09%
+        - generic [ref=e478]: ●
+      - link "aster $0.6551 ▲ 3.73% ●" [ref=e1905] [cursor=pointer]:
+        - /url: /coins/aster-2
+        - generic [ref=e480]: aster
+        - generic [ref=e481]: $0.6551
+        - generic [ref=e482]:
+          - generic [ref=e483]: ▲
+          - text: 3.73%
+        - generic [ref=e484]: ●
+      - link "dot $1.01 ▲ 0.83% ●" [ref=e1906] [cursor=pointer]:
+        - /url: /coins/polkadot
+        - generic [ref=e486]: dot
+        - generic [ref=e487]: $1.01
+        - generic [ref=e488]:
+          - generic [ref=e489]: ▲
+          - text: 0.83%
+        - generic [ref=e490]: ●
+      - link "rlusd $1.00 ▲ 0.02% ●" [ref=e1907] [cursor=pointer]:
+        - /url: /coins/ripple-usd
+        - generic [ref=e492]: rlusd
+        - generic [ref=e493]: $1.00
+        - generic [ref=e494]:
+          - generic [ref=e495]: ▲
+          - text: 0.02%
+        - generic [ref=e496]: ●
+      - link "okb $75.82 ▲ 0.80% ●" [ref=e497] [cursor=pointer]:
+        - /url: /coins/okb
+        - generic [ref=e498]: okb
+        - generic [ref=e499]: $75.82
+        - generic [ref=e500]:
+          - generic [ref=e501]: ▲
+          - text: 0.80%
+        - generic [ref=e502]: ●
+      - link "htx $0.000002 ▼ 0.16% ●" [ref=e1908] [cursor=pointer]:
+        - /url: /coins/htx-dao
+        - generic [ref=e504]: htx
+        - generic [ref=e505]: $0.000002
+        - generic [ref=e506]:
+          - generic [ref=e507]: ▼
+          - text: 0.16%
+        - generic [ref=e508]: ●
+      - link "pi $0.1364 ▲ 1.52% ●" [ref=e1909] [cursor=pointer]:
+        - /url: /coins/pi-network
+        - generic [ref=e510]: pi
+        - generic [ref=e511]: $0.1364
+        - generic [ref=e512]:
+          - generic [ref=e513]: ▲
+          - text: 1.52%
+        - generic [ref=e514]: ●
+      - link "usdf $0.9936 ▼ 0.20% ●" [ref=e1910] [cursor=pointer]:
+        - /url: /coins/falcon-finance
+        - generic [ref=e516]: usdf
+        - generic [ref=e517]: $0.9936
+        - generic [ref=e518]:
+          - generic [ref=e519]: ▼
+          - text: 0.20%
+        - generic [ref=e520]: ●
+      - link "usdd $0.9994 ▼ 0.00% ●" [ref=e1659] [cursor=pointer]:
+        - /url: /coins/usdd
+        - generic [ref=e522]: usdd
+        - generic [ref=e523]: $0.9994
+        - generic [ref=e524]:
+          - generic [ref=e525]: ▼
+          - text: 0.00%
+        - generic [ref=e526]: ●
+      - link "icp $2.42 ▼ 4.21% ●" [ref=e1911] [cursor=pointer]:
+        - /url: /coins/internet-computer
+        - generic [ref=e528]: icp
+        - generic [ref=e529]: $2.42
+        - generic [ref=e530]:
+          - generic [ref=e531]: ▼
+          - text: 4.21%
+        - generic [ref=e532]: ●
+      - link "sky $0.0575 ▲ 2.24% ●" [ref=e1912] [cursor=pointer]:
+        - /url: /coins/sky
+        - generic [ref=e534]: sky
+        - generic [ref=e535]: $0.0575
+        - generic [ref=e536]:
+          - generic [ref=e537]: ▲
+          - text: 2.24%
+        - generic [ref=e538]: ●
+      - link "bfusd $0.9992 ▲ 0.07% ●" [ref=e539] [cursor=pointer]:
+        - /url: /coins/bfusd
+        - generic [ref=e540]: bfusd
+        - generic [ref=e541]: $0.9992
+        - generic [ref=e542]:
+          - generic [ref=e543]: ▲
+          - text: 0.07%
+        - generic [ref=e544]: ●
+      - link "bgb $1.83 ▲ 0.90% ●" [ref=e1913] [cursor=pointer]:
+        - /url: /coins/bitget-token
+        - generic [ref=e546]: bgb
+        - generic [ref=e547]: $1.83
+        - generic [ref=e548]:
+          - generic [ref=e549]: ▲
+          - text: 0.90%
+        - generic [ref=e550]: ●
+      - link "morpho $1.94 ▼ 3.05% ●" [ref=e1914] [cursor=pointer]:
+        - /url: /coins/morpho
+        - generic [ref=e552]: morpho
+        - generic [ref=e553]: $1.94
+        - generic [ref=e554]:
+          - generic [ref=e555]: ▼
+          - text: 3.05%
+        - generic [ref=e556]: ●
+      - link "pepe $0.000003 ▲ 1.38% ●" [ref=e1915] [cursor=pointer]:
+        - /url: /coins/pepe
+        - generic [ref=e558]: pepe
+        - generic [ref=e559]: $0.000003
+        - generic [ref=e560]:
+          - generic [ref=e561]: ▲
+          - text: 1.38%
+        - generic [ref=e562]: ●
+      - link "etc $7.38 ▲ 1.92% ●" [ref=e1916] [cursor=pointer]:
+        - /url: /coins/ethereum-classic
+        - generic [ref=e564]: etc
+        - generic [ref=e565]: $7.38
+        - generic [ref=e566]:
+          - generic [ref=e567]: ▲
+          - text: 1.92%
+        - generic [ref=e568]: ●
+      - link "aave $74.83 ▲ 6.32% ●" [ref=e1917] [cursor=pointer]:
+        - /url: /coins/aave
+        - generic [ref=e570]: aave
+        - generic [ref=e571]: $74.83
+        - generic [ref=e572]:
+          - generic [ref=e573]: ▲
+          - text: 6.32%
+        - generic [ref=e574]: ●
+      - link "beat $3.67 ▼ 30.24% ●" [ref=e1918] [cursor=pointer]:
+        - /url: /coins/audiera
+        - generic [ref=e1919]: beat
+        - generic [ref=e1920]: $3.67
+        - generic [ref=e1921]:
+          - generic [ref=e1922]: ▼
+          - text: 30.24%
+        - generic [ref=e1923]: ●
+      - link "qnt $71.50 ▲ 3.59% ●" [ref=e1924] [cursor=pointer]:
+        - /url: /coins/quant-network
+        - generic [ref=e1925]: qnt
+        - generic [ref=e1926]: $71.50
+        - generic [ref=e1927]:
+          - generic [ref=e1928]: ▲
+          - text: 3.59%
+        - generic [ref=e1929]: ●
+      - link "atom $1.98 ▲ 0.04% ●" [ref=e1930] [cursor=pointer]:
+        - /url: /coins/cosmos
+        - generic [ref=e588]: atom
+        - generic [ref=e589]: $1.98
+        - generic [ref=e590]:
+          - generic [ref=e591]: ▲
+          - text: 0.04%
+        - generic [ref=e592]: ●
+      - link "u $0.9999 ▼ 0.01% ●" [ref=e1931] [cursor=pointer]:
+        - /url: /coins/united-stables
+        - generic [ref=e594]: u
+        - generic [ref=e595]: $0.9999
+        - generic [ref=e596]:
+          - generic [ref=e597]: ▼
+          - text: 0.01%
+        - generic [ref=e598]: ●
+      - link "bcap $107.07 ▲ 0.10% ●" [ref=e599] [cursor=pointer]:
+        - /url: /coins/blockchain-capital
+        - generic [ref=e600]: bcap
+        - generic [ref=e601]: $107.07
+        - generic [ref=e602]:
+          - generic [ref=e603]: ▲
+          - text: 0.10%
+        - generic [ref=e604]: ●
+      - link "ustb $11.11 ▲ 0.01% ●" [ref=e605] [cursor=pointer]:
+        - /url: /coins/superstate-short-duration-us-government-securities-fund-ustb
+        - generic [ref=e606]: ustb
+        - generic [ref=e607]: $11.11
+        - generic [ref=e608]:
+          - generic [ref=e609]: ▲
+          - text: 0.01%
+        - generic [ref=e610]: ●
+      - link "kcs $7.20 ▲ 2.64% ●" [ref=e1932] [cursor=pointer]:
+        - /url: /coins/kucoin-shares
+        - generic [ref=e612]: kcs
+        - generic [ref=e613]: $7.20
+        - generic [ref=e614]:
+          - generic [ref=e615]: ▲
+          - text: 2.64%
+        - generic [ref=e616]: ●
+      - link "eutbl $1.22 ▼ 0.16% ●" [ref=e1933] [cursor=pointer]:
+        - /url: /coins/eutbl
+        - generic [ref=e618]: eutbl
+        - generic [ref=e619]: $1.22
+        - generic [ref=e620]:
+          - generic [ref=e621]: ▼
+          - text: 0.16%
+        - generic [ref=e622]: ●
+      - link "render $1.79 ▼ 2.16% ●" [ref=e1934] [cursor=pointer]:
+        - /url: /coins/render-token
+        - generic [ref=e624]: render
+        - generic [ref=e625]: $1.79
+        - generic [ref=e626]:
+          - generic [ref=e627]: ▼
+          - text: 2.16%
+        - generic [ref=e628]: ●
+      - link "kas $0.0338 ▲ 3.77% ●" [ref=e1935] [cursor=pointer]:
+        - /url: /coins/kaspa
+        - generic [ref=e630]: kas
+        - generic [ref=e631]: $0.0338
+        - generic [ref=e632]:
+          - generic [ref=e633]: ▲
+          - text: 3.77%
+        - generic [ref=e634]: ●
+      - link "usdtb $0.9998 ▲ 0.03% ●" [ref=e1936] [cursor=pointer]:
+        - /url: /coins/usdtb
+        - generic [ref=e636]: usdtb
+        - generic [ref=e637]: $0.9998
+        - generic [ref=e638]:
+          - generic [ref=e639]: ▲
+          - text: 0.03%
+        - generic [ref=e640]: ●
+      - link "dexe $19.07 ▲ 6.66% ●" [ref=e1671] [cursor=pointer]:
+        - /url: /coins/dexe
+        - generic [ref=e642]: dexe
+        - generic [ref=e643]: $19.07
+        - generic [ref=e644]:
+          - generic [ref=e645]: ▲
+          - text: 6.66%
+        - generic [ref=e646]: ●
+      - link "jtrsy $1.11 ▲ 0.03% ●" [ref=e647] [cursor=pointer]:
+        - /url: /coins/janus-henderson-anemoy-treasury-fund
+        - generic [ref=e648]: jtrsy
+        - generic [ref=e649]: $1.11
+        - generic [ref=e650]:
+          - generic [ref=e651]: ▲
+          - text: 0.03%
+        - generic [ref=e652]: ●
+      - link "stable $0.0362 ▲ 4.21% ●" [ref=e1937] [cursor=pointer]:
+        - /url: /coins/stable-2
+        - generic [ref=e654]: stable
+        - generic [ref=e655]: $0.0362
+        - generic [ref=e656]:
+          - generic [ref=e657]: ▲
+          - text: 4.21%
+        - generic [ref=e658]: ●
+      - link "algo $0.0949 ▲ 1.24% ●" [ref=e1938] [cursor=pointer]:
+        - /url: /coins/algorand
+        - generic [ref=e660]: algo
+        - generic [ref=e661]: $0.0949
+        - generic [ref=e662]:
+          - generic [ref=e663]: ▲
+          - text: 1.24%
+        - generic [ref=e664]: ●
+      - link "pol $0.0781 ▲ 0.56% ●" [ref=e1939] [cursor=pointer]:
+        - /url: /coins/polygon-ecosystem-token
+        - generic [ref=e666]: pol
+        - generic [ref=e667]: $0.0781
+        - generic [ref=e668]:
+          - generic [ref=e669]: ▲
+          - text: 0.56%
+        - generic [ref=e670]: ●
+      - link "nexo $0.8132 ▲ 0.01% ●" [ref=e1940] [cursor=pointer]:
+        - /url: /coins/nexo
+        - generic [ref=e672]: nexo
+        - generic [ref=e673]: $0.8132
+        - generic [ref=e674]:
+          - generic [ref=e675]: ▲
+          - text: 0.01%
+        - generic [ref=e676]: ●
+      - link "ena $0.0860 ▲ 0.48% ●" [ref=e1941] [cursor=pointer]:
+        - /url: /coins/ethena
+        - generic [ref=e678]: ena
+        - generic [ref=e679]: $0.0860
+        - generic [ref=e680]:
+          - generic [ref=e681]: ▲
+          - text: 0.48%
+        - generic [ref=e682]: ●
+      - link "vvv $15.46 ▼ 4.18% ●" [ref=e1677] [cursor=pointer]:
+        - /url: /coins/venice-token
+        - generic [ref=e684]: vvv
+        - generic [ref=e685]: $15.46
+        - generic [ref=e686]:
+          - generic [ref=e687]: ▼
+          - text: 4.18%
+        - generic [ref=e688]: ●
+      - link "gt $6.78 ▼ 0.80% ●" [ref=e1678] [cursor=pointer]:
+        - /url: /coins/gatechain-token
+        - generic [ref=e690]: gt
+        - generic [ref=e691]: $6.78
+        - generic [ref=e692]:
+          - generic [ref=e693]: ▼
+          - text: 0.80%
+        - generic [ref=e694]: ●
+      - link "jaaa $1.04 ▲ 0.03% ●" [ref=e695] [cursor=pointer]:
+        - /url: /coins/janus-henderson-anemoy-aaa-clo-fund
+        - generic [ref=e696]: jaaa
+        - generic [ref=e697]: $1.04
+        - generic [ref=e698]:
+          - generic [ref=e699]: ▲
+          - text: 0.03%
+        - generic [ref=e700]: ●
+      - link "jst $0.0800 ▲ 3.56% ●" [ref=e1942] [cursor=pointer]:
+        - /url: /coins/just
+        - generic [ref=e702]: jst
+        - generic [ref=e703]: $0.0800
+        - generic [ref=e704]:
+          - generic [ref=e705]: ▲
+          - text: 3.56%
+        - generic [ref=e706]: ●
+      - link "flr $0.007960 ▼ 0.07% ●" [ref=e1943] [cursor=pointer]:
+        - /url: /coins/flare-networks
+        - generic [ref=e1944]: flr
+        - generic [ref=e1945]: $0.007960
+        - generic [ref=e1946]:
+          - generic [ref=e1947]: ▼
+          - text: 0.07%
+        - generic [ref=e1948]: ●
+      - link "币安人生 $0.6780 ▲ 0.67% ●" [ref=e1949] [cursor=pointer]:
+        - /url: /coins/bianrensheng
+        - generic [ref=e1950]: 币安人生
+        - generic [ref=e1951]: $0.6780
+        - generic [ref=e1952]:
+          - generic [ref=e1953]: ▲
+          - text: 0.67%
+        - generic [ref=e1954]: ●
+      - link "jup $0.2006 ▲ 7.81% ●" [ref=e1955] [cursor=pointer]:
+        - /url: /coins/jupiter-exchange-solana
+        - generic [ref=e720]: jup
+        - generic [ref=e721]: $0.2006
+        - generic [ref=e722]:
+          - generic [ref=e723]: ▲
+          - text: 7.81%
+        - generic [ref=e724]: ●
+      - link "bdx $0.0816 ▲ 2.55% ●" [ref=e1956] [cursor=pointer]:
+        - /url: /coins/beldex
+        - generic [ref=e726]: bdx
+        - generic [ref=e727]: $0.0816
+        - generic [ref=e728]:
+          - generic [ref=e729]: ▲
+          - text: 2.55%
+        - generic [ref=e730]: ●
+      - link "fil $0.7958 ▼ 0.76% ●" [ref=e1957] [cursor=pointer]:
+        - /url: /coins/filecoin
+        - generic [ref=e732]: fil
+        - generic [ref=e733]: $0.7958
+        - generic [ref=e734]:
+          - generic [ref=e735]: ▼
+          - text: 0.76%
+        - generic [ref=e736]: ●
+      - link "xdc $0.0308 ▲ 0.64% ●" [ref=e1958] [cursor=pointer]:
+        - /url: /coins/xdce-crowd-sale
+        - generic [ref=e738]: xdc
+        - generic [ref=e739]: $0.0308
+        - generic [ref=e740]:
+          - generic [ref=e741]: ▲
+          - text: 0.64%
+        - generic [ref=e742]: ●
+      - link "gho $0.9988 ▼ 0.00% ●" [ref=e1686] [cursor=pointer]:
+        - /url: /coins/gho
+        - generic [ref=e744]: gho
+        - generic [ref=e745]: $0.9988
+        - generic [ref=e746]:
+          - generic [ref=e747]: ▼
+          - text: 0.00%
+        - generic [ref=e748]: ●
+      - link "inj $5.78 ▲ 10.36% ●" [ref=e1959] [cursor=pointer]:
+        - /url: /coins/injective-protocol
+        - generic [ref=e750]: inj
+        - generic [ref=e751]: $5.78
+        - generic [ref=e752]:
+          - generic [ref=e753]: ▲
+          - text: 10.36%
+        - generic [ref=e754]: ●
+      - link "apt $0.6789 ▼ 0.72% ●" [ref=e1960] [cursor=pointer]:
+        - /url: /coins/aptos
+        - generic [ref=e756]: apt
+        - generic [ref=e757]: $0.6789
+        - generic [ref=e758]:
+          - generic [ref=e759]: ▼
+          - text: 0.72%
+        - generic [ref=e760]: ●
+      - link "night $0.0337 ▲ 1.79% ●" [ref=e1961] [cursor=pointer]:
+        - /url: /coins/midnight-3
+        - generic [ref=e762]: night
+        - generic [ref=e763]: $0.0337
+        - generic [ref=e764]:
+          - generic [ref=e765]: ▲
+          - text: 1.79%
+        - generic [ref=e766]: ●
+      - link "usd0 $0.9990 ▲ 0.03% ●" [ref=e1962] [cursor=pointer]:
+        - /url: /coins/usual-usd
+        - generic [ref=e768]: usd0
+        - generic [ref=e769]: $0.9990
+        - generic [ref=e770]:
+          - generic [ref=e771]: ▲
+          - text: 0.03%
+        - generic [ref=e772]: ●
+      - link "ylds $0.9998 ▼ 0.00% ●" [ref=e1963] [cursor=pointer]:
+        - /url: /coins/ylds
+        - generic [ref=e1964]: ylds
+        - generic [ref=e1965]: $0.9998
+        - generic [ref=e1966]:
+          - generic [ref=e1967]: ▼
+          - text: 0.00%
+        - generic [ref=e1968]: ●
+      - link "pump $0.001575 ▼ 1.44% ●" [ref=e1969] [cursor=pointer]:
+        - /url: /coins/pump-fun
+        - generic [ref=e1970]: pump
+        - generic [ref=e1971]: $0.001575
+        - generic [ref=e1972]:
+          - generic [ref=e1973]: ▼
+          - text: 1.44%
+        - generic [ref=e1974]: ●
+      - link "arb $0.0860 ▼ 0.80% ●" [ref=e1975] [cursor=pointer]:
+        - /url: /coins/arbitrum
+        - generic [ref=e786]: arb
+        - generic [ref=e787]: $0.0860
+        - generic [ref=e788]:
+          - generic [ref=e789]: ▼
+          - text: 0.80%
+        - generic [ref=e790]: ●
+      - link "btc $66,333.00 ▲ 0.73% ●" [ref=e1976] [cursor=pointer]:
+        - /url: /coins/bitcoin
+        - generic [ref=e792]: btc
+        - generic [ref=e793]: $66,333.00
+        - generic [ref=e794]:
+          - generic [ref=e795]: ▲
+          - text: 0.73%
+        - generic [ref=e796]: ●
+      - link "eth $1,769.28 ▲ 2.80% ●" [ref=e1977] [cursor=pointer]:
+        - /url: /coins/ethereum
+        - generic [ref=e798]: eth
+        - generic [ref=e799]: $1,769.28
+        - generic [ref=e800]:
+          - generic [ref=e801]: ▲
+          - text: 2.80%
+        - generic [ref=e802]: ●
+      - link "usdt $0.9994 ▲ 0.00% ●" [ref=e803] [cursor=pointer]:
+        - /url: /coins/tether
+        - generic [ref=e804]: usdt
+        - generic [ref=e805]: $0.9994
+        - generic [ref=e806]:
+          - generic [ref=e807]: ▲
+          - text: 0.00%
+        - generic [ref=e808]: ●
+      - link "bnb $615.43 ▼ 0.26% ●" [ref=e1978] [cursor=pointer]:
+        - /url: /coins/binancecoin
+        - generic [ref=e810]: bnb
+        - generic [ref=e811]: $615.43
+        - generic [ref=e812]:
+          - generic [ref=e813]: ▼
+          - text: 0.26%
+        - generic [ref=e814]: ●
+      - link "xrp $1.23 ▲ 4.30% ●" [ref=e1979] [cursor=pointer]:
+        - /url: /coins/ripple
+        - generic [ref=e816]: xrp
+        - generic [ref=e817]: $1.23
+        - generic [ref=e818]:
+          - generic [ref=e819]: ▲
+          - text: 4.30%
+        - generic [ref=e820]: ●
+      - link "usdc $0.9997 ▲ 0.01% ●" [ref=e1980] [cursor=pointer]:
+        - /url: /coins/usd-coin
+        - generic [ref=e822]: usdc
+        - generic [ref=e823]: $0.9997
+        - generic [ref=e824]:
+          - generic [ref=e825]: ▲
+          - text: 0.01%
+        - generic [ref=e826]: ●
+      - link "sol $74.26 ▲ 4.24% ●" [ref=e1697] [cursor=pointer]:
+        - /url: /coins/solana
+        - generic [ref=e828]: sol
+        - generic [ref=e829]: $74.26
+        - generic [ref=e830]:
+          - generic [ref=e831]: ▲
+          - text: 4.24%
+        - generic [ref=e832]: ●
+      - link "trx $0.3179 ▼ 0.62% ●" [ref=e1698] [cursor=pointer]:
+        - /url: /coins/tron
+        - generic [ref=e834]: trx
+        - generic [ref=e835]: $0.3179
+        - generic [ref=e836]:
+          - generic [ref=e837]: ▼
+          - text: 0.62%
+        - generic [ref=e838]: ●
+      - link "figr_heloc $1.03 ▲ 1.27% ●" [ref=e839] [cursor=pointer]:
+        - /url: /coins/figure-heloc
+        - generic [ref=e840]: figr_heloc
+        - generic [ref=e841]: $1.03
+        - generic [ref=e842]:
+          - generic [ref=e843]: ▲
+          - text: 1.27%
+        - generic [ref=e844]: ●
+      - link "hype $72.22 ▲ 10.86% ●" [ref=e1981] [cursor=pointer]:
+        - /url: /coins/hyperliquid
+        - generic [ref=e846]: hype
+        - generic [ref=e847]: $72.22
+        - generic [ref=e848]:
+          - generic [ref=e849]: ▲
+          - text: 10.86%
+        - generic [ref=e850]: ●
+      - link "doge $0.0876 ▼ 1.00% ●" [ref=e1982] [cursor=pointer]:
+        - /url: /coins/dogecoin
+        - generic [ref=e852]: doge
+        - generic [ref=e853]: $0.0876
+        - generic [ref=e854]:
+          - generic [ref=e855]: ▼
+          - text: 1.00%
+        - generic [ref=e856]: ●
+      - link "usds $0.9997 ▲ 0.00% ●" [ref=e857] [cursor=pointer]:
+        - /url: /coins/usds
+        - generic [ref=e858]: usds
+        - generic [ref=e859]: $0.9997
+        - generic [ref=e860]:
+          - generic [ref=e861]: ▲
+          - text: 0.00%
+        - generic [ref=e862]: ●
+      - link "leo $9.70 ▼ 0.99% ●" [ref=e1701] [cursor=pointer]:
+        - /url: /coins/leo-token
+        - generic [ref=e864]: leo
+        - generic [ref=e865]: $9.70
+        - generic [ref=e866]:
+          - generic [ref=e867]: ▼
+          - text: 0.99%
+        - generic [ref=e868]: ●
+      - link "zec $520.61 ▲ 4.71% ●" [ref=e1983] [cursor=pointer]:
+        - /url: /coins/zcash
+        - generic [ref=e870]: zec
+        - generic [ref=e871]: $520.61
+        - generic [ref=e872]:
+          - generic [ref=e873]: ▲
+          - text: 4.71%
+        - generic [ref=e874]: ●
+      - link "rain $0.0137 ▲ 1.31% ●" [ref=e1984] [cursor=pointer]:
+        - /url: /coins/rain
+        - generic [ref=e876]: rain
+        - generic [ref=e877]: $0.0137
+        - generic [ref=e878]:
+          - generic [ref=e879]: ▲
+          - text: 1.31%
+        - generic [ref=e880]: ●
+      - link "xlm $0.2167 ▲ 14.19% ●" [ref=e1985] [cursor=pointer]:
+        - /url: /coins/stellar
+        - generic [ref=e882]: xlm
+        - generic [ref=e883]: $0.2167
+        - generic [ref=e884]:
+          - generic [ref=e885]: ▲
+          - text: 14.19%
+        - generic [ref=e886]: ●
+      - link "ada $0.1784 ▼ 1.34% ●" [ref=e1986] [cursor=pointer]:
+        - /url: /coins/cardano
+        - generic [ref=e888]: ada
+        - generic [ref=e889]: $0.1784
+        - generic [ref=e890]:
+          - generic [ref=e891]: ▼
+          - text: 1.34%
+        - generic [ref=e892]: ●
+      - link "xmr $346.54 ▲ 3.33% ●" [ref=e1987] [cursor=pointer]:
+        - /url: /coins/monero
+        - generic [ref=e894]: xmr
+        - generic [ref=e895]: $346.54
+        - generic [ref=e896]:
+          - generic [ref=e897]: ▲
+          - text: 3.33%
+        - generic [ref=e898]: ●
+      - link "wbt $54.32 ▲ 1.53% ●" [ref=e1564] [cursor=pointer]:
+        - /url: /coins/whitebit
+        - generic [ref=e900]: wbt
+        - generic [ref=e901]: $54.32
+        - generic [ref=e902]:
+          - generic [ref=e903]: ▲
+          - text: 1.53%
+        - generic [ref=e904]: ●
+      - link "cc $0.1644 ▼ 0.73% ●" [ref=e1707] [cursor=pointer]:
+        - /url: /coins/canton-network
+        - generic [ref=e906]: cc
+        - generic [ref=e907]: $0.1644
+        - generic [ref=e908]:
+          - generic [ref=e909]: ▼
+          - text: 0.73%
+        - generic [ref=e910]: ●
+      - link "link $8.25 ▲ 0.76% ●" [ref=e1708] [cursor=pointer]:
+        - /url: /coins/chainlink
+        - generic [ref=e912]: link
+        - generic [ref=e913]: $8.25
+        - generic [ref=e914]:
+          - generic [ref=e915]: ▲
+          - text: 0.76%
+        - generic [ref=e916]: ●
+      - link "gram $1.70 ▼ 4.76% ●" [ref=e1988] [cursor=pointer]:
+        - /url: /coins/the-open-network
+        - generic [ref=e918]: gram
+        - generic [ref=e919]: $1.70
+        - generic [ref=e920]:
+          - generic [ref=e921]: ▼
+          - text: 4.76%
+        - generic [ref=e922]: ●
+      - link "usd1 $1.00 ▲ 0.05% ●" [ref=e1710] [cursor=pointer]:
+        - /url: /coins/usd1-wlfi
+        - generic [ref=e924]: usd1
+        - generic [ref=e925]: $1.00
+        - generic [ref=e926]:
+          - generic [ref=e927]: ▲
+          - text: 0.05%
+        - generic [ref=e928]: ●
+      - link "bch $224.71 ▲ 5.59% ●" [ref=e1989] [cursor=pointer]:
+        - /url: /coins/bitcoin-cash
+        - generic [ref=e930]: bch
+        - generic [ref=e931]: $224.71
+        - generic [ref=e932]:
+          - generic [ref=e933]: ▲
+          - text: 5.59%
+        - generic [ref=e934]: ●
+      - link "usde $0.9995 ▲ 0.02% ●" [ref=e935] [cursor=pointer]:
+        - /url: /coins/ethena-usde
+        - generic [ref=e936]: usde
+        - generic [ref=e937]: $0.9995
+        - generic [ref=e938]:
+          - generic [ref=e939]: ▲
+          - text: 0.02%
+        - generic [ref=e940]: ●
+      - link "dai $0.9997 ▲ 0.00% ●" [ref=e941] [cursor=pointer]:
+        - /url: /coins/dai
+        - generic [ref=e942]: dai
+        - generic [ref=e943]: $0.9997
+        - generic [ref=e944]:
+          - generic [ref=e945]: ▲
+          - text: 0.00%
+        - generic [ref=e946]: ●
+      - link "m $2.99 ▲ 1.56% ●" [ref=e1990] [cursor=pointer]:
+        - /url: /coins/memecore
+        - generic [ref=e948]: m
+        - generic [ref=e949]: $2.99
+        - generic [ref=e950]:
+          - generic [ref=e951]: ▲
+          - text: 1.56%
+        - generic [ref=e952]: ●
+      - link "hbar $0.0824 ▲ 0.78% ●" [ref=e1991] [cursor=pointer]:
+        - /url: /coins/hedera-hashgraph
+        - generic [ref=e954]: hbar
+        - generic [ref=e955]: $0.0824
+        - generic [ref=e956]:
+          - generic [ref=e957]: ▲
+          - text: 0.78%
+        - generic [ref=e958]: ●
+      - link "ltc $45.60 ▲ 0.79% ●" [ref=e1714] [cursor=pointer]:
+        - /url: /coins/litecoin
+        - generic [ref=e960]: ltc
+        - generic [ref=e961]: $45.60
+        - generic [ref=e962]:
+          - generic [ref=e963]: ▲
+          - text: 0.79%
+        - generic [ref=e964]: ●
+      - link "sui $0.7886 ▼ 0.98% ●" [ref=e1992] [cursor=pointer]:
+        - /url: /coins/sui
+        - generic [ref=e966]: sui
+        - generic [ref=e967]: $0.7886
+        - generic [ref=e968]:
+          - generic [ref=e969]: ▼
+          - text: 0.98%
+        - generic [ref=e970]: ●
+      - link "near $2.42 ▲ 1.79% ●" [ref=e1993] [cursor=pointer]:
+        - /url: /coins/near
+        - generic [ref=e972]: near
+        - generic [ref=e973]: $2.42
+        - generic [ref=e974]:
+          - generic [ref=e975]: ▲
+          - text: 1.79%
+        - generic [ref=e976]: ●
+      - link "lab $10.02 ▼ 5.33% ●" [ref=e1994] [cursor=pointer]:
+        - /url: /coins/lab
+        - generic [ref=e978]: lab
+        - generic [ref=e979]: $10.02
+        - generic [ref=e980]:
+          - generic [ref=e981]: ▼
+          - text: 5.33%
+        - generic [ref=e982]: ●
+      - link "usyc $1.13 ▲ 0.00% ●" [ref=e983] [cursor=pointer]:
+        - /url: /coins/hashnote-usyc
+        - generic [ref=e984]: usyc
+        - generic [ref=e985]: $1.13
+        - generic [ref=e986]:
+          - generic [ref=e987]: ▲
+          - text: 0.00%
+        - generic [ref=e988]: ●
+      - link "avax $6.87 ▲ 1.30% ●" [ref=e1995] [cursor=pointer]:
+        - /url: /coins/avalanche-2
+        - generic [ref=e990]: avax
+        - generic [ref=e991]: $6.87
+        - generic [ref=e992]:
+          - generic [ref=e993]: ▲
+          - text: 1.30%
+        - generic [ref=e994]: ●
+      - link "shib $0.000005 ▼ 0.39% ●" [ref=e1996] [cursor=pointer]:
+        - /url: /coins/shiba-inu
+        - generic [ref=e996]: shib
+        - generic [ref=e997]: $0.000005
+        - generic [ref=e998]:
+          - generic [ref=e999]: ▼
+          - text: 0.39%
+        - generic [ref=e1000]: ●
+      - link "cro $0.0622 ▲ 0.18% ●" [ref=e1997] [cursor=pointer]:
+        - /url: /coins/crypto-com-chain
+        - generic [ref=e1002]: cro
+        - generic [ref=e1003]: $0.0622
+        - generic [ref=e1004]:
+          - generic [ref=e1005]: ▲
+          - text: 0.18%
+        - generic [ref=e1006]: ●
+      - link "pyusd $1.00 ▲ 0.04% ●" [ref=e1720] [cursor=pointer]:
+        - /url: /coins/paypal-usd
+        - generic [ref=e1008]: pyusd
+        - generic [ref=e1009]: $1.00
+        - generic [ref=e1010]:
+          - generic [ref=e1011]: ▲
+          - text: 0.04%
+        - generic [ref=e1012]: ●
+      - link "usdg $1.00 ▲ 0.01% ●" [ref=e1998] [cursor=pointer]:
+        - /url: /coins/global-dollar
+        - generic [ref=e1014]: usdg
+        - generic [ref=e1015]: $1.00
+        - generic [ref=e1016]:
+          - generic [ref=e1017]: ▲
+          - text: 0.01%
+        - generic [ref=e1018]: ●
+      - link "xaut $4,306.86 ▲ 0.36% ●" [ref=e1999] [cursor=pointer]:
+        - /url: /coins/tether-gold
+        - generic [ref=e1020]: xaut
+        - generic [ref=e1021]: $4,306.86
+        - generic [ref=e1022]:
+          - generic [ref=e1023]: ▲
+          - text: 0.36%
+        - generic [ref=e1024]: ●
+      - link "tao $264.37 ▼ 6.12% ●" [ref=e2000] [cursor=pointer]:
+        - /url: /coins/bittensor
+        - generic [ref=e1026]: tao
+        - generic [ref=e1027]: $264.37
+        - generic [ref=e1028]:
+          - generic [ref=e1029]: ▼
+          - text: 6.12%
+        - generic [ref=e1030]: ●
+      - link "buidl $1.00 ▲ 0.00% ●" [ref=e1031] [cursor=pointer]:
+        - /url: /coins/blackrock-usd-institutional-digital-liquidity-fund
+        - generic [ref=e1032]: buidl
+        - generic [ref=e1033]: $1.00
+        - generic [ref=e1034]:
+          - generic [ref=e1035]: ▲
+          - text: 0.00%
+        - generic [ref=e1036]: ●
+      - link "usdy $1.12 ▼ 0.65% ●" [ref=e1037] [cursor=pointer]:
+        - /url: /coins/ondo-us-dollar-yield
+        - generic [ref=e1038]: usdy
+        - generic [ref=e1039]: $1.12
+        - generic [ref=e1040]:
+          - generic [ref=e1041]: ▼
+          - text: 0.65%
+        - generic [ref=e1042]: ●
+      - link "wld $0.5960 ▲ 1.38% ●" [ref=e2001] [cursor=pointer]:
+        - /url: /coins/worldcoin-wld
+        - generic [ref=e1044]: wld
+        - generic [ref=e1045]: $0.5960
+        - generic [ref=e1046]:
+          - generic [ref=e1047]: ▲
+          - text: 1.38%
+        - generic [ref=e1048]: ●
+      - link "paxg $4,316.76 ▲ 0.36% ●" [ref=e2002] [cursor=pointer]:
+        - /url: /coins/pax-gold
+        - generic [ref=e1050]: paxg
+        - generic [ref=e1051]: $4,316.76
+        - generic [ref=e1052]:
+          - generic [ref=e1053]: ▲
+          - text: 0.36%
+        - generic [ref=e1054]: ●
+      - link "wlfi $0.0601 ▼ 1.73% ●" [ref=e2003] [cursor=pointer]:
+        - /url: /coins/world-liberty-financial
+        - generic [ref=e1056]: wlfi
+        - generic [ref=e1057]: $0.0601
+        - generic [ref=e1058]:
+          - generic [ref=e1059]: ▼
+          - text: 1.73%
+        - generic [ref=e1060]: ●
+      - link "mnt $0.5764 ▲ 0.59% ●" [ref=e2004] [cursor=pointer]:
+        - /url: /coins/mantle
+        - generic [ref=e1062]: mnt
+        - generic [ref=e1063]: $0.5764
+        - generic [ref=e1064]:
+          - generic [ref=e1065]: ▲
+          - text: 0.59%
+        - generic [ref=e1066]: ●
+      - link "uni $2.94 ▲ 13.30% ●" [ref=e2005] [cursor=pointer]:
+        - /url: /coins/uniswap
+        - generic [ref=e1068]: uni
+        - generic [ref=e1069]: $2.94
+        - generic [ref=e1070]:
+          - generic [ref=e1071]: ▲
+          - text: 13.30%
+        - generic [ref=e1072]: ●
+      - link "ondo $0.3725 ▼ 2.09% ●" [ref=e2006] [cursor=pointer]:
+        - /url: /coins/ondo-finance
+        - generic [ref=e1074]: ondo
+        - generic [ref=e1075]: $0.3725
+        - generic [ref=e1076]:
+          - generic [ref=e1077]: ▼
+          - text: 2.09%
+        - generic [ref=e1078]: ●
+      - link "aster $0.6551 ▲ 3.73% ●" [ref=e2007] [cursor=pointer]:
+        - /url: /coins/aster-2
+        - generic [ref=e1080]: aster
+        - generic [ref=e1081]: $0.6551
+        - generic [ref=e1082]:
+          - generic [ref=e1083]: ▲
+          - text: 3.73%
+        - generic [ref=e1084]: ●
+      - link "dot $1.01 ▲ 0.83% ●" [ref=e2008] [cursor=pointer]:
+        - /url: /coins/polkadot
+        - generic [ref=e1086]: dot
+        - generic [ref=e1087]: $1.01
+        - generic [ref=e1088]:
+          - generic [ref=e1089]: ▲
+          - text: 0.83%
+        - generic [ref=e1090]: ●
+      - link "rlusd $1.00 ▲ 0.02% ●" [ref=e2009] [cursor=pointer]:
+        - /url: /coins/ripple-usd
+        - generic [ref=e1092]: rlusd
+        - generic [ref=e1093]: $1.00
+        - generic [ref=e1094]:
+          - generic [ref=e1095]: ▲
+          - text: 0.02%
+        - generic [ref=e1096]: ●
+      - link "okb $75.82 ▲ 0.80% ●" [ref=e1097] [cursor=pointer]:
+        - /url: /coins/okb
+        - generic [ref=e1098]: okb
+        - generic [ref=e1099]: $75.82
+        - generic [ref=e1100]:
+          - generic [ref=e1101]: ▲
+          - text: 0.80%
+        - generic [ref=e1102]: ●
+      - link "htx $0.000002 ▼ 0.16% ●" [ref=e2010] [cursor=pointer]:
+        - /url: /coins/htx-dao
+        - generic [ref=e1104]: htx
+        - generic [ref=e1105]: $0.000002
+        - generic [ref=e1106]:
+          - generic [ref=e1107]: ▼
+          - text: 0.16%
+        - generic [ref=e1108]: ●
+      - link "pi $0.1364 ▲ 1.52% ●" [ref=e2011] [cursor=pointer]:
+        - /url: /coins/pi-network
+        - generic [ref=e1110]: pi
+        - generic [ref=e1111]: $0.1364
+        - generic [ref=e1112]:
+          - generic [ref=e1113]: ▲
+          - text: 1.52%
+        - generic [ref=e1114]: ●
+      - link "usdf $0.9936 ▼ 0.20% ●" [ref=e2012] [cursor=pointer]:
+        - /url: /coins/falcon-finance
+        - generic [ref=e1116]: usdf
+        - generic [ref=e1117]: $0.9936
+        - generic [ref=e1118]:
+          - generic [ref=e1119]: ▼
+          - text: 0.20%
+        - generic [ref=e1120]: ●
+      - link "usdd $0.9994 ▼ 0.00% ●" [ref=e1730] [cursor=pointer]:
+        - /url: /coins/usdd
+        - generic [ref=e1122]: usdd
+        - generic [ref=e1123]: $0.9994
+        - generic [ref=e1124]:
+          - generic [ref=e1125]: ▼
+          - text: 0.00%
+        - generic [ref=e1126]: ●
+      - link "icp $2.42 ▼ 4.21% ●" [ref=e2013] [cursor=pointer]:
+        - /url: /coins/internet-computer
+        - generic [ref=e1128]: icp
+        - generic [ref=e1129]: $2.42
+        - generic [ref=e1130]:
+          - generic [ref=e1131]: ▼
+          - text: 4.21%
+        - generic [ref=e1132]: ●
+      - link "sky $0.0575 ▲ 2.24% ●" [ref=e2014] [cursor=pointer]:
+        - /url: /coins/sky
+        - generic [ref=e1134]: sky
+        - generic [ref=e1135]: $0.0575
+        - generic [ref=e1136]:
+          - generic [ref=e1137]: ▲
+          - text: 2.24%
+        - generic [ref=e1138]: ●
+      - link "bfusd $0.9992 ▲ 0.07% ●" [ref=e1139] [cursor=pointer]:
+        - /url: /coins/bfusd
+        - generic [ref=e1140]: bfusd
+        - generic [ref=e1141]: $0.9992
+        - generic [ref=e1142]:
+          - generic [ref=e1143]: ▲
+          - text: 0.07%
+        - generic [ref=e1144]: ●
+      - link "bgb $1.83 ▲ 0.90% ●" [ref=e2015] [cursor=pointer]:
+        - /url: /coins/bitget-token
+        - generic [ref=e1146]: bgb
+        - generic [ref=e1147]: $1.83
+        - generic [ref=e1148]:
+          - generic [ref=e1149]: ▲
+          - text: 0.90%
+        - generic [ref=e1150]: ●
+      - link "morpho $1.94 ▼ 3.05% ●" [ref=e2016] [cursor=pointer]:
+        - /url: /coins/morpho
+        - generic [ref=e1152]: morpho
+        - generic [ref=e1153]: $1.94
+        - generic [ref=e1154]:
+          - generic [ref=e1155]: ▼
+          - text: 3.05%
+        - generic [ref=e1156]: ●
+      - link "pepe $0.000003 ▲ 1.38% ●" [ref=e2017] [cursor=pointer]:
+        - /url: /coins/pepe
+        - generic [ref=e1158]: pepe
+        - generic [ref=e1159]: $0.000003
+        - generic [ref=e1160]:
+          - generic [ref=e1161]: ▲
+          - text: 1.38%
+        - generic [ref=e1162]: ●
+      - link "etc $7.38 ▲ 1.92% ●" [ref=e2018] [cursor=pointer]:
+        - /url: /coins/ethereum-classic
+        - generic [ref=e1164]: etc
+        - generic [ref=e1165]: $7.38
+        - generic [ref=e1166]:
+          - generic [ref=e1167]: ▲
+          - text: 1.92%
+        - generic [ref=e1168]: ●
+      - link "aave $74.83 ▲ 6.32% ●" [ref=e2019] [cursor=pointer]:
+        - /url: /coins/aave
+        - generic [ref=e1170]: aave
+        - generic [ref=e1171]: $74.83
+        - generic [ref=e1172]:
+          - generic [ref=e1173]: ▲
+          - text: 6.32%
+        - generic [ref=e1174]: ●
+      - link "beat $3.67 ▼ 30.24% ●" [ref=e2020] [cursor=pointer]:
+        - /url: /coins/audiera
+        - generic [ref=e2021]: beat
+        - generic [ref=e2022]: $3.67
+        - generic [ref=e2023]:
+          - generic [ref=e2024]: ▼
+          - text: 30.24%
+        - generic [ref=e2025]: ●
+      - link "qnt $71.50 ▲ 3.59% ●" [ref=e2026] [cursor=pointer]:
+        - /url: /coins/quant-network
+        - generic [ref=e2027]: qnt
+        - generic [ref=e2028]: $71.50
+        - generic [ref=e2029]:
+          - generic [ref=e2030]: ▲
+          - text: 3.59%
+        - generic [ref=e2031]: ●
+      - link "atom $1.98 ▲ 0.04% ●" [ref=e2032] [cursor=pointer]:
+        - /url: /coins/cosmos
+        - generic [ref=e1188]: atom
+        - generic [ref=e1189]: $1.98
+        - generic [ref=e1190]:
+          - generic [ref=e1191]: ▲
+          - text: 0.04%
+        - generic [ref=e1192]: ●
+      - link "u $0.9999 ▼ 0.01% ●" [ref=e2033] [cursor=pointer]:
+        - /url: /coins/united-stables
+        - generic [ref=e1194]: u
+        - generic [ref=e1195]: $0.9999
+        - generic [ref=e1196]:
+          - generic [ref=e1197]: ▼
+          - text: 0.01%
+        - generic [ref=e1198]: ●
+      - link "bcap $107.07 ▲ 0.10% ●" [ref=e1199] [cursor=pointer]:
+        - /url: /coins/blockchain-capital
+        - generic [ref=e1200]: bcap
+        - generic [ref=e1201]: $107.07
+        - generic [ref=e1202]:
+          - generic [ref=e1203]: ▲
+          - text: 0.10%
+        - generic [ref=e1204]: ●
+      - link "ustb $11.11 ▲ 0.01% ●" [ref=e1205] [cursor=pointer]:
+        - /url: /coins/superstate-short-duration-us-government-securities-fund-ustb
+        - generic [ref=e1206]: ustb
+        - generic [ref=e1207]: $11.11
+        - generic [ref=e1208]:
+          - generic [ref=e1209]: ▲
+          - text: 0.01%
+        - generic [ref=e1210]: ●
+      - link "kcs $7.20 ▲ 2.64% ●" [ref=e2034] [cursor=pointer]:
+        - /url: /coins/kucoin-shares
+        - generic [ref=e1212]: kcs
+        - generic [ref=e1213]: $7.20
+        - generic [ref=e1214]:
+          - generic [ref=e1215]: ▲
+          - text: 2.64%
+        - generic [ref=e1216]: ●
+      - link "eutbl $1.22 ▼ 0.16% ●" [ref=e2035] [cursor=pointer]:
+        - /url: /coins/eutbl
+        - generic [ref=e1218]: eutbl
+        - generic [ref=e1219]: $1.22
+        - generic [ref=e1220]:
+          - generic [ref=e1221]: ▼
+          - text: 0.16%
+        - generic [ref=e1222]: ●
+      - link "render $1.79 ▼ 2.16% ●" [ref=e2036] [cursor=pointer]:
+        - /url: /coins/render-token
+        - generic [ref=e1224]: render
+        - generic [ref=e1225]: $1.79
+        - generic [ref=e1226]:
+          - generic [ref=e1227]: ▼
+          - text: 2.16%
+        - generic [ref=e1228]: ●
+      - link "kas $0.0338 ▲ 3.77% ●" [ref=e2037] [cursor=pointer]:
+        - /url: /coins/kaspa
+        - generic [ref=e1230]: kas
+        - generic [ref=e1231]: $0.0338
+        - generic [ref=e1232]:
+          - generic [ref=e1233]: ▲
+          - text: 3.77%
+        - generic [ref=e1234]: ●
+      - link "usdtb $0.9998 ▲ 0.03% ●" [ref=e2038] [cursor=pointer]:
+        - /url: /coins/usdtb
+        - generic [ref=e1236]: usdtb
+        - generic [ref=e1237]: $0.9998
+        - generic [ref=e1238]:
+          - generic [ref=e1239]: ▲
+          - text: 0.03%
+        - generic [ref=e1240]: ●
+      - link "dexe $19.07 ▲ 6.66% ●" [ref=e1742] [cursor=pointer]:
+        - /url: /coins/dexe
+        - generic [ref=e1242]: dexe
+        - generic [ref=e1243]: $19.07
+        - generic [ref=e1244]:
+          - generic [ref=e1245]: ▲
+          - text: 6.66%
+        - generic [ref=e1246]: ●
+      - link "jtrsy $1.11 ▲ 0.03% ●" [ref=e1247] [cursor=pointer]:
+        - /url: /coins/janus-henderson-anemoy-treasury-fund
+        - generic [ref=e1248]: jtrsy
+        - generic [ref=e1249]: $1.11
+        - generic [ref=e1250]:
+          - generic [ref=e1251]: ▲
+          - text: 0.03%
+        - generic [ref=e1252]: ●
+      - link "stable $0.0362 ▲ 4.21% ●" [ref=e2039] [cursor=pointer]:
+        - /url: /coins/stable-2
+        - generic [ref=e1254]: stable
+        - generic [ref=e1255]: $0.0362
+        - generic [ref=e1256]:
+          - generic [ref=e1257]: ▲
+          - text: 4.21%
+        - generic [ref=e1258]: ●
+      - link "algo $0.0949 ▲ 1.24% ●" [ref=e2040] [cursor=pointer]:
+        - /url: /coins/algorand
+        - generic [ref=e1260]: algo
+        - generic [ref=e1261]: $0.0949
+        - generic [ref=e1262]:
+          - generic [ref=e1263]: ▲
+          - text: 1.24%
+        - generic [ref=e1264]: ●
+      - link "pol $0.0781 ▲ 0.56% ●" [ref=e2041] [cursor=pointer]:
+        - /url: /coins/polygon-ecosystem-token
+        - generic [ref=e1266]: pol
+        - generic [ref=e1267]: $0.0781
+        - generic [ref=e1268]:
+          - generic [ref=e1269]: ▲
+          - text: 0.56%
+        - generic [ref=e1270]: ●
+      - link "nexo $0.8132 ▲ 0.01% ●" [ref=e2042] [cursor=pointer]:
+        - /url: /coins/nexo
+        - generic [ref=e1272]: nexo
+        - generic [ref=e1273]: $0.8132
+        - generic [ref=e1274]:
+          - generic [ref=e1275]: ▲
+          - text: 0.01%
+        - generic [ref=e1276]: ●
+      - link "ena $0.0860 ▲ 0.48% ●" [ref=e2043] [cursor=pointer]:
+        - /url: /coins/ethena
+        - generic [ref=e1278]: ena
+        - generic [ref=e1279]: $0.0860
+        - generic [ref=e1280]:
+          - generic [ref=e1281]: ▲
+          - text: 0.48%
+        - generic [ref=e1282]: ●
+      - link "vvv $15.46 ▼ 4.18% ●" [ref=e1748] [cursor=pointer]:
+        - /url: /coins/venice-token
+        - generic [ref=e1284]: vvv
+        - generic [ref=e1285]: $15.46
+        - generic [ref=e1286]:
+          - generic [ref=e1287]: ▼
+          - text: 4.18%
+        - generic [ref=e1288]: ●
+      - link "gt $6.78 ▼ 0.80% ●" [ref=e1749] [cursor=pointer]:
+        - /url: /coins/gatechain-token
+        - generic [ref=e1290]: gt
+        - generic [ref=e1291]: $6.78
+        - generic [ref=e1292]:
+          - generic [ref=e1293]: ▼
+          - text: 0.80%
+        - generic [ref=e1294]: ●
+      - link "jaaa $1.04 ▲ 0.03% ●" [ref=e1295] [cursor=pointer]:
+        - /url: /coins/janus-henderson-anemoy-aaa-clo-fund
+        - generic [ref=e1296]: jaaa
+        - generic [ref=e1297]: $1.04
+        - generic [ref=e1298]:
+          - generic [ref=e1299]: ▲
+          - text: 0.03%
+        - generic [ref=e1300]: ●
+      - link "jst $0.0800 ▲ 3.56% ●" [ref=e2044] [cursor=pointer]:
+        - /url: /coins/just
+        - generic [ref=e1302]: jst
+        - generic [ref=e1303]: $0.0800
+        - generic [ref=e1304]:
+          - generic [ref=e1305]: ▲
+          - text: 3.56%
+        - generic [ref=e1306]: ●
+      - link "flr $0.007960 ▼ 0.07% ●" [ref=e2045] [cursor=pointer]:
+        - /url: /coins/flare-networks
+        - generic [ref=e2046]: flr
+        - generic [ref=e2047]: $0.007960
+        - generic [ref=e2048]:
+          - generic [ref=e2049]: ▼
+          - text: 0.07%
+        - generic [ref=e2050]: ●
+      - link "币安人生 $0.6780 ▲ 0.67% ●" [ref=e2051] [cursor=pointer]:
+        - /url: /coins/bianrensheng
+        - generic [ref=e2052]: 币安人生
+        - generic [ref=e2053]: $0.6780
+        - generic [ref=e2054]:
+          - generic [ref=e2055]: ▲
+          - text: 0.67%
+        - generic [ref=e2056]: ●
+      - link "jup $0.2006 ▲ 7.81% ●" [ref=e2057] [cursor=pointer]:
+        - /url: /coins/jupiter-exchange-solana
+        - generic [ref=e1320]: jup
+        - generic [ref=e1321]: $0.2006
+        - generic [ref=e1322]:
+          - generic [ref=e1323]: ▲
+          - text: 7.81%
+        - generic [ref=e1324]: ●
+      - link "bdx $0.0816 ▲ 2.55% ●" [ref=e2058] [cursor=pointer]:
+        - /url: /coins/beldex
+        - generic [ref=e1326]: bdx
+        - generic [ref=e1327]: $0.0816
+        - generic [ref=e1328]:
+          - generic [ref=e1329]: ▲
+          - text: 2.55%
+        - generic [ref=e1330]: ●
+      - link "fil $0.7958 ▼ 0.76% ●" [ref=e2059] [cursor=pointer]:
+        - /url: /coins/filecoin
+        - generic [ref=e1332]: fil
+        - generic [ref=e1333]: $0.7958
+        - generic [ref=e1334]:
+          - generic [ref=e1335]: ▼
+          - text: 0.76%
+        - generic [ref=e1336]: ●
+      - link "xdc $0.0308 ▲ 0.64% ●" [ref=e2060] [cursor=pointer]:
+        - /url: /coins/xdce-crowd-sale
+        - generic [ref=e1338]: xdc
+        - generic [ref=e1339]: $0.0308
+        - generic [ref=e1340]:
+          - generic [ref=e1341]: ▲
+          - text: 0.64%
+        - generic [ref=e1342]: ●
+      - link "gho $0.9988 ▼ 0.00% ●" [ref=e1757] [cursor=pointer]:
+        - /url: /coins/gho
+        - generic [ref=e1344]: gho
+        - generic [ref=e1345]: $0.9988
+        - generic [ref=e1346]:
+          - generic [ref=e1347]: ▼
+          - text: 0.00%
+        - generic [ref=e1348]: ●
+      - link "inj $5.78 ▲ 10.36% ●" [ref=e2061] [cursor=pointer]:
+        - /url: /coins/injective-protocol
+        - generic [ref=e1350]: inj
+        - generic [ref=e1351]: $5.78
+        - generic [ref=e1352]:
+          - generic [ref=e1353]: ▲
+          - text: 10.36%
+        - generic [ref=e1354]: ●
+      - link "apt $0.6789 ▼ 0.72% ●" [ref=e2062] [cursor=pointer]:
+        - /url: /coins/aptos
+        - generic [ref=e1356]: apt
+        - generic [ref=e1357]: $0.6789
+        - generic [ref=e1358]:
+          - generic [ref=e1359]: ▼
+          - text: 0.72%
+        - generic [ref=e1360]: ●
+      - link "night $0.0337 ▲ 1.79% ●" [ref=e2063] [cursor=pointer]:
+        - /url: /coins/midnight-3
+        - generic [ref=e1362]: night
+        - generic [ref=e1363]: $0.0337
+        - generic [ref=e1364]:
+          - generic [ref=e1365]: ▲
+          - text: 1.79%
+        - generic [ref=e1366]: ●
+      - link "usd0 $0.9990 ▲ 0.03% ●" [ref=e2064] [cursor=pointer]:
+        - /url: /coins/usual-usd
+        - generic [ref=e1368]: usd0
+        - generic [ref=e1369]: $0.9990
+        - generic [ref=e1370]:
+          - generic [ref=e1371]: ▲
+          - text: 0.03%
+        - generic [ref=e1372]: ●
+      - link "ylds $0.9998 ▼ 0.00% ●" [ref=e2065] [cursor=pointer]:
+        - /url: /coins/ylds
+        - generic [ref=e2066]: ylds
+        - generic [ref=e2067]: $0.9998
+        - generic [ref=e2068]:
+          - generic [ref=e2069]: ▼
+          - text: 0.00%
+        - generic [ref=e2070]: ●
+      - link "pump $0.001575 ▼ 1.44% ●" [ref=e2071] [cursor=pointer]:
+        - /url: /coins/pump-fun
+        - generic [ref=e2072]: pump
+        - generic [ref=e2073]: $0.001575
+        - generic [ref=e2074]:
+          - generic [ref=e2075]: ▼
+          - text: 1.44%
+        - generic [ref=e2076]: ●
+      - link "arb $0.0860 ▼ 0.80% ●" [ref=e2077] [cursor=pointer]:
+        - /url: /coins/arbitrum
+        - generic [ref=e1386]: arb
+        - generic [ref=e1387]: $0.0860
+        - generic [ref=e1388]:
+          - generic [ref=e1389]: ▼
+          - text: 0.80%
+        - generic [ref=e1390]: ●
+    - generic [ref=e4]:
+      - complementary [ref=e5]:
+        - link "₿ CRPTX Terminal v2" [ref=e6] [cursor=pointer]:
+          - /url: /
+          - generic [ref=e8]: ₿
+          - generic [ref=e9]:
+            - generic [ref=e10]: CRPTX
+            - generic [ref=e11]: Terminal v2
+        - navigation [ref=e12]:
+          - link "Markets" [ref=e13] [cursor=pointer]:
+            - /url: /
+            - img [ref=e15]
+            - generic [ref=e17]: Markets
+          - link "Portfolio" [ref=e18] [cursor=pointer]:
+            - /url: /portfolio
+            - img [ref=e20]
+            - generic [ref=e22]: Portfolio
+          - link "Alerts" [ref=e23] [cursor=pointer]:
+            - /url: /alerts
+            - img [ref=e25]
+            - generic [ref=e28]: Alerts
+          - link "AI Agent" [ref=e29] [cursor=pointer]:
+            - /url: /agent
+            - img [ref=e31]
+            - generic [ref=e34]: AI Agent
+          - link "Dashboard" [ref=e35] [cursor=pointer]:
+            - /url: /dashboard
+            - img [ref=e37]
+            - generic [ref=e42]: Dashboard
+          - link "News" [ref=e43] [cursor=pointer]:
+            - /url: /news
+            - img [ref=e45]
+            - generic [ref=e47]: News
+        - generic [ref=e51]: Live Feed
+      - generic [ref=e52]:
+        - banner [ref=e53]:
+          - generic [ref=e56]: Dashboard
+          - generic [ref=e57]:
+            - generic [ref=e58]: 07:15:59UTC
+            - generic [ref=e1391]:
+              - generic [ref=e1392]: verify
+              - button "Exit" [ref=e1394]
+        - main [ref=e60]:
+          - generic [ref=e61]:
+            - generic [ref=e62]:
+              - generic [ref=e63]:
+                - heading "Trading Dashboard" [level=1] [ref=e64]
+                - paragraph [ref=e65]: Two-tier chart analysis · Intelligence scanner · Order blocks · Agent loop
+              - generic [ref=e66]: ● Live
+            - generic [ref=e67]:
+              - generic [ref=e68]:
+                - generic [ref=e1395]:
+                  - img [ref=e1397]
+                  - generic [ref=e1399]: Paper Wallet
+                - generic [ref=e1400]:
+                  - generic [ref=e1401]:
+                    - generic [ref=e1402]: $5,000.00
+                    - generic [ref=e1403]: total value
+                  - generic [ref=e1404]:
+                    - generic [ref=e1405]:
+                      - text: "+0.00"
+                      - generic [ref=e1406]: (+0.00%)
+                    - generic [ref=e1407]: total P&L
+                - generic [ref=e1409]:
+                  - generic [ref=e1410]:
+                    - generic [ref=e1411]: USD
+                    - generic [ref=e1412]: USDC
+                  - generic [ref=e1413]:
+                    - generic [ref=e1414]: $5,000.00
+                    - generic [ref=e1415]: 100.0%
+                - generic [ref=e1416]:
+                  - generic [ref=e1417]: initial
+                  - generic [ref=e1418]: $5,000.00
+              - generic [ref=e71]:
+                - generic [ref=e72]:
+                  - generic [ref=e73]:
+                    - img [ref=e75]
+                    - generic [ref=e77]: Agent Runs
+                  - generic [ref=e78]:
+                    - generic [ref=e1419]: Scheduler
+                    - button "Trigger" [ref=e79] [cursor=pointer]:
+                      - img [ref=e80]
+                      - text: Trigger
+                - generic [ref=e1421]:
+                  - generic [ref=e1422]: PAPER
+                  - generic [ref=e1423]: DISABLED
+                  - generic [ref=e1424]: max $100
+                  - generic [ref=e1425]: yieldHunter
+            - generic [ref=e84]:
+              - generic [ref=e85]:
+                - generic [ref=e86]:
+                  - img [ref=e88]
+                  - generic [ref=e96]: Intelligence Scanner
+                - generic [ref=e97]:
+                  - generic [ref=e1426]: 1 windows · -6241s ago
+                  - button "History" [ref=e98] [cursor=pointer]:
+                    - img [ref=e99]
+                    - text: History
+                  - button [ref=e102] [cursor=pointer]:
+                    - img [ref=e103]
+                  - button "Trigger" [ref=e108] [cursor=pointer]:
+                    - img [ref=e109]
+                    - text: Trigger
+              - generic [ref=e2078]:
+                - generic [ref=e2079]:
+                  - img [ref=e2080]
+                  - text: Viewing historical scan · -6241s ago
+                - button "Return to live" [ref=e2083] [cursor=pointer]
+              - generic [ref=e1427]:
+                - generic [ref=e1428]:
+                  - generic [ref=e1429]: BTC
+                  - text: ↓ SHORT
+                - generic [ref=e1430]:
+                  - generic [ref=e1431]: Setup
+                  - text: BOS
+                - generic [ref=e1432]:
+                  - generic [ref=e1433]: Regime
+                  - text: trending up
+                - generic [ref=e1434]:
+                  - generic [ref=e1435]: Phase
+                  - generic [ref=e1436]: MIXED
+                - generic [ref=e1437]:
+                  - generic [ref=e1438]: BTC.D
+                  - generic [ref=e1439]: 52.4% rising
+                - generic [ref=e1440]:
+                  - generic [ref=e1441]: Analyzed
+                  - generic [ref=e1442]: 12 coins
+              - generic [ref=e111]:
+                - button "Top" [ref=e112] [cursor=pointer]
+                - button "Windows Open" [ref=e113] [cursor=pointer]
+                - button "All" [ref=e114] [cursor=pointer]
+              - button "SOL $123.45 +2.34% ● WINDOW OPEN 180m 81.0 score LONG" [ref=e2086] [cursor=pointer]:
+                - generic [ref=e2087]:
+                  - generic [ref=e2088]: SOL
+                  - generic [ref=e2089]: $123.45
+                - generic [ref=e2091]: +2.34%
+                - generic [ref=e2093]:
+                  - generic [ref=e2094]: ● WINDOW OPEN
+                  - generic [ref=e2095]: 180m
+                - generic [ref=e2098]:
+                  - generic [ref=e2099]: "81.0"
+                  - generic [ref=e2100]: score
+                - generic [ref=e2101]: LONG
+                - img [ref=e2102]
+            - generic [ref=e117]:
+              - generic [ref=e118]:
+                - generic [ref=e119]:
+                  - img [ref=e121]
+                  - generic [ref=e123]: Chart Analysis
+                - generic [ref=e124]:
+                  - generic [ref=e125]:
+                    - button "BTC" [ref=e126] [cursor=pointer]
+                    - button "ETH" [ref=e127] [cursor=pointer]
+                    - button "SOL" [ref=e128] [cursor=pointer]
+                    - button "BNB" [ref=e129] [cursor=pointer]
+                    - button "AVAX" [ref=e130] [cursor=pointer]
+                  - button "Analyse" [ref=e131] [cursor=pointer]:
+                    - img [ref=e132]
+                    - text: Analyse
+                  - button "History" [ref=e140] [cursor=pointer]:
+                    - img [ref=e141]
+                    - text: History
+                - generic [ref=e144]:
+                  - button "analysis" [ref=e145] [cursor=pointer]
+                  - button "history" [ref=e146] [cursor=pointer]
+                - generic [ref=e1783]:
+                  - generic [ref=e1784]:
+                    - generic [ref=e1785]:
+                      - generic [ref=e1786]: Bearish FVG + Unmitigated Bearish OB at HTF Resistance
+                      - generic [ref=e1787]: SHORT
+                    - generic [ref=e1788]:
+                      - generic [ref=e1789]: Entry $65,860.00–$66,076.00
+                      - generic [ref=e1790]: 2.5:1 R:R
+                      - generic [ref=e1791]: 45% conf
+                    - generic [ref=e1792]: 23h ago · 1h, 4h, 1d
+                  - generic [ref=e1793]:
+                    - generic [ref=e1794]:
+                      - generic [ref=e1795]: Bearish FVG + 4H OB + HTF Resistance Confluence
+                      - generic [ref=e1796]: SHORT
+                    - generic [ref=e1797]:
+                      - generic [ref=e1798]: Entry $65,860.00–$66,076.00
+                      - generic [ref=e1799]: 2.1:1 R:R
+                      - generic [ref=e1800]: 55% conf
+                    - generic [ref=e1801]: 23h ago · 1h, 4h, 1d
+                  - generic [ref=e1802]:
+                    - generic [ref=e1803]:
+                      - generic [ref=e1804]: Bearish OB + FVG Confluence at HTF Resistance
+                      - generic [ref=e1805]: SHORT
+                    - generic [ref=e1806]:
+                      - generic [ref=e1807]: Entry $65,860.00–$65,995.00
+                      - generic [ref=e1808]: 2.5:1 R:R
+                      - generic [ref=e1809]: 55% conf
+                    - generic [ref=e1810]: 1d ago · 1h, 4h, 1d
+                  - generic [ref=e1811]:
+                    - generic [ref=e1812]:
+                      - generic [ref=e1813]: Bullish OB + FVG Retest at Range Low
+                      - generic [ref=e1814]: NEUTRAL
+                    - generic [ref=e1815]:
+                      - generic [ref=e1816]: Entry $63,678.83–$64,208.92
+                      - generic [ref=e1817]: 2.1:1 R:R
+                      - generic [ref=e1818]: 45% conf
+                    - generic [ref=e1819]: 1d ago · 1h, 4h, 1d
+                  - generic [ref=e1820]:
+                    - generic [ref=e1821]:
+                      - generic [ref=e1822]: Bearish OB + FVG Confluence at Resistance
+                      - generic [ref=e1823]: SHORT
+                    - generic [ref=e1824]:
+                      - generic [ref=e1825]: Entry $65,860.00–$65,995.00
+                      - generic [ref=e1826]: 2.1:1 R:R
+                      - generic [ref=e1827]: 55% conf
+                    - generic [ref=e1828]: 1d ago · 1h, 4h, 1d
+                  - generic [ref=e1829]:
+                    - generic [ref=e1830]:
+                      - generic [ref=e1831]: Bearish FVG + HTF Resistance Rejection
+                      - generic [ref=e1832]: SHORT
+                    - generic [ref=e1833]:
+                      - generic [ref=e1834]: Entry $65,860.00–$65,995.00
+                      - generic [ref=e1835]: 2.1:1 R:R
+                      - generic [ref=e1836]: 55% conf
+                    - generic [ref=e1837]: 1d ago · 1h, 4h, 1d
+                  - generic [ref=e1838]:
+                    - generic [ref=e1839]:
+                      - generic [ref=e1840]: Bearish OB + FVG Confluence at HTF Resistance
+                      - generic [ref=e1841]: SHORT
+                    - generic [ref=e1842]:
+                      - generic [ref=e1843]: Entry $64,234.68–$64,564.17
+                      - generic [ref=e1844]: 2.8:1 R:R
+                      - generic [ref=e1845]: 65% conf
+                    - generic [ref=e1846]: 1d ago · 1h, 4h, 1d
+                  - generic [ref=e1847]:
+                    - generic [ref=e1848]:
+                      - generic [ref=e1849]: Bearish FVG + OB Sweep into HTF Resistance
+                      - generic [ref=e1850]: SHORT
+                    - generic [ref=e1851]:
+                      - generic [ref=e1852]: Entry $64,081.39–$64,540.30
+                      - generic [ref=e1853]: 2.1:1 R:R
+                      - generic [ref=e1854]: 65% conf
+                    - generic [ref=e1855]: 1d ago · 1h, 4h, 1d
+                  - generic [ref=e1856]:
+                    - generic [ref=e1857]:
+                      - generic [ref=e1858]: Bearish FVG + OB Retest with HTF Bearish Bias
+                      - generic [ref=e1859]: SHORT
+                    - generic [ref=e1860]:
+                      - generic [ref=e1861]: Entry $64,000.00–$64,540.30
+                      - generic [ref=e1862]: 2.1:1 R:R
+                      - generic [ref=e1863]: 65% conf
+                    - generic [ref=e1864]: 3d ago · 1h, 4h, 1d
+                  - generic [ref=e1865]:
+                    - generic [ref=e1866]:
+                      - generic [ref=e1867]: Bearish OB + FVG Confluence with HTF Resistance
+                      - generic [ref=e1868]: SHORT
+                    - generic [ref=e1869]:
+                      - generic [ref=e1870]: Entry $64,472.09–$64,540.30
+                      - generic [ref=e1871]: 2.1:1 R:R
+                      - generic [ref=e1872]: 65% conf
+                    - generic [ref=e1873]: 3d ago · 1h, 4h, 1d
+              - generic [ref=e148]:
+                - generic [ref=e149]:
+                  - img [ref=e151]
+                  - generic [ref=e155]: Order Blocks
+                - generic [ref=e156]:
+                  - combobox [ref=e157] [cursor=pointer]:
+                    - option "BTCUSDT" [selected]
+                    - option "ETHUSDT"
+                    - option "SOLUSDT"
+                    - option "BNBUSDT"
+                  - button "Sync" [ref=e158] [cursor=pointer]:
+                    - img [ref=e159]
+                    - text: Sync
+                - generic [ref=e1464]:
+                  - generic [ref=e1465]:
+                    - generic [ref=e1466]:
+                      - generic [ref=e1467]: BEARISH OB
+                      - generic [ref=e1468]: 4H
+                    - generic [ref=e1469]: Str 70
+                  - generic [ref=e1470]:
+                    - generic [ref=e1471]:
+                      - generic [ref=e1472]: RANGE
+                      - generic [ref=e1473]: $73,222.00 – $74,092.00
+                    - generic [ref=e1474]:
+                      - generic [ref=e1475]: FVG
+                      - generic [ref=e1476]: $73,095.64 – $73,222.00
+              - generic [ref=e165]:
+                - generic [ref=e166]:
+                  - img [ref=e168]
+                  - generic [ref=e171]: Tier 1 Primitives
+                - generic [ref=e172]:
+                  - combobox [ref=e173]:
+                    - option "BTCUSDT" [selected]
+                    - option "ETHUSDT"
+                    - option "SOLUSDT"
+                  - button "Fetch" [ref=e174] [cursor=pointer]:
+                    - img [ref=e175]
+                    - text: Fetch
+                - generic [ref=e180]: Select symbol and fetch
+  - button "Open Next.js Dev Tools" [ref=e186] [cursor=pointer]:
+    - img [ref=e187]
+  - alert [ref=e1477]

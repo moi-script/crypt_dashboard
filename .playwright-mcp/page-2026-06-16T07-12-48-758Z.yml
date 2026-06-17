@@ -1,0 +1,125 @@
+- generic [active] [ref=e1]:
+  - generic [ref=e4]:
+    - complementary [ref=e5]:
+      - link "₿ CRPTX Terminal v2" [ref=e6] [cursor=pointer]:
+        - /url: /
+        - generic [ref=e8]: ₿
+        - generic [ref=e9]:
+          - generic [ref=e10]: CRPTX
+          - generic [ref=e11]: Terminal v2
+      - navigation [ref=e12]:
+        - link "Markets" [ref=e13] [cursor=pointer]:
+          - /url: /
+          - img [ref=e15]
+          - generic [ref=e17]: Markets
+        - link "Portfolio" [ref=e18] [cursor=pointer]:
+          - /url: /portfolio
+          - img [ref=e20]
+          - generic [ref=e22]: Portfolio
+        - link "Alerts" [ref=e23] [cursor=pointer]:
+          - /url: /alerts
+          - img [ref=e25]
+          - generic [ref=e28]: Alerts
+        - link "AI Agent" [ref=e29] [cursor=pointer]:
+          - /url: /agent
+          - img [ref=e31]
+          - generic [ref=e34]: AI Agent
+        - link "Dashboard" [ref=e35] [cursor=pointer]:
+          - /url: /dashboard
+          - img [ref=e37]
+          - generic [ref=e42]: Dashboard
+        - link "News" [ref=e43] [cursor=pointer]:
+          - /url: /news
+          - img [ref=e45]
+          - generic [ref=e47]: News
+      - generic [ref=e51]: Live Feed
+    - generic [ref=e52]:
+      - banner [ref=e53]:
+        - generic [ref=e56]: Dashboard
+        - generic [ref=e57]:
+          - generic [ref=e58]: "--:--:--UTC"
+          - link "Sign In →" [ref=e59] [cursor=pointer]:
+            - /url: /login
+      - main [ref=e60]:
+        - generic [ref=e61]:
+          - generic [ref=e62]:
+            - generic [ref=e63]:
+              - heading "Trading Dashboard" [level=1] [ref=e64]
+              - paragraph [ref=e65]: Two-tier chart analysis · Intelligence scanner · Order blocks · Agent loop
+            - generic [ref=e66]: ● Live
+          - generic [ref=e72]:
+            - generic [ref=e73]:
+              - img [ref=e75]
+              - generic [ref=e77]: Agent Runs
+            - button "Trigger" [ref=e79] [cursor=pointer]:
+              - img [ref=e80]
+              - text: Trigger
+          - generic [ref=e84]:
+            - generic [ref=e85]:
+              - generic [ref=e86]:
+                - img [ref=e88]
+                - generic [ref=e96]: Intelligence Scanner
+              - generic [ref=e97]:
+                - button "History" [ref=e98] [cursor=pointer]:
+                  - img [ref=e99]
+                  - text: History
+                - button [disabled] [ref=e102] [cursor=pointer]:
+                  - img [ref=e103]
+                - button "Trigger" [ref=e108] [cursor=pointer]:
+                  - img [ref=e109]
+                  - text: Trigger
+            - generic [ref=e111]:
+              - button "Top" [ref=e112] [cursor=pointer]
+              - button "Windows Open" [ref=e113] [cursor=pointer]
+              - button "All" [ref=e114] [cursor=pointer]
+          - generic [ref=e117]:
+            - generic [ref=e118]:
+              - generic [ref=e119]:
+                - img [ref=e121]
+                - generic [ref=e123]: Chart Analysis
+              - generic [ref=e124]:
+                - generic [ref=e125]:
+                  - button "BTC" [ref=e126] [cursor=pointer]
+                  - button "ETH" [ref=e127] [cursor=pointer]
+                  - button "SOL" [ref=e128] [cursor=pointer]
+                  - button "BNB" [ref=e129] [cursor=pointer]
+                  - button "AVAX" [ref=e130] [cursor=pointer]
+                - button "Analyse" [ref=e131] [cursor=pointer]:
+                  - img [ref=e132]
+                  - text: Analyse
+                - button "History" [ref=e140] [cursor=pointer]:
+                  - img [ref=e141]
+                  - text: History
+              - generic [ref=e144]:
+                - button "analysis" [ref=e145] [cursor=pointer]
+                - button "history" [ref=e146] [cursor=pointer]
+              - generic [ref=e147]: Hit Analyse to run the two-tier pipeline
+            - generic [ref=e148]:
+              - generic [ref=e149]:
+                - img [ref=e151]
+                - generic [ref=e155]: Order Blocks
+              - generic [ref=e156]:
+                - combobox [ref=e157] [cursor=pointer]:
+                  - option "BTCUSDT" [selected]
+                  - option "ETHUSDT"
+                  - option "SOLUSDT"
+                  - option "BNBUSDT"
+                - button "Sync" [ref=e158] [cursor=pointer]:
+                  - img [ref=e159]
+                  - text: Sync
+              - generic [ref=e164]: No active OBs — hit Sync
+            - generic [ref=e165]:
+              - generic [ref=e166]:
+                - img [ref=e168]
+                - generic [ref=e171]: Tier 1 Primitives
+              - generic [ref=e172]:
+                - combobox [ref=e173]:
+                  - option "BTCUSDT" [selected]
+                  - option "ETHUSDT"
+                  - option "SOLUSDT"
+                - button "Fetch" [ref=e174] [cursor=pointer]:
+                  - img [ref=e175]
+                  - text: Fetch
+              - generic [ref=e180]: Select symbol and fetch
+  - button "Open Next.js Dev Tools" [ref=e186] [cursor=pointer]:
+    - img [ref=e187]

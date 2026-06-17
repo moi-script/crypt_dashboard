@@ -6,6 +6,7 @@ import {
   RefreshCw, Layers, Eye, ArrowRight, Zap, Clock,
 } from "lucide-react";
 import { apiClient } from "@/services/api.client";
+import { intelligenceService, type ScanHistoryEntry } from "@/services/trading.service";
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 type Bias = "long" | "short" | "neutral";
@@ -369,12 +370,38 @@ function IntelligencePanel() {
   const [triggering, setTriggering] = useState(false);
   const [selected, setSelected] = useState<CoinIntelCard|null>(null);
   const [tab, setTab] = useState<"top"|"cascade"|"all">("top");
+  const [history, setHistory] = useState<ScanHistoryEntry[]>([]);
+  const [showHistory, setShowHistory] = useState(false);
+  const [historicalId, setHistoricalId] = useState<string|null>(null); // null = viewing live
 
   const loadScan = useCallback(async (refresh=false) => {
     setLoading(true);
+    setHistoricalId(null);
     try { const res = await apiClient.get<{success:boolean;data:IntelligenceScan;cached:boolean}>(`/intelligence/scan${refresh?"?refresh=true":""}`); setScan(res.data); }
     catch {} finally { setLoading(false); }
   }, []);
+
+  const loadHistory = useCallback(async () => {
+    try { const res = await intelligenceService.history(20); setHistory(res.data); }
+    catch {}
+  }, []);
+
+  const openHistorical = async (entry: ScanHistoryEntry) => {
+    setShowHistory(false);
+    setSelected(null);
+    setLoading(true);
+    try {
+      const res = await intelligenceService.getScan(entry.scan_id);
+      setScan(res.data as unknown as IntelligenceScan);
+      setHistoricalId(entry.scan_id);
+    } catch {} finally { setLoading(false); }
+  };
+
+  const toggleHistory = () => {
+    const next = !showHistory;
+    setShowHistory(next);
+    if (next) loadHistory();
+  };
 
   const trigger = async () => {
     setTriggering(true);
@@ -392,6 +419,9 @@ function IntelligencePanel() {
         <STitle icon={<Brain size={14}/>}>Intelligence Scanner</STitle>
         <div style={{display:"flex",gap:8,alignItems:"center"}}>
           {scan&&<span style={{fontFamily:C.mono,fontSize:10,color:C.inkMuted}}>{scan.windows_open} windows · {ago(scan.generated_at)}</span>}
+          <button onClick={toggleHistory} style={{display:"flex",alignItems:"center",gap:4,padding:"5px 9px",borderRadius:8,border:`1px solid ${showHistory?C.cyan+"40":C.border}`,background:showHistory?`${C.cyan}12`:"transparent",color:showHistory?C.cyan:C.inkSoft,cursor:"pointer",fontFamily:C.mono,fontSize:11}}>
+            <Clock size={11}/> History
+          </button>
           <button onClick={()=>loadScan(true)} disabled={loading} style={{display:"flex",alignItems:"center",gap:4,padding:"5px 9px",borderRadius:8,border:`1px solid ${C.border}`,background:"transparent",color:C.inkSoft,cursor:"pointer",fontFamily:C.mono,fontSize:11}}>
             <RefreshCw size={11} style={{animation:loading?"spin 0.7s linear infinite":"none"}}/>
           </button>
@@ -400,6 +430,32 @@ function IntelligencePanel() {
           </button>
         </div>
       </div>
+
+      {showHistory&&(
+        <div style={{marginBottom:12,borderRadius:8,border:`1px solid ${C.border}`,background:"rgba(0,0,0,0.3)",overflow:"hidden"}}>
+          <div style={{padding:"7px 12px",borderBottom:`1px solid ${C.border}`,fontFamily:C.mono,fontSize:9,color:C.inkMuted,textTransform:"uppercase",letterSpacing:"0.06em"}}>Scan History · last {history.length}</div>
+          {history.length===0&&<div style={{padding:"14px 0",textAlign:"center",fontFamily:C.mono,fontSize:11,color:C.inkMuted}}>No persisted scans yet</div>}
+          <div style={{maxHeight:220,overflowY:"auto"}}>
+            {history.map(h=>(
+              <button key={h.scan_id} onClick={()=>openHistorical(h)} style={{display:"flex",alignItems:"center",gap:10,width:"100%",padding:"8px 12px",border:"none",borderBottom:`1px solid ${C.border}`,background:historicalId===h.scan_id?`${C.cyan}10`:"transparent",cursor:"pointer",textAlign:"left"}}>
+                <span style={{flex:1,minWidth:0,fontFamily:C.mono,fontSize:11,color:C.ink}}>{ago(h.generated_at)}</span>
+                {h.btc_bias&&<Tag color={biasColor(h.btc_bias)}>BTC {biasLabel(h.btc_bias)}</Tag>}
+                {h.btc_regime&&<span style={{fontFamily:C.mono,fontSize:9,color:C.inkSoft}}>{h.btc_regime.replace(/_/g," ")}</span>}
+                <Tag color={C.amber}>{h.market_phase.replace(/_/g," ").toUpperCase()}</Tag>
+                <span style={{width:70,textAlign:"right",fontFamily:C.mono,fontSize:9,color:C.inkMuted}}>{h.windows_open}w · {h.coin_count}c</span>
+                <ArrowRight size={11} style={{color:C.inkMuted,flexShrink:0}}/>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {historicalId&&(
+        <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:10,marginBottom:12,padding:"7px 12px",borderRadius:8,background:`${C.amber}12`,border:`1px solid ${C.amber}30`}}>
+          <span style={{display:"flex",alignItems:"center",gap:6,fontFamily:C.mono,fontSize:11,color:C.amber}}><Clock size={11}/> Viewing historical scan{scan&&<> · {ago(scan.generated_at)}</>}</span>
+          <button onClick={()=>loadScan(false)} style={{padding:"3px 10px",borderRadius:6,border:`1px solid ${C.amber}40`,background:"transparent",color:C.amber,cursor:"pointer",fontFamily:C.mono,fontSize:10,fontWeight:700}}>Return to live</button>
+        </div>
+      )}
 
       {scan&&(
         <div style={{display:"flex",gap:14,padding:"9px 12px",borderRadius:8,marginBottom:12,background:"rgba(0,0,0,0.3)",border:`1px solid ${C.border}`,flexWrap:"wrap",alignItems:"center"}}>

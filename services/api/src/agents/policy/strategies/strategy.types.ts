@@ -4,7 +4,7 @@
 // AND the agent loop (Strategy / StrategyResult).
 // ============================================================
 
-import type { LoopContext } from '../../loop/loop.types'
+import type { LoopContext, Decision } from '../../loop/loop.types'
 
 // ── Chart analysis strategy types ────────────────────────────────────────────
 
@@ -38,6 +38,7 @@ export interface StrategyResult {
   strategyName:   string
   contextSummary: string
   metadata:       Record<string, unknown>
+  deterministicDecision?: Decision   // when set, agent.loop.ts skips the LLM policy engine
 }
 
 export interface Strategy {
