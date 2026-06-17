@@ -101,22 +101,6 @@ function pnlColor(v: number) {
   return v > 0 ? "#00e5a0" : v < 0 ? "#ff5572" : "#94a3b8";
 }
 
-function useAnimated(target: number, duration = 900) {
-  const [val, setVal] = useState(0);
-  useEffect(() => {
-    let start: number | null = null;
-    const step = (ts: number) => {
-      if (!start) start = ts;
-      const p = Math.min((ts - start) / duration, 1);
-      const ease = 1 - Math.pow(1 - p, 3);
-      setVal(target * ease);
-      if (p < 1) requestAnimationFrame(step);
-    };
-    requestAnimationFrame(step);
-  }, [target, duration]);
-  return val;
-}
-
 // ── Stat card ─────────────────────────────────────────────────────────────────
 
 function StatCard({
@@ -195,114 +179,91 @@ function StatCard({
   );
 }
 
-// ── Portfolio value gauge (mirrors ScoreGauge style) ─────────────────────────
+// ── Equity curve ────────────────────────────────────────────────────────────
+// Portfolio value over time, terminal-style: thin line, gradient fade, a dashed
+// "start" baseline at initial capital, and green-above / red-below-water colour.
 
-function ReturnGauge({ returnPct, color }: { returnPct: number; color: string }) {
-  const animated = useAnimated(returnPct, 1000);
-  const clamped  = Math.max(-100, Math.min(100, animated));
-  const cx = 80, cy = 80, r = 62;
-  const toAngle = (v: number) => ((v + 100) / 200) * Math.PI;
-  const toXY    = (a: number) => ({
-    x: cx - r * Math.cos(a),
-    y: cy - r * Math.sin(a),
-  });
-  const p1       = toXY(0);
-  const p2       = toXY(Math.PI);
-  const track    = `M ${p1.x} ${p1.y} A ${r} ${r} 0 0 1 ${p2.x} ${p2.y}`;
-  const fillA    = toAngle(clamped);
-  const pFill    = toXY(fillA);
-  const large    = fillA > Math.PI / 2 ? 1 : 0;
-  const fill     = `M ${p1.x} ${p1.y} A ${r} ${r} 0 ${large} 1 ${pFill.x} ${pFill.y}`;
-  const needle   = toXY(fillA);
+const UP = "#00e5a0";
+const DOWN = "#ff5572";
 
-  return (
-    <div style={{ display: "flex", flexDirection: "column", alignItems: "center" }}>
-      <svg width={160} height={95} style={{ overflow: "visible" }}>
-        <defs>
-          <linearGradient id="retGrad" x1="0%" y1="0%" x2="100%" y2="0%">
-            <stop offset="0%"   stopColor="#ff5572" />
-            <stop offset="50%"  stopColor="#ffb020" />
-            <stop offset="100%" stopColor="#00e5a0" />
-          </linearGradient>
-          <filter id="retGlow">
-            <feGaussianBlur stdDeviation="2.5" result="blur" />
-            <feMerge>
-              <feMergeNode in="blur" />
-              <feMergeNode in="SourceGraphic" />
-            </feMerge>
-          </filter>
-        </defs>
-        <path d={track} fill="none" stroke="rgba(255,255,255,0.06)" strokeWidth={8} strokeLinecap="round" />
-        <path d={fill}  fill="none" stroke="url(#retGrad)"          strokeWidth={8} strokeLinecap="round" />
-        <path d={fill}  fill="none" stroke={color} strokeWidth={12}  strokeLinecap="round"
-          opacity={0.15} filter="url(#retGlow)" />
-        <line x1={cx} y1={cy} x2={needle.x} y2={needle.y}
-          stroke={color} strokeWidth={2} strokeLinecap="round" filter="url(#retGlow)" />
-        <circle cx={cx} cy={cy} r={4}  fill={color} />
-        <circle cx={cx} cy={cy} r={2.5} fill="rgb(6,14,26)" />
-        <text x={cx} y={cy + 16} textAnchor="middle" fontSize={20} fontWeight={700}
-          fill={color} fontFamily="monospace">
-          {animated >= 0 ? "+" : ""}{animated.toFixed(2)}%
-        </text>
-        <text x={cx} y={cy + 28} textAnchor="middle" fontSize={10}
-          fill="rgba(255,255,255,0.25)" fontFamily="monospace">
-          TOTAL RETURN
-        </text>
-      </svg>
-    </div>
-  );
-}
+// Per-chart plugin: dashed reference line at the starting capital.
+const baselinePlugin = {
+  id: "equityBaseline",
+  afterDatasetsDraw(chart: any, _args: any, opts: any) {
+    if (opts?.value == null || !chart.scales?.y || !chart.chartArea) return;
+    const y = chart.scales.y.getPixelForValue(opts.value);
+    const { left, right } = chart.chartArea;
+    const c = chart.ctx;
+    c.save();
+    c.beginPath();
+    c.setLineDash([3, 4]);
+    c.lineWidth = 1;
+    c.strokeStyle = "rgba(255,255,255,0.16)";
+    c.moveTo(left, y);
+    c.lineTo(right, y);
+    c.stroke();
+    c.setLineDash([]);
+    c.font = "10px ui-monospace, monospace";
+    c.fillStyle = "rgba(255,255,255,0.32)";
+    c.textAlign = "left";
+    c.fillText("start", left + 4, y - 5);
+    c.restore();
+  },
+};
 
-// ── Portfolio growth chart ─────────────────────────────────────────────────────
-
-function GrowthChart({
+function EquityCurve({
   trades,
   initialUsd,
+  height = 196,
 }: {
   trades: TradeTransaction[];
   initialUsd: number;
+  height?: number;
 }) {
   const sorted = [...trades].sort(
     (a, b) => new Date(a.executedAt).getTime() - new Date(b.executedAt).getTime(),
   );
 
-  // Build a time-series of portfolio snapshots
-  const points: { label: string; value: number }[] = [
+  const points = [
     { label: "Start", value: initialUsd },
-  ];
-  sorted.forEach((t) => {
-    points.push({
-      label: new Date(t.executedAt).toLocaleDateString("en-GB", {
-        month: "short",
-        day: "numeric",
-      }),
+    ...sorted.map((t) => ({
+      label: new Date(t.executedAt).toLocaleDateString("en-GB", { month: "short", day: "numeric" }),
       value: t.portfolioValueUsd,
-    });
-  });
-
+    })),
+  ];
   const values = points.map((p) => p.value);
   const labels = points.map((p) => p.label);
   const latest = values[values.length - 1] ?? initialUsd;
-  const isUp   = latest >= initialUsd;
-  const lineColor = isUp ? "#00e5a0" : "#ff5572";
+  const line = latest >= initialUsd ? UP : DOWN;
 
   const data = {
     labels,
     datasets: [
       {
         data: values,
-        borderColor: lineColor,
-        borderWidth: 2,
-        pointRadius: (ctx: any) =>
-          ctx.dataIndex === 0 || ctx.dataIndex === values.length - 1 ? 4 : 2,
-        pointBackgroundColor: lineColor,
-        pointBorderColor: "rgb(5,12,24)",
-        pointBorderWidth: 2,
-        tension: 0.35,
+        borderColor: line,
+        borderWidth: 1.6,
+        pointRadius: 0,
+        pointHoverRadius: 4,
+        pointHoverBackgroundColor: line,
+        pointHoverBorderColor: "rgb(8,18,32)",
+        pointHoverBorderWidth: 2,
+        tension: 0.18,
         fill: true,
-        backgroundColor: isUp
-          ? "rgba(0,229,160,0.06)"
-          : "rgba(255,85,114,0.06)",
+        // green above the start line, red below — read at a glance
+        segment: {
+          borderColor: (ctx: any) =>
+            ctx.p0.parsed.y < initialUsd || ctx.p1.parsed.y < initialUsd ? DOWN : UP,
+        },
+        backgroundColor: (ctx: any) => {
+          const { chart } = ctx;
+          const { ctx: cc, chartArea } = chart;
+          if (!chartArea) return "transparent";
+          const g = cc.createLinearGradient(0, chartArea.top, 0, chartArea.bottom);
+          g.addColorStop(0, line + "2e");
+          g.addColorStop(1, line + "00");
+          return g;
+        },
       },
     ],
   };
@@ -310,62 +271,56 @@ function GrowthChart({
   const options = {
     responsive: true,
     maintainAspectRatio: false,
+    interaction: { mode: "index" as const, intersect: false },
     plugins: {
       legend: { display: false },
+      equityBaseline: { value: initialUsd },
       tooltip: {
         callbacks: {
-          label: (ctx: any) => ` $${fmt(ctx.raw)}`,
+          title: (items: any) => items[0]?.label ?? "",
+          label: (ctx: any) => `  $${fmt(ctx.raw)}`,
         },
-        backgroundColor: "rgba(5,12,24,0.92)",
-        borderColor: "rgba(255,255,255,0.1)",
+        displayColors: false,
+        backgroundColor: "rgba(4,11,20,0.96)",
+        borderColor: "rgba(255,255,255,0.12)",
         borderWidth: 1,
-        titleColor: "#fff",
-        bodyColor: "rgba(255,255,255,0.6)",
-        padding: 10,
-        cornerRadius: 8,
+        titleColor: "rgba(255,255,255,0.45)",
+        titleFont: { family: "monospace", size: 10 },
+        bodyColor: "rgba(255,255,255,0.92)",
+        bodyFont: { family: "monospace", size: 13, weight: 700 },
+        padding: 9,
+        cornerRadius: 6,
       },
     },
     scales: {
       x: {
         grid: { display: false },
+        border: { display: false },
         ticks: {
-          color: "rgba(255,255,255,0.25)",
-          font: { family: "monospace", size: 11 },
-          maxTicksLimit: 6,
+          color: "rgba(255,255,255,0.22)",
+          font: { family: "monospace", size: 10 },
+          maxTicksLimit: 5,
           maxRotation: 0,
+          autoSkip: true,
         },
-        border: { color: "rgba(255,255,255,0.08)" },
       },
       y: {
-        grid: { color: "rgba(255,255,255,0.05)" },
+        position: "right" as const,
+        grid: { color: "rgba(255,255,255,0.04)" },
+        border: { display: false },
         ticks: {
-          color: "rgba(255,255,255,0.25)",
-          font: { family: "monospace", size: 11 },
+          color: "rgba(255,255,255,0.22)",
+          font: { family: "monospace", size: 10 },
+          maxTicksLimit: 5,
           callback: (v: any) => fmtCompact(v),
         },
-        border: { color: "rgba(255,255,255,0.08)" },
       },
     },
   };
 
   return (
-    <div>
-      <p
-        style={{
-          fontFamily: "monospace",
-          fontSize: 12,
-          color: "rgba(255,255,255,0.28)",
-          fontWeight: 700,
-          letterSpacing: "0.12em",
-          textTransform: "uppercase",
-          margin: "0 0 10px",
-        }}
-      >
-        Portfolio Growth
-      </p>
-      <div style={{ position: "relative", width: "100%", height: 180 }}>
-        <Line data={data} options={options} />
-      </div>
+    <div style={{ position: "relative", width: "100%", height }}>
+      <Line data={data} options={options} plugins={[baselinePlugin]} />
     </div>
   );
 }
@@ -379,17 +334,19 @@ function AllocationChart({ wallet }: { wallet: PaperWallet }) {
   const labels  = balances.map((b) => b.symbol);
   const values  = balances.map((b) => b.valueUsd);
   const colors  = balances.map((b) => getTokenColor(b.symbol).accent);
-  const borders = colors;
 
   const data = {
     labels,
     datasets: [
       {
         data: values,
-        backgroundColor: colors.map((c) => c + "bb"),
-        borderColor: borders,
-        borderWidth: 1.5,
-        hoverOffset: 4,
+        backgroundColor: colors,
+        // Gaps rendered in the card background colour give crisp segment
+        // separation instead of muddy translucent overlaps.
+        borderColor: "rgb(8,18,32)",
+        borderWidth: 2.5,
+        hoverOffset: 3,
+        spacing: 1,
       },
     ],
   };
@@ -397,7 +354,7 @@ function AllocationChart({ wallet }: { wallet: PaperWallet }) {
   const options = {
     responsive: true,
     maintainAspectRatio: false,
-    cutout: "68%",
+    cutout: "74%",
     plugins: {
       legend: { display: false },
       tooltip: {
@@ -1492,84 +1449,105 @@ export function PaperWalletDashboard({
           {/* ── WALLET TAB ── */}
           {tab === "wallet" && wallet && (
             <>
-              {/* Portfolio hero */}
+              {/* Portfolio hero — value header + equity curve */}
               <div
                 style={{
-                  padding: "16px 18px",
+                  padding: "16px 18px 12px",
                   borderRadius: 12,
                   background: "rgb(8,18,32)",
-                  border: `1px solid ${returnColor}20`,
-                  display: "flex",
-                  flexDirection: "column",
-                  alignItems: "center",
-                  gap: 4,
+                  border: "1px solid rgba(255,255,255,0.07)",
                 }}
               >
-                <ReturnGauge returnPct={returnPct} color={returnColor} />
-
                 <div
                   style={{
-                    display: "grid",
-                    gridTemplateColumns: "1fr 1fr 1fr",
-                    gap: 8,
-                    width: "100%",
-                    marginTop: 4,
+                    display: "flex",
+                    alignItems: "flex-start",
+                    justifyContent: "space-between",
+                    gap: 12,
+                    marginBottom: 14,
                   }}
                 >
-                  {[
-                    {
-                      label: "Value",
-                      value: `$${fmt(wallet.totalValueUsd, 0)}`,
-                      color: "rgba(255,255,255,0.8)",
-                    },
-                    {
-                      label: "PnL",
-                      value: `${pnl >= 0 ? "+" : ""}$${fmt(Math.abs(pnl))}`,
-                      color: pnlColor(pnl),
-                    },
-                    {
-                      label: "Started",
-                      value: `$${fmt(wallet.initialUsd, 0)}`,
-                      color: "rgba(255,255,255,0.4)",
-                    },
-                  ].map((s) => (
-                    <div
-                      key={s.label}
+                  <div>
+                    <p
                       style={{
-                        textAlign: "center",
-                        padding: "8px 0",
-                        borderRadius: 8,
-                        background: "rgba(255,255,255,0.02)",
-                        border: "1px solid rgba(255,255,255,0.05)",
+                        fontSize: 10,
+                        color: "rgba(255,255,255,0.3)",
+                        letterSpacing: "0.12em",
+                        textTransform: "uppercase",
+                        fontFamily: "monospace",
+                        margin: "0 0 6px",
                       }}
                     >
-                      <p
+                      Portfolio Value
+                    </p>
+                    <p
+                      style={{
+                        fontFamily: "monospace",
+                        fontSize: 27,
+                        fontWeight: 700,
+                        color: "rgba(255,255,255,0.92)",
+                        margin: 0,
+                        lineHeight: 1,
+                        letterSpacing: "-0.01em",
+                      }}
+                    >
+                      ${fmt(wallet.totalValueUsd)}
+                    </p>
+                  </div>
+
+                  <div style={{ textAlign: "right", flexShrink: 0 }}>
+                    <div
+                      style={{
+                        display: "inline-flex",
+                        alignItems: "center",
+                        gap: 4,
+                        padding: "3px 9px",
+                        borderRadius: 6,
+                        background: `${returnColor}12`,
+                        border: `1px solid ${returnColor}2e`,
+                      }}
+                    >
+                      {returnPct >= 0 ? <TrendingUp size={12} color={returnColor} /> : <TrendingDown size={12} color={returnColor} />}
+                      <span
                         style={{
                           fontFamily: "monospace",
-                          fontSize: 15,
+                          fontSize: 14,
                           fontWeight: 700,
-                          color: s.color,
-                          margin: "0 0 2px",
-                          lineHeight: 1,
+                          color: returnColor,
                         }}
                       >
-                        {s.value}
-                      </p>
-                      <p
-                        style={{
-                          fontSize: 10,
-                          color: "rgba(255,255,255,0.25)",
-                          margin: 0,
-                          letterSpacing: "0.06em",
-                          textTransform: "uppercase",
-                          fontFamily: "var(--font-display)",
-                        }}
-                      >
-                        {s.label}
-                      </p>
+                        {returnPct >= 0 ? "+" : ""}{returnPct.toFixed(2)}%
+                      </span>
                     </div>
-                  ))}
+                    <p
+                      style={{
+                        fontFamily: "monospace",
+                        fontSize: 12,
+                        color: pnlColor(pnl),
+                        margin: "6px 0 0",
+                      }}
+                    >
+                      {pnl >= 0 ? "+" : ""}${fmt(Math.abs(pnl))}{" "}
+                      <span style={{ color: "rgba(255,255,255,0.25)" }}>PnL</span>
+                    </p>
+                  </div>
                 </div>
+
+                {trades.length > 0 ? (
+                  <EquityCurve trades={trades} initialUsd={wallet.initialUsd} />
+                ) : (
+                  <p
+                    style={{
+                      fontFamily: "monospace",
+                      fontSize: 12,
+                      color: "rgba(255,255,255,0.3)",
+                      textAlign: "center",
+                      margin: "26px 0 18px",
+                    }}
+                  >
+                    No trades yet · started at ${fmt(wallet.initialUsd, 0)}
+                  </p>
+                )}
               </div>
 
               {/* Allocation doughnut */}
@@ -1608,20 +1586,6 @@ export function PaperWalletDashboard({
                   />
                 ))}
               </div>
-
-              {/* Growth chart */}
-              {trades.length > 0 && (
-                <div
-                  style={{
-                    padding: "14px 16px",
-                    borderRadius: 12,
-                    background: "rgb(8,18,32)",
-                    border: "1px solid rgba(255,255,255,0.07)",
-                  }}
-                >
-                  <GrowthChart trades={trades} initialUsd={wallet.initialUsd} />
-                </div>
-              )}
             </>
           )}
 
