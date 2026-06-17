@@ -51,10 +51,11 @@ interface AgentRunStats {
 
 interface Position {
   positionId:      string;
+  status?:         "pending" | "open" | "closed" | "cancelled";
   tokenIn:         string;
   tokenOut:        string;
   entryAmountUsd:  number;
-  entryPrice:      number;
+  entryPrice?:     number;
   isOpen:          boolean;
   realizedPnlUsd?: number;
   strategy:        string;
@@ -62,6 +63,9 @@ interface Position {
   mode:            string;
   stopLossPrice?:   number;
   takeProfitPrice?: number;
+  entryZoneLow?:    number;
+  entryZoneHigh?:   number;
+  entryExpiresAt?:  string;
   framework?:       string;
   confidence?:      number;
 }
@@ -428,20 +432,36 @@ function PositionsTab({ accentColor }: { accentColor: string }) {
 
       {loading && positions.length === 0 && <EmptyMsg msg="Loading…" />}
       <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-        {positions.map(pos => (
-          <div key={pos.positionId} style={{ padding: "11px 12px", borderRadius: 10, background: "rgb(8,18,32)", border: `1px solid ${pos.isOpen ? accentColor + "25" : "rgba(255,255,255,0.07)"}` }}>
+        {positions.map(pos => {
+          const status = pos.status ?? (pos.isOpen ? "open" : "closed");
+          const badge = {
+            pending:   { label: "Pending", color: "#ffb020" },
+            open:      { label: "Open",     color: accentColor },
+            closed:    { label: "Closed",   color: "rgba(255,255,255,0.25)" },
+            cancelled: { label: "Cancelled", color: "#ff5572" },
+          }[status];
+          const isPending = status === "pending";
+          return (
+          <div key={pos.positionId} style={{ padding: "11px 12px", borderRadius: 10, background: "rgb(8,18,32)", border: `1px solid ${status === "open" ? accentColor + "25" : isPending ? "#ffb02033" : "rgba(255,255,255,0.07)"}` }}>
             <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 5 }}>
               <span style={{ fontSize: 14, fontWeight: 600, color: "rgba(255,255,255,0.85)", fontFamily: "var(--font-display,sans-serif)" }}>
                 {pos.tokenIn} → {pos.tokenOut}
               </span>
-              <span style={{ fontSize: 11, fontWeight: 700, color: pos.isOpen ? accentColor : "rgba(255,255,255,0.25)", background: pos.isOpen ? `${accentColor}12` : "rgba(255,255,255,0.04)", padding: "2px 7px", borderRadius: 5, marginLeft: "auto" }}>
-                {pos.isOpen ? "Open" : "Closed"}
+              <span style={{ fontSize: 11, fontWeight: 700, color: badge.color, background: `${badge.color}1f`, padding: "2px 7px", borderRadius: 5, marginLeft: "auto" }}>
+                {badge.label}
               </span>
             </div>
             <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
               <span style={{ fontSize: 12, color: "rgba(255,255,255,0.4)", fontFamily: "var(--font-mono)" }}>
-                ${pos.entryAmountUsd.toFixed(2)} @ ${pos.entryPrice.toFixed(4)}
+                {isPending
+                  ? `$${pos.entryAmountUsd.toFixed(2)} · limit${pos.entryZoneLow !== undefined && pos.entryZoneHigh !== undefined ? ` @ $${pos.entryZoneLow.toFixed(2)}–$${pos.entryZoneHigh.toFixed(2)}` : ""}`
+                  : `$${pos.entryAmountUsd.toFixed(2)}${pos.entryPrice !== undefined ? ` @ $${pos.entryPrice.toFixed(4)}` : ""}`}
               </span>
+              {isPending && pos.entryExpiresAt && (
+                <span style={{ fontSize: 11, color: "#ffb020", fontFamily: "var(--font-mono)" }}>
+                  expires {new Date(pos.entryExpiresAt).toLocaleString("en-GB", { dateStyle: "short", timeStyle: "short" })}
+                </span>
+              )}
               {pos.realizedPnlUsd !== undefined && (
                 <span style={{ fontSize: 13, fontWeight: 700, color: pnlColor(pos.realizedPnlUsd), marginLeft: "auto", fontFamily: "var(--font-mono)" }}>
                   {pos.realizedPnlUsd >= 0 ? "+" : ""}${pos.realizedPnlUsd.toFixed(4)}
@@ -459,7 +479,8 @@ function PositionsTab({ accentColor }: { accentColor: string }) {
               </p>
             )}
           </div>
-        ))}
+          );
+        })}
         {!loading && positions.length === 0 && <EmptyMsg msg="No positions yet — run the agent loop first." />}
       </div>
     </div>

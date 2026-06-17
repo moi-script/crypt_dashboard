@@ -155,11 +155,12 @@ export interface AgentRunStats {
 
 export interface Position {
   positionId:      string;
+  status?:         "pending" | "open" | "closed" | "cancelled";
   mode:            "paper" | "cex" | "onchain";
   tokenIn:         string;
   tokenOut:        string;
   entryAmountUsd:  number;
-  entryPrice:      number;
+  entryPrice?:     number;
   entryFeesUsd:    number;
   entryAt:         string;
   exitPrice?:      number;
@@ -169,6 +170,13 @@ export interface Position {
   realizedPnlUsd?: number;
   strategy:        string;
   runId:           string;
+  stopLossPrice?:   number;
+  takeProfitPrice?: number;
+  entryZoneLow?:    number;
+  entryZoneHigh?:   number;
+  entryExpiresAt?:  string;
+  framework?:       string;
+  confidence?:      number;
 }
 
 export interface DailyPnl {
