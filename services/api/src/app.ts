@@ -40,6 +40,8 @@ app.use(cors({ origin: allowedOrigins }))
 app.use(express.json())
 app.use(morgan('dev'))
 
+
+// apiLimiter
 // ── Rate limiters ─────────────────────────────────────────────────────────────
 app.use('/api/coins',         apiLimiter)
 app.use('/api/alerts',        apiLimiter)
@@ -47,17 +49,16 @@ app.use('/api/news',          apiLimiter)
 app.use('/api/portfolio',     apiLimiter)
 app.use('/api/agent-runs',    apiLimiter)
 app.use('/api/positions',     apiLimiter)
-app.use('/api/opportunities', apiLimiter)
+app.use('/api/opportunities',apiLimiter )
 app.use('/api/intelligence',  apiLimiter)
-app.use('/api/chart',         apiLimiter)
+app.use('/api/chart',        apiLimiter )
 app.use('/api/orderblocks',   apiLimiter)
 app.use(
   [
     '/api/simple', '/api/categories', '/api/exchanges', '/api/derivatives',
     '/api/nfts', '/api/trending', '/api/global', '/api/search', '/api/platforms',
     '/api/contract', '/api/exchange_rates', '/api/entities', '/api/treasury', '/api/ping',
-  ],
-  apiLimiter,
+  ],apiLimiter
 )
 
 // ── Route mounts ──────────────────────────────────────────────────────────────

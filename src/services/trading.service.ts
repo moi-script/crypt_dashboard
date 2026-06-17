@@ -301,10 +301,32 @@ export interface CascadeMap {
   }[];
 }
 
+// Lightweight metadata for a persisted scan (GET /intelligence/history)
+export interface ScanHistoryEntry {
+  scan_id:        string;
+  generated_at:   string;
+  market_phase:   string;
+  total_analyzed: number;
+  windows_open:   number;
+  coin_count:     number;
+  btc_regime:     string | null;
+  btc_bias:       Bias | null;
+}
+
 export const intelligenceService = {
   scan: (refresh = false) =>
     apiClient.get<{ success: boolean; data: IntelligenceScan; cached: boolean }>(
       `/intelligence/scan${refresh ? "?refresh=true" : ""}`,
+    ),
+
+  history: (limit = 20) =>
+    apiClient.get<{ success: boolean; data: ScanHistoryEntry[]; count: number }>(
+      `/intelligence/history?limit=${limit}`,
+    ),
+
+  getScan: (scanId: string) =>
+    apiClient.get<{ success: boolean; data: IntelligenceScan }>(
+      `/intelligence/scan/${scanId}`,
     ),
 
   trigger: () =>
