@@ -313,6 +313,18 @@ function ConfigTab({ accentColor }: { accentColor: string }) {
     } catch { /* ignore */ } finally { setToggling(false); }
   };
 
+  const [savingApproval, setSavingApproval] = useState(false);
+  const toggleAutoTrade = async () => {
+    if (!config) return;
+    setSavingApproval(true);
+    try {
+      // Auto-Trade ON  → requireManualApproval false (proposed trades execute)
+      // Auto-Trade OFF → requireManualApproval true  (trades wait for approval)
+      const res = await apiClient.put<{ ok: boolean; config: AgentConfig }>("/agent-runs/config", { requireManualApproval: !config.requireManualApproval });
+      setConfig(res.config);
+    } catch { /* ignore */ } finally { setSavingApproval(false); }
+  };
+
   if (loading) return <EmptyMsg msg="Loading…" />;
   if (!config) return <EmptyMsg msg="Could not load config." />;
 
@@ -353,12 +365,38 @@ function ConfigTab({ accentColor }: { accentColor: string }) {
         </div>
       </div>
 
+      {/* Auto-Trade toggle */}
+      {(() => {
+        const autoOn = !config.requireManualApproval;
+        return (
+          <div style={{ padding: "14px 14px", borderRadius: 10, background: "rgb(8,18,32)", border: `1px solid ${autoOn ? "#00e5a030" : "rgba(255,255,255,0.07)"}` }}>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+              <div style={{ paddingRight: 12 }}>
+                <p style={{ fontFamily: "var(--font-display,sans-serif)", fontSize: 14, fontWeight: 600, color: "rgba(255,255,255,0.85)", margin: "0 0 3px" }}>Auto-Trade</p>
+                <p style={{ fontSize: 12, color: "rgba(255,255,255,0.35)", margin: 0 }}>
+                  {autoOn ? "Proposed trades execute automatically" : "Proposed trades wait for manual approval"}
+                </p>
+              </div>
+              <button onClick={toggleAutoTrade} disabled={savingApproval} style={{
+                padding: "7px 16px", borderRadius: 8, fontSize: 12, fontWeight: 700,
+                fontFamily: "var(--font-display,sans-serif)", cursor: savingApproval ? "not-allowed" : "pointer",
+                border: "none", transition: "all 0.2s ease",
+                background: autoOn ? "rgba(0,229,160,0.15)" : "rgba(255,255,255,0.06)",
+                color: autoOn ? "#00e5a0" : "rgba(255,255,255,0.55)",
+                opacity: savingApproval ? 0.6 : 1,
+              }}>
+                {savingApproval ? "…" : autoOn ? "On" : "Off"}
+              </button>
+            </div>
+          </div>
+        );
+      })()}
+
       {/* Config rows */}
       {[
-        { label: "Mode",            val: config.mode.toUpperCase()                           },
-        { label: "Max Trade",       val: `$${config.maxTradeUsd}`                            },
-        { label: "Manual Approval", val: config.requireManualApproval ? "Required" : "Auto" },
-        { label: "Scheduler",       val: schedulerOn ? "Running" : "Stopped"                },
+        { label: "Mode",            val: config.mode.toUpperCase()           },
+        { label: "Max Trade",       val: `$${config.maxTradeUsd}`            },
+        { label: "Scheduler",       val: schedulerOn ? "Running" : "Stopped" },
       ].map(row => (
         <div key={row.label} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 12px", borderRadius: 8, background: "rgb(8,18,32)", border: "1px solid rgba(255,255,255,0.07)" }}>
           <span style={{ fontSize: 13, color: "rgba(255,255,255,0.45)", fontFamily: "var(--font-display,sans-serif)" }}>{row.label}</span>
