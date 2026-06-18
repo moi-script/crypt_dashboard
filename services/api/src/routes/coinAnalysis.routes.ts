@@ -1,8 +1,8 @@
 import { Router }       from 'express'
-import { auth } from '../middleware/auth'
-import { runCoinAnalysis, approveCard, rejectCard } from '../agents/coinAnalysis/coinAnalysis.runner'
-import { CoinAnalysisRunDoc }   from '../models/coinAnalysisRun.model'
-import type { StrategyFramework } from '../agents/coinAnalysis/coinAnalysis.types'
+import { auth } from '@/middleware/auth'
+import { runCoinAnalysis, approveCard, rejectCard } from '@/agents/coinAnalysis/coinAnalysis.runner'
+import { CoinAnalysisRunDoc }   from '@/models/coinAnalysisRun.model'
+import type { StrategyFramework } from '@/agents/coinAnalysis/coinAnalysis.types'
 
 const VALID_FRAMEWORKS = new Set<StrategyFramework>(['SmartMoney', 'Wyckoff', 'ElliottWave', 'Harmonic'])
 
@@ -17,7 +17,7 @@ router.post('/trigger', async (req, res) => {
     const coinAnalysisRunId = await runCoinAnalysis(userId, symbol, 'on_demand')
     res.json({ coinAnalysisRunId })
   } catch (err: any) {
-    res.status(500).json({ error: err.message })
+    res.status(err.statusCode ?? 500).json({ error: err.message })
   }
 })
 
