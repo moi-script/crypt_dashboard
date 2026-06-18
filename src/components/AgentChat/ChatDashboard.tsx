@@ -146,13 +146,22 @@ function EmptyMsg({ msg }: { msg: string }) {
 // ── RUNS TAB ─────────────────────────────────────────────────────────────────
 
 function RunsTab({ accentColor }: { accentColor: string }) {
-  const [runs,       setRuns]       = useState<AgentRun[]>([]);
-  const [stats,      setStats]      = useState<AgentRunStats | null>(null);
-  const [loading,    setLoading]    = useState(true);
-  const [triggering, setTriggering] = useState(false);
-  const [expanded,   setExpanded]   = useState<string | null>(null);
-  const [approvals,  setApprovals]  = useState<ApprovalRun[]>([]);
-  const [approving,  setApproving]  = useState<string | null>(null);
+  const [runs,        setRuns]        = useState<AgentRun[]>([]);
+  const [stats,       setStats]       = useState<AgentRunStats | null>(null);
+  const [loading,     setLoading]     = useState(true);
+  const [triggering,  setTriggering]  = useState(false);
+  const [expanded,    setExpanded]    = useState<string | null>(null);
+  const [approvals,   setApprovals]   = useState<ApprovalRun[]>([]);
+  const [approving,   setApproving]   = useState<string | null>(null);
+  const [latestRun,   setLatestRun]   = useState<CoinAnalysisRun | null>(null);
+  const [runPollId,   setRunPollId]   = useState<ReturnType<typeof setInterval> | null>(null);
+
+  const loadLatest = useCallback(async () => {
+    try {
+      const data = await coinAnalysisService.getLatest();
+      setLatestRun(data);
+    } catch { /* 404 fine — no runs yet */ }
+  }, []);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -168,18 +177,108 @@ function RunsTab({ accentColor }: { accentColor: string }) {
     } catch { /* ignore */ } finally { setLoading(false); }
   }, []);
 
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => {
+    load();
+    loadLatest();
+    // Poll proposals every 15s — picks up scheduler-triggered runs automatically
+    const id = setInterval(loadLatest, 15_000);
+    return () => clearInterval(id);
+  }, [load, loadLatest]);
+
+  // Clean up any active run-specific poll on unmount
+  useEffect(() => () => { if (runPollId) clearInterval(runPollId); }, [runPollId]);
 
   const trigger = async () => {
     setTriggering(true);
     try {
       await apiClient.post("/agent-runs/trigger", {});
+      // After triggering, poll proposals at 3s until a new completed run appears
+      const startedAt = Date.now();
+      const id = setInterval(async () => {
+        await loadLatest();
+        if (Date.now() - startedAt > 120_000) { clearInterval(id); setRunPollId(null); }
+      }, 3_000);
+      setRunPollId(id);
       await load();
     } catch { /* ignore */ } finally { setTriggering(false); }
   };
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+
+      {/* ── Latest trade proposals (result of the agent's analysis chain) ── */}
+      <div style={{ borderRadius: 12, overflow: "hidden", border: "1px solid rgba(255,255,255,0.08)", background: "rgb(4,10,18)" }}>
+        <div style={{ padding: "10px 14px", borderBottom: "1px solid rgba(255,255,255,0.07)", display: "flex", alignItems: "center", gap: 10 }}>
+          <span style={{ fontFamily: "var(--font-mono)", fontSize: 10, fontWeight: 700, color: "rgba(255,255,255,0.45)", textTransform: "uppercase", letterSpacing: "0.1em" }}>
+            Latest Trade Proposals
+          </span>
+          {latestRun && (
+            <span style={{ fontFamily: "var(--font-mono)", fontSize: 10, color: latestRun.status === "pending_approval" ? "#a78bfa" : latestRun.status === "auto_executed" || latestRun.status === "completed" ? "#00e5a0" : "rgba(255,255,255,0.3)" }}>
+              {latestRun.symbol} · {latestRun.status.replace(/_/g, " ")}
+              {latestRun.autoMode ? " · auto" : " · manual"}
+            </span>
+          )}
+          {triggering && (
+            <span style={{ fontFamily: "var(--font-mono)", fontSize: 10, color: accentColor, marginLeft: "auto" }}>Agent running…</span>
+          )}
+        </div>
+
+        <div style={{ padding: "12px 14px" }}>
+          {!latestRun && !triggering && (
+            <p style={{ fontFamily: "var(--font-mono)", fontSize: 11, color: "rgba(255,255,255,0.25)", textAlign: "center", margin: "16px 0" }}>
+              No proposals yet — trigger the agent loop to run a full analysis.
+            </p>
+          )}
+
+          {/* While agent is running: show skeleton */}
+          {triggering && (!latestRun || latestRun.status === "running") && (
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+              {(["SmartMoney", "Wyckoff", "ElliottWave", "Harmonic"] as const).map(fw => (
+                <div key={fw} style={{ borderRadius: 10, border: `1px solid ${FW_COLOR[fw]}20`, background: "rgb(6,14,22)", overflow: "hidden" }}>
+                  <div style={{ padding: "8px 11px", background: `${FW_COLOR[fw]}0d`, fontFamily: "var(--font-mono)", fontSize: 11, fontWeight: 800, color: FW_COLOR[fw] }}>
+                    {fw} <span style={{ fontSize: 9, color: "rgba(255,255,255,0.25)", fontWeight: 400 }}>analysing…</span>
+                  </div>
+                  <div style={{ height: 130, background: "rgb(8,18,32)", display: "flex", alignItems: "center", justifyContent: "center", color: "rgba(255,255,255,0.1)", fontSize: 18 }}>···</div>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* Pending approval banner */}
+          {latestRun && latestRun.status === "pending_approval" && !latestRun.autoMode && (
+            <div style={{ marginBottom: 10, padding: "8px 12px", borderRadius: 8, background: "#a78bfa10", border: "1px solid #a78bfa30", fontFamily: "var(--font-mono)", fontSize: 10, color: "#a78bfa" }}>
+              ⚠ Trade proposals await your approval — approve or reject each card below.
+            </div>
+          )}
+
+          {/* 4 proposal cards */}
+          {latestRun && latestRun.strategyCards.length > 0 && (
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+              {latestRun.strategyCards.map(card => (
+                <ProposalCard
+                  key={card.framework}
+                  card={card}
+                  runId={latestRun.coinAnalysisRunId}
+                  autoMode={latestRun.autoMode}
+                  accentColor={accentColor}
+                  onAction={loadLatest}
+                />
+              ))}
+            </div>
+          )}
+
+          {/* Footer meta */}
+          {latestRun && (
+            <div style={{ marginTop: 10, display: "flex", gap: 12, fontFamily: "var(--font-mono)", fontSize: 9, color: "rgba(255,255,255,0.2)", flexWrap: "wrap" }}>
+              <span>Run: {latestRun.coinAnalysisRunId.slice(0, 12)}…</span>
+              <span>by: {latestRun.triggeredBy}</span>
+              <span>news: {latestRun.newsArticlesUsed.length} sources</span>
+              {latestRun.completedAt && <span>finished: {new Date(latestRun.completedAt).toLocaleTimeString()}</span>}
+            </div>
+          )}
+        </div>
+      </div>
+
       {/* Stats grid */}
       {stats && (
         <div style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 7 }}>
@@ -1000,7 +1099,7 @@ function ProposalsTab({ accentColor }: { accentColor: string }) {
 
 // ── Main ChatDashboard ────────────────────────────────────────────────────────
 
-type DashTab = "runs" | "positions" | "signals" | "config" | "wallet" | "proposals";
+type DashTab = "runs" | "positions" | "signals" | "config" | "wallet";
 
 interface ChatDashboardProps {
   engine: {
@@ -1011,7 +1110,7 @@ interface ChatDashboardProps {
 }
 
 export function ChatDashboard({ engine, accentColor = "#00d4ff" }: ChatDashboardProps) {
-  const [tab, setTab] = useState<DashTab>("proposals");
+  const [tab, setTab] = useState<DashTab>("runs");
 
   const aiMessageCount = engine.messages.filter(m => m.role === "agent").length;
   const toolExecutions = engine.messages.filter(m => m.toolResult).length;
@@ -1025,7 +1124,6 @@ export function ChatDashboard({ engine, accentColor = "#00d4ff" }: ChatDashboard
   }
 
   const TABS: { id: DashTab; label: string }[] = [
-    { id: "proposals", label: "Proposals" },
     { id: "runs",      label: "Runs"      },
     { id: "positions", label: "Positions" },
     { id: "signals",   label: "Signals"   },
@@ -1067,7 +1165,6 @@ export function ChatDashboard({ engine, accentColor = "#00d4ff" }: ChatDashboard
 
       {/* Tab content */}
       <div style={{ flex: 1, overflowY: "auto", padding: "14px 14px 24px" }}>
-        {tab === "proposals" && <ProposalsTab  accentColor={accentColor} />}
         {tab === "runs"      && <RunsTab      accentColor={accentColor} />}
         {tab === "positions" && <PositionsTab accentColor={accentColor} />}
         {tab === "signals"   && <SignalsTab   accentColor={accentColor} />}
