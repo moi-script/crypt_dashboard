@@ -124,7 +124,9 @@ Called at the start of every `runCoinAnalysis`:
 Pure function `scoreNewsImpact(articles: NewsArticle[], signal: TradeSignal | null): NewsImpact`:
 
 - Uses `article.sentiment` field (existing on `ArticleDoc`, currently `0` — populated by keyword scorer fallback until a model is wired)
-- Keyword scorer: bullish keywords (`bullish`, `breakout`, `rally`, `adoption`, `ETF`, `ATH`) → +1; bearish keywords (`crash`, `ban`, `hack`, `SEC`, `lawsuit`, `dump`) → -1; neutral otherwise
+- Keyword scorer:
+  - **Bullish (+1):** `bullish`, `breakout`, `rally`, `adoption`, `ETF`, `ATH`, `all-time high`, `accumulation`, `buy the dip`, `golden cross`, `oversold`, `support held`, `bounce`, `reversal`, `uptrend`, `higher high`, `higher low`, `momentum`, `inflow`, `institutional buying`, `spot ETF`, `halving`, `approval`, `listing`, `partnership`, `upgrade`, `mainnet`, `launch`, `record high`, `price target`, `outperform`, `long`, `squeeze`, `short squeeze`, `cup and handle`, `ascending`, `breakout confirmed`, `demand zone`, `liquidity grab`
+  - **Bearish (-1):** `crash`, `ban`, `hack`, `SEC`, `lawsuit`, `dump`, `sell-off`, `bearish`, `breakdown`, `death cross`, `overbought`, `resistance`, `rejection`, `downtrend`, `lower low`, `lower high`, `outflow`, `capitulation`, `liquidation`, `regulation`, `crackdown`, `fine`, `exploit`, `rug pull`, `exit scam`, `bankruptcy`, `insolvency`, `delisting`, `flash crash`, `panic sell`, `distribution`, `supply zone`, `descending`, `head and shoulders`, `double top`, `divergence`, `FUD`, `fear`, `whale dump`, `massive sell`, `warning`
 - Aggregate = average of 3 article scores → `bullish (>0.2) | bearish (<-0.2) | neutral`
 - If aggregate contradicts signal bias → `verdict: "contradicts"`, `confidenceDelta: -10`
 - If aggregate supports signal bias → `verdict: "supports"`, `confidenceDelta: +5`
