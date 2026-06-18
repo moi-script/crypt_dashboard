@@ -79,16 +79,20 @@ async function closePosition(
 
   console.log(`[PositionMonitor] Closed ${position.positionId} (${reason}) — PnL: $${(result.simulatedPnlUsd ?? 0).toFixed(2)}`)
 
-  // Write outcome memory — non-fatal
-  await writeOutcome(position.runId ?? '', {
-    pnl:            result.simulatedPnlUsd ?? 0,
-    pnlPercent:     position.entryAmountUsd > 0
-      ? ((result.simulatedPnlUsd ?? 0) / position.entryAmountUsd) * 100
-      : 0,
-    durationHeldMs: result.executedAt.getTime() - new Date(position.entryAt ?? result.executedAt).getTime(),
-    closedAt:       result.executedAt,
-    success:        (result.simulatedPnlUsd ?? 0) > 0,
-  }).catch((err: any) => console.warn('[PositionMonitor] writeOutcome failed:', err.message))
+  // Write outcome memory — non-fatal; skip if position has no runId (not opened by agent loop)
+  if (!position.runId) {
+    console.warn(`[PositionMonitor] Skipping writeOutcome for ${position.positionId} — no runId (not an agent-loop position)`)
+  } else {
+    await writeOutcome(position.runId, {
+      pnl:            result.simulatedPnlUsd ?? 0,
+      pnlPercent:     position.entryAmountUsd > 0
+        ? ((result.simulatedPnlUsd ?? 0) / position.entryAmountUsd) * 100
+        : 0,
+      durationHeldMs: result.executedAt.getTime() - new Date(position.entryAt ?? result.executedAt).getTime(),
+      closedAt:       result.executedAt,
+      success:        (result.simulatedPnlUsd ?? 0) > 0,
+    }).catch((err: any) => console.warn('[PositionMonitor] writeOutcome failed:', err.message))
+  }
 }
 
 // ── Limit-order activation ──────────────────────────────────────────────────
