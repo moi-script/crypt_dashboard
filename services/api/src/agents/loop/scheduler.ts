@@ -20,7 +20,11 @@ const _inFlight = new Set<string>()
 
 /** Find all enabled users and run one bounded-concurrency tick per user. */
 export async function runEnabledUserTicks(): Promise<void> {
-  const enabled = await AgentConfigDoc.find({ enabled: true }).select('userId').lean()
+  const enabled = await AgentConfigDoc
+    .find({ enabled: true })
+    .select('userId watchlist strategies')
+    .lean()
+
   const userIds = enabled.map(c => c.userId).filter(id => !_inFlight.has(id))
 
   for (let i = 0; i < userIds.length; i += MAX_CONCURRENT_TICKS) {
@@ -28,7 +32,17 @@ export async function runEnabledUserTicks(): Promise<void> {
     await Promise.all(batch.map(async userId => {
       _inFlight.add(userId)
       try {
-        await runLoopTick(userId)
+        const cfg = enabled.find(c => c.userId === userId)!
+        const isChartSignal = cfg.strategies?.chartSignal && (cfg.watchlist ?? [])[0]
+
+        if (isChartSignal) {
+          const symbol = (cfg.watchlist[0] as string).replace('bitcoin', 'BTC').replace('ethereum', 'ETH').toUpperCase()
+          // eslint-disable-next-line @typescript-eslint/no-require-imports
+          const { runCoinAnalysis } = require('@/agents/coinAnalysis/coinAnalysis.runner') as typeof import('@/agents/coinAnalysis/coinAnalysis.runner')
+          await runCoinAnalysis(userId, symbol, 'scheduler')
+        } else {
+          await runLoopTick(userId)
+        }
       } catch (err: any) {
         console.error(`[Scheduler] Tick failed for ${userId}:`, err.message)
       } finally {
