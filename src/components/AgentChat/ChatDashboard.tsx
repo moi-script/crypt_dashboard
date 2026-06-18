@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { apiClient } from "@/services/api.client";
 import { useAuth } from "@/controllers/useAuth";
 import { PaperWalletDashboard } from "../PaperWalletDashboard";
@@ -10,8 +10,9 @@ import {
   listApprovals as fetchApprovals,
   approveRun as doApprove,
   rejectRun  as doReject,
+  coinAnalysisService,
 } from "@/services/agent.service.frontend";
-import type { ApprovalRun } from "@/services/agent.service.frontend";
+import type { ApprovalRun, CoinAnalysisRun, StrategyCard, StrategyFramework } from "@/services/agent.service.frontend";
 
 // ── Types (mirrors agent.service.frontend.ts) ─────────────────────────────────
 interface AgentRun {
@@ -42,6 +43,7 @@ interface AgentConfig {
   loopIntervalMs:        number;
   strategies:            Record<string, boolean>;
   watchlist:             string[];
+  selectedCoin?:         string;
   maxTradeUsd:           number;
   requireManualApproval: boolean;
 }
@@ -144,26 +146,49 @@ function EmptyMsg({ msg }: { msg: string }) {
 
 // ── RUNS TAB ─────────────────────────────────────────────────────────────────
 
+const COIN_OPTIONS = ["BTC", "ETH", "SOL", "BNB", "AVAX", "ARB", "AAVE"] as const;
+
 function RunsTab({ accentColor }: { accentColor: string }) {
-  const [runs,       setRuns]       = useState<AgentRun[]>([]);
-  const [stats,      setStats]      = useState<AgentRunStats | null>(null);
-  const [loading,    setLoading]    = useState(true);
-  const [triggering, setTriggering] = useState(false);
-  const [expanded,   setExpanded]   = useState<string | null>(null);
-  const [approvals,  setApprovals]  = useState<ApprovalRun[]>([]);
-  const [approving,  setApproving]  = useState<string | null>(null);
+  const [runs,        setRuns]        = useState<AgentRun[]>([]);
+  const [stats,       setStats]       = useState<AgentRunStats | null>(null);
+  const [loading,     setLoading]     = useState(true);
+  const [triggering,  setTriggering]  = useState(false);
+  const [expanded,    setExpanded]    = useState<string | null>(null);
+  const [approvals,   setApprovals]   = useState<ApprovalRun[]>([]);
+  const [approving,   setApproving]   = useState<string | null>(null);
+  // Proposals are null until the current session triggers a run
+  const [activeRun,   setActiveRun]   = useState<CoinAnalysisRun | null>(null);
+  const [activeRunId, setActiveRunId] = useState<string | null>(null);
+  const [selectedCoin,setSelectedCoin]= useState<string>("BTC");
+  const [agentEnabled,setAgentEnabled]= useState<boolean | null>(null);
+  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  const stopPoll = () => { if (pollRef.current) { clearInterval(pollRef.current); pollRef.current = null; } };
+  useEffect(() => () => stopPoll(), []);
+
+  const pollRun = useCallback(async (runId: string) => {
+    try {
+      const data = await coinAnalysisService.getRun(runId);
+      setActiveRun(data);
+      if (data.status !== "running") { stopPoll(); setTriggering(false); }
+    } catch { stopPoll(); setTriggering(false); }
+  }, []);
 
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const [r, s, a] = await Promise.all([
+      const [r, s, a, cfg] = await Promise.all([
         apiClient.get<{ runs: AgentRun[]; total: number }>("/agent-runs?limit=20"),
         apiClient.get<AgentRunStats>("/agent-runs/stats"),
         fetchApprovals(),
+        apiClient.get<{ config: AgentConfig }>("/agent-runs/config"),
       ]);
       setRuns(r.runs ?? []);
       setStats(s);
       setApprovals(a);
+      if (cfg.config.selectedCoin) setSelectedCoin(cfg.config.selectedCoin);
+      else if (cfg.config.watchlist?.[0]) setSelectedCoin(cfg.config.watchlist[0]);
+      setAgentEnabled(cfg.config.enabled);
     } catch { /* ignore */ } finally { setLoading(false); }
   }, []);
 
@@ -171,14 +196,142 @@ function RunsTab({ accentColor }: { accentColor: string }) {
 
   const trigger = async () => {
     setTriggering(true);
+    setActiveRun(null);
+    stopPoll();
     try {
-      await apiClient.post("/agent-runs/trigger", {});
-      await load();
-    } catch { /* ignore */ } finally { setTriggering(false); }
+      // Save selected coin to config, then trigger the full coin analysis chain
+      await apiClient.put("/agent-runs/config", { selectedCoin });
+      const { coinAnalysisRunId } = await coinAnalysisService.trigger(selectedCoin);
+      setActiveRunId(coinAnalysisRunId);
+      pollRef.current = setInterval(() => pollRun(coinAnalysisRunId), 2_500);
+      load(); // refresh run history in background
+    } catch { setTriggering(false); }
   };
+
+  const refreshRun = useCallback(async () => {
+    if (activeRunId) {
+      const data = await coinAnalysisService.getRun(activeRunId).catch(() => null);
+      if (data) setActiveRun(data);
+    }
+  }, [activeRunId]);
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+
+      {/* ── Coin selection + trigger ── */}
+      <div style={{ padding: "12px 14px", borderRadius: 12, background: "rgb(4,10,18)", border: "1px solid rgba(255,255,255,0.08)", display: "flex", flexDirection: "column", gap: 10 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+          <span style={{ fontFamily: "var(--font-mono)", fontSize: 10, fontWeight: 700, color: "rgba(255,255,255,0.35)", textTransform: "uppercase", letterSpacing: "0.08em" }}>
+            Analyze
+          </span>
+          {/* Coin picker */}
+          <div style={{ display: "flex", gap: 2, background: "rgba(0,0,0,0.35)", borderRadius: 8, padding: 2 }}>
+            {COIN_OPTIONS.map(c => (
+              <button key={c} onClick={() => setSelectedCoin(c)} disabled={triggering}
+                style={{ padding: "4px 9px", borderRadius: 6, border: "none", cursor: "pointer", fontSize: 10, fontFamily: "var(--font-mono)", fontWeight: 700, transition: "all 0.15s",
+                  background: selectedCoin === c ? accentColor : "transparent",
+                  color: selectedCoin === c ? "rgb(2,6,9)" : "rgba(255,255,255,0.4)" }}>
+                {c}
+              </button>
+            ))}
+          </div>
+          {/* Trigger button */}
+          <button onClick={trigger} disabled={triggering}
+            style={{ display: "flex", alignItems: "center", gap: 6, padding: "6px 14px", borderRadius: 8, border: `1px solid ${accentColor}40`, background: triggering ? "transparent" : `${accentColor}15`, color: accentColor, cursor: triggering ? "default" : "pointer", fontFamily: "var(--font-mono)", fontSize: 11, fontWeight: 700, marginLeft: "auto" }}>
+            {triggering ? "⏳ Running…" : "⚡ Run Analysis"}
+          </button>
+        </div>
+        {/* Agent status hint */}
+        {agentEnabled === false && (
+          <div style={{ fontFamily: "var(--font-mono)", fontSize: 10, color: "#ffb020", padding: "5px 8px", borderRadius: 6, background: "#ffb02010", border: "1px solid #ffb02025" }}>
+            Agent loop is halted — you can still trigger a manual analysis above.
+          </div>
+        )}
+        {/* Parallel strategies label */}
+        <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
+          <span style={{ fontFamily: "var(--font-mono)", fontSize: 9, color: "rgba(255,255,255,0.25)" }}>Runs in parallel:</span>
+          {(["SmartMoney", "Wyckoff", "ElliottWave", "Harmonic"] as const).map(fw => (
+            <span key={fw} style={{ fontFamily: "var(--font-mono)", fontSize: 9, fontWeight: 700, color: FW_COLOR[fw], background: FW_COLOR[fw] + "12", padding: "2px 6px", borderRadius: 4 }}>{fw}</span>
+          ))}
+        </div>
+      </div>
+
+      {/* ── Trade proposals — only shown after this session triggers a run ── */}
+      {(triggering || activeRun) && (
+        <div style={{ borderRadius: 12, overflow: "hidden", border: "1px solid rgba(255,255,255,0.08)", background: "rgb(4,10,18)" }}>
+          <div style={{ padding: "10px 14px", borderBottom: "1px solid rgba(255,255,255,0.07)", display: "flex", alignItems: "center", gap: 8 }}>
+            <span style={{ fontFamily: "var(--font-mono)", fontSize: 10, fontWeight: 700, color: "rgba(255,255,255,0.45)", textTransform: "uppercase", letterSpacing: "0.1em" }}>
+              Trade Proposals
+            </span>
+            {activeRun && (
+              <span style={{ fontFamily: "var(--font-mono)", fontSize: 10, color: activeRun.status === "pending_approval" ? "#a78bfa" : activeRun.status === "completed" || activeRun.status === "auto_executed" ? "#00e5a0" : accentColor }}>
+                {activeRun.symbol} · {activeRun.status.replace(/_/g, " ")}
+              </span>
+            )}
+            {triggering && !activeRun?.strategyCards.length && (
+              <span style={{ fontFamily: "var(--font-mono)", fontSize: 10, color: accentColor }}>
+                Analysing {selectedCoin} across 4 strategies…
+              </span>
+            )}
+          </div>
+
+          <div style={{ padding: "12px 14px" }}>
+            {/* Parallel strategy skeletons while running */}
+            {triggering && (!activeRun || activeRun.status === "running") && (
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+                {(["SmartMoney", "Wyckoff", "ElliottWave", "Harmonic"] as const).map((fw, i) => (
+                  <div key={fw} style={{ borderRadius: 10, border: `1px solid ${FW_COLOR[fw]}22`, background: "rgb(6,14,22)", overflow: "hidden" }}>
+                    <div style={{ padding: "8px 11px", background: `${FW_COLOR[fw]}0d`, borderBottom: `1px solid ${FW_COLOR[fw]}18`, display: "flex", alignItems: "center", gap: 7 }}>
+                      <span style={{ fontFamily: "var(--font-mono)", fontSize: 11, fontWeight: 800, color: FW_COLOR[fw] }}>{fw}</span>
+                      <span style={{ fontFamily: "var(--font-mono)", fontSize: 9, color: "rgba(255,255,255,0.25)", animation: `pulse ${1.2 + i * 0.15}s ease-in-out infinite` }}>running…</span>
+                    </div>
+                    <div style={{ height: 130, background: "rgb(8,18,32)", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                      <div style={{ display: "flex", gap: 4 }}>
+                        {[0,1,2].map(j => (
+                          <div key={j} style={{ width: 4, height: 16, borderRadius: 2, background: FW_COLOR[fw] + "60", animation: `pulse ${0.8 + j * 0.15}s ease-in-out infinite` }} />
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {/* Pending approval banner */}
+            {activeRun && activeRun.status === "pending_approval" && !activeRun.autoMode && (
+              <div style={{ marginBottom: 10, padding: "8px 12px", borderRadius: 8, background: "#a78bfa10", border: "1px solid #a78bfa30", fontFamily: "var(--font-mono)", fontSize: 10, color: "#a78bfa" }}>
+                ⚠ Proposals ready — approve or reject each strategy card below.
+              </div>
+            )}
+
+            {/* 4 proposal cards */}
+            {activeRun && activeRun.strategyCards.length > 0 && (
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+                {activeRun.strategyCards.map(card => (
+                  <ProposalCard
+                    key={card.framework}
+                    card={card}
+                    runId={activeRun.coinAnalysisRunId}
+                    autoMode={activeRun.autoMode}
+                    accentColor={accentColor}
+                    onAction={refreshRun}
+                  />
+                ))}
+              </div>
+            )}
+
+            {/* Footer meta */}
+            {activeRun && activeRun.strategyCards.length > 0 && (
+              <div style={{ marginTop: 10, display: "flex", gap: 12, fontFamily: "var(--font-mono)", fontSize: 9, color: "rgba(255,255,255,0.2)", flexWrap: "wrap" }}>
+                <span>Run: {activeRun.coinAnalysisRunId.slice(0, 12)}…</span>
+                <span>news: {activeRun.newsArticlesUsed.length} sources</span>
+                {activeRun.completedAt && <span>completed: {new Date(activeRun.completedAt).toLocaleTimeString()}</span>}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
       {/* Stats grid */}
       {stats && (
         <div style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 7 }}>
@@ -515,12 +668,53 @@ function ConfigTab({ accentColor }: { accentColor: string }) {
         </div>
       ))}
 
+      {/* Analysis coin picker */}
+      {(() => {
+        const [saving, setSaving] = useState(false);
+        const saveCoin = async (coin: string) => {
+          setSaving(true);
+          try {
+            const res = await apiClient.put<{ ok: boolean; config: AgentConfig }>("/agent-runs/config", { selectedCoin: coin });
+            setConfig(res.config);
+          } catch { /* ignore */ } finally { setSaving(false); }
+        };
+        return (
+          <div style={{ padding: "12px 14px", borderRadius: 10, background: "rgb(8,18,32)", border: `1px solid ${accentColor}25` }}>
+            <p style={{ fontSize: 10, color: "rgba(255,255,255,0.3)", letterSpacing: "0.08em", textTransform: "uppercase", margin: "0 0 10px", fontFamily: "var(--font-mono)" }}>
+              Analysis Coin — agent loop focuses here
+            </p>
+            <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
+              {["BTC", "ETH", "SOL", "BNB", "AVAX", "ARB", "AAVE"].map(c => {
+                const selected = (config.selectedCoin ?? config.watchlist[0] ?? "BTC") === c;
+                return (
+                  <button key={c} onClick={() => saveCoin(c)} disabled={saving}
+                    style={{ padding: "5px 12px", borderRadius: 7, border: "none", cursor: "pointer", fontFamily: "var(--font-mono)", fontSize: 11, fontWeight: 700, transition: "all 0.15s",
+                      background: selected ? accentColor : "rgba(255,255,255,0.06)",
+                      color: selected ? "rgb(2,6,9)" : "rgba(255,255,255,0.45)" }}>
+                    {c}
+                  </button>
+                );
+              })}
+            </div>
+            <p style={{ fontSize: 10, color: "rgba(255,255,255,0.2)", margin: "8px 0 0", fontFamily: "var(--font-mono)" }}>
+              Current: <span style={{ color: accentColor }}>{config.selectedCoin ?? config.watchlist[0] ?? "BTC"}</span>
+              {" · "}4 strategies run in parallel (SmartMoney, Wyckoff, ElliottWave, Harmonic)
+            </p>
+          </div>
+        );
+      })()}
+
       {/* Strategies */}
       <div style={{ padding: "12px 14px", borderRadius: 10, background: "rgb(8,18,32)", border: "1px solid rgba(255,255,255,0.07)" }}>
         <p style={{ fontSize: 10, color: "rgba(255,255,255,0.3)", letterSpacing: "0.08em", textTransform: "uppercase", margin: "0 0 10px", fontFamily: "var(--font-mono)" }}>Strategies</p>
         {Object.entries(config.strategies).map(([name, active]) => (
           <div key={name} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
-            <span style={{ fontSize: 13, color: "rgba(255,255,255,0.55)", fontFamily: "var(--font-display,sans-serif)" }}>{name}</span>
+            <div>
+              <span style={{ fontSize: 13, color: "rgba(255,255,255,0.55)", fontFamily: "var(--font-display,sans-serif)" }}>{name}</span>
+              {name === "chartSignal" && (
+                <span style={{ marginLeft: 7, fontSize: 10, color: "rgba(255,255,255,0.25)", fontFamily: "var(--font-mono)" }}>→ 4-framework parallel analysis</span>
+              )}
+            </div>
             <span style={{ fontSize: 12, fontWeight: 700, color: active ? "#00e5a0" : "rgba(255,255,255,0.2)", background: active ? "rgba(0,229,160,0.10)" : "rgba(255,255,255,0.04)", padding: "2px 8px", borderRadius: 5 }}>
               {active ? "On" : "Off"}
             </span>
@@ -687,6 +881,312 @@ function SignalsTab({ accentColor }: { accentColor: string }) {
         );
       })}
       {!loading && opps.length === 0 && <EmptyMsg msg="No active signals — agent will populate these on next tick." />}
+    </div>
+  );
+}
+
+// ── PROPOSALS TAB ────────────────────────────────────────────────────────────
+
+const FW_COLOR: Record<StrategyFramework, string> = {
+  SmartMoney:  "#36b6ff",
+  Wyckoff:     "#a78bfa",
+  ElliottWave: "#ffb020",
+  Harmonic:    "#00e5a0",
+};
+const SYMBOLS = ["BTC", "ETH", "SOL", "BNB", "AVAX"] as const;
+
+function fmt2(n: number) {
+  return n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
+function ProposalCard({
+  card, runId, autoMode, onAction, accentColor,
+}: {
+  card: StrategyCard; runId: string; autoMode: boolean;
+  onAction: () => void; accentColor: string;
+}) {
+  const [expanded,  setExpanded]  = useState(false);
+  const [approving, setApproving] = useState(false);
+  const [rejecting, setRejecting] = useState(false);
+  const fc = FW_COLOR[card.framework];
+
+  const newsColor =
+    card.newsImpact.verdict === "supports"    ? "#00e5a0" :
+    card.newsImpact.verdict === "contradicts" ? "#ff5572" : "rgba(255,255,255,0.3)";
+
+  const approve = async () => {
+    setApproving(true);
+    try { await coinAnalysisService.approveCard(runId, card.framework); onAction(); }
+    catch {} finally { setApproving(false); }
+  };
+  const reject = async () => {
+    setRejecting(true);
+    try { await coinAnalysisService.rejectCard(runId, card.framework); onAction(); }
+    catch {} finally { setRejecting(false); }
+  };
+
+  const statusChip = () => {
+    if (card.approvalStatus === "auto_executed") return { label: "Auto-executed", color: "#36b6ff" };
+    if (card.approvalStatus === "approved")      return { label: "Approved",      color: "#00e5a0" };
+    if (card.approvalStatus === "rejected")      return { label: "Rejected",      color: "#ff5572" };
+    if (card.approvalStatus === "skipped")       return { label: "Skipped",       color: "rgba(255,255,255,0.3)" };
+    return null;
+  };
+  const sc = statusChip();
+
+  return (
+    <div style={{ borderRadius: 12, overflow: "hidden", border: `1px solid ${fc}25`, background: "rgb(4,10,18)", display: "flex", flexDirection: "column" }}>
+
+      {/* Card header */}
+      <div style={{ padding: "9px 12px", background: `${fc}10`, borderBottom: `1px solid ${fc}20`, display: "flex", alignItems: "center", gap: 7, flexWrap: "wrap" }}>
+        <span style={{ fontFamily: "var(--font-mono)", fontSize: 12, fontWeight: 800, color: fc }}>{card.framework}</span>
+        {card.signal && (
+          <span style={{ fontFamily: "var(--font-mono)", fontSize: 10, fontWeight: 700, padding: "2px 7px", borderRadius: 20,
+            color: card.signal.confidence >= 65 ? "#00e5a0" : card.signal.confidence >= 45 ? "#ffb020" : "#ff5572",
+            background: (card.signal.confidence >= 65 ? "#00e5a0" : card.signal.confidence >= 45 ? "#ffb020" : "#ff5572") + "18",
+            border: `1px solid ${(card.signal.confidence >= 65 ? "#00e5a0" : card.signal.confidence >= 45 ? "#ffb020" : "#ff5572")}30`,
+          }}>
+            {card.signal.confidence}% conf
+          </span>
+        )}
+        {card.newsImpact.verdict !== "neutral" && (
+          <span style={{ fontFamily: "var(--font-mono)", fontSize: 10, color: newsColor }}>
+            {card.newsImpact.confidenceDelta > 0 ? `+${card.newsImpact.confidenceDelta}` : card.newsImpact.confidenceDelta} news
+          </span>
+        )}
+        {sc && (
+          <span style={{ marginLeft: "auto", fontFamily: "var(--font-mono)", fontSize: 10, fontWeight: 700, color: sc.color, background: sc.color + "18", padding: "2px 7px", borderRadius: 20 }}>
+            {sc.label}
+          </span>
+        )}
+      </div>
+
+      {/* Chart */}
+      {card.chartSnapshot ? (
+        <MiniChart snapshot={card.chartSnapshot} />
+      ) : (
+        <div style={{ height: 150, display: "flex", alignItems: "center", justifyContent: "center", background: "rgb(8,18,32)", fontFamily: "var(--font-mono)", fontSize: 11, color: "rgba(255,255,255,0.25)" }}>
+          No signal
+        </div>
+      )}
+
+      {/* Levels */}
+      {card.signal && card.chartSnapshot && (
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 5, padding: "9px 12px 0" }}>
+          {[
+            { l: "Entry", v: `$${fmt2(card.chartSnapshot.entryZone.low)}–$${fmt2(card.chartSnapshot.entryZone.high)}`, c: "#00d4ff" },
+            { l: "SL",    v: `$${fmt2(card.chartSnapshot.stopLoss)}`, c: "#ff5572" },
+            { l: "TP1",   v: card.chartSnapshot.takeProfitLevels[0] ? `$${fmt2(card.chartSnapshot.takeProfitLevels[0])}` : "—", c: "#00e5a0" },
+          ].map(item => (
+            <div key={item.l} style={{ padding: "5px 7px", borderRadius: 7, background: `${item.c}08`, border: `1px solid ${item.c}18` }}>
+              <div style={{ fontFamily: "var(--font-mono)", fontSize: 8, color: "rgba(255,255,255,0.3)", marginBottom: 2, textTransform: "uppercase" }}>{item.l}</div>
+              <div style={{ fontFamily: "var(--font-mono)", fontSize: 10, fontWeight: 700, color: item.c }}>{item.v}</div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* News */}
+      {card.newsImpact.headlines.length > 0 && (
+        <div style={{ margin: "8px 12px 0", padding: "7px 9px", borderRadius: 8, background: `${newsColor}08`, border: `1px solid ${newsColor}20` }}>
+          <div style={{ fontFamily: "var(--font-mono)", fontSize: 8, color: "rgba(255,255,255,0.3)", marginBottom: 4, textTransform: "uppercase", letterSpacing: "0.06em" }}>
+            News · {card.newsImpact.verdict}
+          </div>
+          {card.newsImpact.headlines.map((h, i) => (
+            <div key={i} style={{ fontFamily: "var(--font-mono)", fontSize: 10, color: "rgba(255,255,255,0.55)", marginBottom: 2, lineHeight: 1.4, display: "flex", gap: 5 }}>
+              <span style={{ color: newsColor, flexShrink: 0 }}>{h.sentiment > 0 ? "↑" : h.sentiment < 0 ? "↓" : "·"}</span>
+              <span>{h.title}</span>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Narrative toggle */}
+      {card.llmNarrative && (
+        <div style={{ padding: "8px 12px 0" }}>
+          <button onClick={() => setExpanded(!expanded)} style={{ display: "flex", alignItems: "center", gap: 4, background: "transparent", border: "none", cursor: "pointer", fontFamily: "var(--font-mono)", fontSize: 10, color: "rgba(255,255,255,0.3)", padding: 0 }}>
+            {expanded ? "▲" : "▼"} {expanded ? "Hide" : "Show"} analysis
+          </button>
+          {expanded && (
+            <div style={{ marginTop: 5, padding: "8px 10px", borderRadius: 8, background: "rgba(0,0,0,0.25)", border: "1px solid rgba(255,255,255,0.07)", fontFamily: "var(--font-mono)", fontSize: 10, color: "rgba(255,255,255,0.55)", lineHeight: 1.7 }}>
+              {card.llmNarrative}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Approve / Reject */}
+      {!autoMode && card.approvalStatus === "pending" && card.signal && (
+        <div style={{ display: "flex", gap: 7, padding: "10px 12px" }}>
+          <button onClick={approve} disabled={approving || rejecting}
+            style={{ flex: 1, padding: "7px 0", borderRadius: 8, border: "1px solid #00e5a050", background: "#00e5a012", color: "#00e5a0", cursor: "pointer", fontFamily: "var(--font-mono)", fontSize: 11, fontWeight: 700 }}>
+            {approving ? "…" : "✓ Approve"}
+          </button>
+          <button onClick={reject} disabled={approving || rejecting}
+            style={{ flex: 1, padding: "7px 0", borderRadius: 8, border: "1px solid #ff557250", background: "#ff557210", color: "#ff5572", cursor: "pointer", fontFamily: "var(--font-mono)", fontSize: 11, fontWeight: 700 }}>
+            {rejecting ? "…" : "✕ Reject"}
+          </button>
+        </div>
+      )}
+
+      {card.approvalStatus === "skipped" && card.skippedReason && (
+        <div style={{ padding: "8px 12px", fontFamily: "var(--font-mono)", fontSize: 10, color: "rgba(255,255,255,0.25)", fontStyle: "italic" }}>
+          {card.skippedReason}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ProposalsTab({ accentColor }: { accentColor: string }) {
+  const [symbol,  setSymbol]  = useState<string>("BTC");
+  const [run,     setRun]     = useState<CoinAnalysisRun | null>(null);
+  const [running, setRunning] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [error,   setError]   = useState<string | null>(null);
+  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  const stopPoll = () => { if (pollRef.current) { clearInterval(pollRef.current); pollRef.current = null; } };
+  useEffect(() => () => stopPoll(), []);
+
+  const loadLatest = useCallback(async () => {
+    try {
+      const data = await coinAnalysisService.getLatest();
+      setRun(data);
+      if (data.symbol) setSymbol(data.symbol);
+    } catch { /* 404 is fine — no runs yet */ }
+    finally { setLoading(false); }
+  }, []);
+
+  useEffect(() => { loadLatest(); }, [loadLatest]);
+
+  // Background poll every 20s for scheduler-triggered runs
+  useEffect(() => {
+    const id = setInterval(loadLatest, 20_000);
+    return () => clearInterval(id);
+  }, [loadLatest]);
+
+  const pollRun = useCallback(async (runId: string) => {
+    try {
+      const data = await coinAnalysisService.getRun(runId);
+      setRun(data);
+      if (data.status !== "running") { stopPoll(); setRunning(false); }
+    } catch { stopPoll(); setRunning(false); }
+  }, []);
+
+  const triggerRun = async () => {
+    setRunning(true);
+    setError(null);
+    stopPoll();
+    try {
+      const { coinAnalysisRunId } = await coinAnalysisService.trigger(symbol);
+      pollRef.current = setInterval(() => pollRun(coinAnalysisRunId), 2500);
+    } catch (e: any) {
+      setError(e?.message ?? "Trigger failed");
+      setRunning(false);
+    }
+  };
+
+  const statusColor =
+    run?.status === "completed"        ? "#00e5a0" :
+    run?.status === "auto_executed"    ? "#36b6ff" :
+    run?.status === "pending_approval" ? "#a78bfa" :
+    run?.status === "failed"           ? "#ff5572" : "rgba(255,255,255,0.3)";
+
+  if (loading) {
+    return <div style={{ display: "flex", justifyContent: "center", padding: 32 }}>
+      <span style={{ fontFamily: "var(--font-mono)", fontSize: 12, color: "rgba(255,255,255,0.3)" }}>Loading…</span>
+    </div>;
+  }
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+
+      {/* Controls */}
+      <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap", padding: "10px 14px", borderRadius: 10, background: "rgb(6,14,22)", border: "1px solid rgba(255,255,255,0.07)" }}>
+        <div style={{ display: "flex", gap: 2, background: "rgba(0,0,0,0.3)", borderRadius: 8, padding: 2 }}>
+          {SYMBOLS.map(s => (
+            <button key={s} onClick={() => setSymbol(s)} disabled={running}
+              style={{ padding: "4px 9px", borderRadius: 6, border: "none", cursor: "pointer", fontSize: 10, fontFamily: "var(--font-mono)", fontWeight: 700, transition: "all 0.15s",
+                background: symbol === s ? accentColor : "transparent",
+                color: symbol === s ? "rgb(2,6,9)" : "rgba(255,255,255,0.4)" }}>
+              {s}
+            </button>
+          ))}
+        </div>
+        <button onClick={triggerRun} disabled={running}
+          style={{ display: "flex", alignItems: "center", gap: 6, padding: "6px 14px", borderRadius: 8, border: `1px solid ${accentColor}40`, background: running ? "transparent" : `${accentColor}15`, color: accentColor, cursor: running ? "default" : "pointer", fontFamily: "var(--font-mono)", fontSize: 11, fontWeight: 700 }}>
+          {running ? "⏳ Analysing…" : "⚡ Run Now"}
+        </button>
+        {run && (
+          <span style={{ marginLeft: "auto", fontFamily: "var(--font-mono)", fontSize: 10, color: statusColor }}>
+            {run.symbol} · {run.status.replace(/_/g, " ")}
+            {run.autoMode ? " · auto" : " · manual"}
+          </span>
+        )}
+      </div>
+
+      {/* Error */}
+      {error && (
+        <div style={{ padding: "10px 14px", borderRadius: 10, background: "#ff55720d", border: "1px solid #ff557230", fontFamily: "var(--font-mono)", fontSize: 11, color: "#ff5572" }}>
+          {error}
+        </div>
+      )}
+
+      {/* No run yet */}
+      {!run && !running && (
+        <div style={{ textAlign: "center", padding: "32px 0", fontFamily: "var(--font-mono)", fontSize: 12, color: "rgba(255,255,255,0.25)" }}>
+          No analysis run yet — click Run Now or wait for the scheduler.
+        </div>
+      )}
+
+      {/* Loading skeleton while agent is running */}
+      {running && (!run || run.status === "running") && (
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+          {(["SmartMoney", "Wyckoff", "ElliottWave", "Harmonic"] as const).map(fw => (
+            <div key={fw} style={{ borderRadius: 12, border: `1px solid ${FW_COLOR[fw]}20`, background: "rgb(4,10,18)", overflow: "hidden" }}>
+              <div style={{ padding: "9px 12px", background: `${FW_COLOR[fw]}0d`, borderBottom: `1px solid ${FW_COLOR[fw]}15`, fontFamily: "var(--font-mono)", fontSize: 12, fontWeight: 800, color: FW_COLOR[fw] }}>
+                {fw} <span style={{ fontSize: 10, fontWeight: 400, color: "rgba(255,255,255,0.3)", marginLeft: 6 }}>analysing…</span>
+              </div>
+              <div style={{ height: 150, background: "rgb(8,18,32)", display: "flex", alignItems: "center", justifyContent: "center", color: "rgba(255,255,255,0.15)", fontFamily: "var(--font-mono)", fontSize: 11 }}>
+                ···
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* 4 proposal cards */}
+      {run && run.strategyCards.length > 0 && (
+        <>
+          {/* Pending approval banner */}
+          {run.status === "pending_approval" && !run.autoMode && (
+            <div style={{ padding: "9px 14px", borderRadius: 10, background: "#a78bfa10", border: "1px solid #a78bfa30", fontFamily: "var(--font-mono)", fontSize: 11, color: "#a78bfa", display: "flex", alignItems: "center", gap: 8 }}>
+              ⚠ Trade proposals awaiting your approval — review the charts and approve or reject each.
+            </div>
+          )}
+
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+            {run.strategyCards.map(card => (
+              <ProposalCard
+                key={card.framework}
+                card={card}
+                runId={run.coinAnalysisRunId}
+                autoMode={run.autoMode}
+                accentColor={accentColor}
+                onAction={loadLatest}
+              />
+            ))}
+          </div>
+
+          <div style={{ display: "flex", gap: 12, fontFamily: "var(--font-mono)", fontSize: 9, color: "rgba(255,255,255,0.25)", flexWrap: "wrap" }}>
+            <span>Run: {run.coinAnalysisRunId.slice(0, 12)}…</span>
+            <span>Triggered by: {run.triggeredBy}</span>
+            <span>News sources: {run.newsArticlesUsed.length}</span>
+            {run.completedAt && <span>At: {new Date(run.completedAt).toLocaleTimeString()}</span>}
+          </div>
+        </>
+      )}
     </div>
   );
 }

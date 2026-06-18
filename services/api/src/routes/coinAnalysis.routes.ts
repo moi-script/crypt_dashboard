@@ -21,6 +21,21 @@ router.post('/trigger', async (req, res) => {
   }
 })
 
+// GET /api/coin-analysis/latest?symbol=BTC  (must be before /:runId)
+router.get('/latest', async (req, res) => {
+  try {
+    const userId = (req as any).userId
+    const symbol = (req.query.symbol as string | undefined)?.toUpperCase()
+    const query: Record<string, unknown> = { userId }
+    if (symbol) query.symbol = symbol
+    const run = await CoinAnalysisRunDoc.findOne(query).sort({ startedAt: -1 }).lean()
+    if (!run) return res.status(404).json({ error: 'No runs found' })
+    res.json(run)
+  } catch (err: any) {
+    res.status(500).json({ error: err.message })
+  }
+})
+
 // GET /api/coin-analysis/:runId
 router.get('/:runId', async (req, res) => {
   try {

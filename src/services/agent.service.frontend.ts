@@ -185,8 +185,9 @@ export interface AgentConfig {
   enabled:               boolean;
   mode:                  "paper" | "cex" | "onchain";
   loopIntervalMs:        number;
-  strategies:            { yieldHunter: boolean; rebalance: boolean; airdropWatch: boolean };
+  strategies:            { yieldHunter: boolean; rebalance: boolean; airdropWatch: boolean; chartSignal: boolean };
   watchlist:             string[];
+  selectedCoin?:         string;
   maxTradeUsd:           number;
   requireManualApproval: boolean;
 }
@@ -412,4 +413,59 @@ export async function getOhlcv(
   return apiClient.get<{ candles: Candle[] }>(
     `/chart/ohlcv/${symbol}?timeframe=${timeframe}&limit=${limit}`,
   )
+}
+
+// ── Coin Analysis Run (4-framework parallel analysis) ─────────────────────────
+
+export type StrategyFramework = 'SmartMoney' | 'Wyckoff' | 'ElliottWave' | 'Harmonic'
+export type CardApprovalStatus = 'pending' | 'approved' | 'rejected' | 'auto_executed' | 'skipped'
+export type CoinAnalysisRunStatus = 'running' | 'completed' | 'failed' | 'pending_approval' | 'auto_executed'
+
+export interface NewsImpact {
+  verdict:         'supports' | 'contradicts' | 'neutral'
+  confidenceDelta: number
+  headlines:       Array<{ title: string; sentiment: number }>
+}
+
+export interface StrategyCard {
+  framework:      StrategyFramework
+  signal:         { bias: string; confidence: number; signalType: string } | null
+  chartSnapshot:  ChartSnapshot | null
+  llmNarrative:   string
+  newsImpact:     NewsImpact
+  approvalStatus: CardApprovalStatus
+  skippedReason?: string
+}
+
+export interface CoinAnalysisRun {
+  coinAnalysisRunId: string
+  userId:            string
+  symbol:            string
+  triggeredBy:       'scheduler' | 'on_demand'
+  status:            CoinAnalysisRunStatus
+  startedAt:         string
+  completedAt?:      string
+  strategyCards:     StrategyCard[]
+  autoMode:          boolean
+  newsArticlesUsed:  string[]
+  errorMessage?:     string
+}
+
+export const coinAnalysisService = {
+  trigger: (symbol: string) =>
+    apiClient.post<{ coinAnalysisRunId: string }>('/coin-analysis/trigger', { symbol }),
+
+  getLatest: (symbol?: string) => {
+    const qs = symbol ? `?symbol=${symbol}` : ''
+    return apiClient.get<CoinAnalysisRun>(`/coin-analysis/latest${qs}`)
+  },
+
+  getRun: (runId: string) =>
+    apiClient.get<CoinAnalysisRun>(`/coin-analysis/${runId}`),
+
+  approveCard: (runId: string, framework: StrategyFramework) =>
+    apiClient.post<{ execution: any }>(`/coin-analysis/${runId}/cards/${framework}/approve`, {}),
+
+  rejectCard: (runId: string, framework: StrategyFramework) =>
+    apiClient.post<void>(`/coin-analysis/${runId}/cards/${framework}/reject`, {}),
 }
