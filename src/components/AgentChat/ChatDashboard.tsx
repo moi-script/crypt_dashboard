@@ -5,6 +5,13 @@ import { apiClient } from "@/services/api.client";
 import { useAuth } from "@/controllers/useAuth";
 import { PaperWalletDashboard } from "../PaperWalletDashboard";
 import type { ChatMessage } from "./hooks/useChatEngine";
+import { MiniChart }     from "@/components/AgentChart/MiniChart";
+import {
+  listApprovals as fetchApprovals,
+  approveRun as doApprove,
+  rejectRun  as doReject,
+} from "@/services/agent.service.frontend";
+import type { ApprovalRun } from "@/services/agent.service.frontend";
 
 // ── Types (mirrors agent.service.frontend.ts) ─────────────────────────────────
 interface AgentRun {
@@ -143,16 +150,20 @@ function RunsTab({ accentColor }: { accentColor: string }) {
   const [loading,    setLoading]    = useState(true);
   const [triggering, setTriggering] = useState(false);
   const [expanded,   setExpanded]   = useState<string | null>(null);
+  const [approvals,  setApprovals]  = useState<ApprovalRun[]>([]);
+  const [approving,  setApproving]  = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const [r, s] = await Promise.all([
+      const [r, s, a] = await Promise.all([
         apiClient.get<{ runs: AgentRun[]; total: number }>("/agent-runs?limit=20"),
         apiClient.get<AgentRunStats>("/agent-runs/stats"),
+        fetchApprovals(),
       ]);
       setRuns(r.runs ?? []);
       setStats(s);
+      setApprovals(a);
     } catch { /* ignore */ } finally { setLoading(false); }
   }, []);
 
@@ -206,6 +217,106 @@ function RunsTab({ accentColor }: { accentColor: string }) {
               );
             })}
           </div>
+        </div>
+      )}
+
+      {/* ── Pending Approval ────────────────────────────────────────── */}
+      {approvals.length > 0 && (
+        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+          <p style={{ fontSize: 10, color: "#a78bfa", letterSpacing: "0.08em", textTransform: "uppercase", margin: "4px 0 2px", fontFamily: "var(--font-mono)", fontWeight: 700 }}>
+            Pending Approval ({approvals.length})
+          </p>
+          {approvals.map(ap => {
+            const intent = ap.decision?.intent;
+            const isActing = approving === ap.runId;
+            return (
+              <div key={ap.runId} style={{
+                borderRadius: 10, background: "rgb(8,18,32)",
+                border: "1px solid rgba(167,139,250,0.25)",
+                overflow: "hidden",
+              }}>
+                {/* Card header */}
+                <div style={{ padding: "11px 12px 8px", display: "flex", alignItems: "center", gap: 7, flexWrap: "wrap" }}>
+                  <StatusBadge status="pending_approval" />
+                  {intent && <IntentBadge type={intent.type} />}
+                  {intent?.tokenOut && (
+                    <span style={{ fontSize: 12, fontWeight: 700, color: "#fff", fontFamily: "var(--font-mono)" }}>
+                      {intent.tokenOut}/USDC
+                    </span>
+                  )}
+                  {intent?.amountUsd && (
+                    <span style={{ fontSize: 11, color: "rgba(255,255,255,0.45)", fontFamily: "var(--font-mono)" }}>
+                      ${intent.amountUsd}
+                    </span>
+                  )}
+                  {ap.decision?.confidence != null && (
+                    <span style={{ fontSize: 11, color: "rgba(255,255,255,0.35)", marginLeft: "auto", fontFamily: "var(--font-mono)" }}>
+                      {ap.decision.confidence}% conf
+                    </span>
+                  )}
+                </div>
+
+                {/* SL · TP summary */}
+                {ap.chartSnapshot && (
+                  <div style={{ padding: "0 12px 8px", display: "flex", gap: 14 }}>
+                    <span style={{ fontSize: 11, color: "#ff5572", fontFamily: "var(--font-mono)" }}>
+                      SL {ap.chartSnapshot.stopLoss.toLocaleString()}
+                    </span>
+                    {ap.chartSnapshot.takeProfitLevels.slice(0, 2).map((tp, i) => (
+                      <span key={i} style={{ fontSize: 11, color: "#00e5a0", fontFamily: "var(--font-mono)" }}>
+                        TP{i + 1} {tp.toLocaleString()}
+                      </span>
+                    ))}
+                    <span style={{ fontSize: 11, color: "#a78bfa", fontFamily: "var(--font-mono)", marginLeft: "auto" }}>
+                      {ap.chartSnapshot.framework}
+                    </span>
+                  </div>
+                )}
+
+                {/* Mini chart (if snapshot available) */}
+                {ap.chartSnapshot && (
+                  <div style={{ padding: "0 12px 10px" }}>
+                    <MiniChart snapshot={ap.chartSnapshot} />
+                  </div>
+                )}
+
+                {/* Approve / Reject buttons */}
+                <div style={{ display: "flex", gap: 6, padding: "0 12px 12px" }}>
+                  <button
+                    disabled={isActing}
+                    onClick={async () => {
+                      setApproving(ap.runId);
+                      try { await doApprove(ap.runId); await load(); }
+                      catch { /* ignore */ }
+                      finally { setApproving(null); }
+                    }}
+                    style={{
+                      flex: 1, padding: "8px 0", borderRadius: 8, border: "none",
+                      fontSize: 12, fontWeight: 700, cursor: isActing ? "not-allowed" : "pointer",
+                      background: isActing ? "rgba(0,229,160,0.2)" : "#00e5a0",
+                      color: isActing ? "rgba(255,255,255,0.3)" : "#020609",
+                      fontFamily: "var(--font-display,sans-serif)", transition: "all 0.15s ease",
+                    }}
+                  >{isActing ? "Processing…" : "✓ Approve"}</button>
+                  <button
+                    disabled={isActing}
+                    onClick={async () => {
+                      setApproving(ap.runId);
+                      try { await doReject(ap.runId); await load(); }
+                      catch { /* ignore */ }
+                      finally { setApproving(null); }
+                    }}
+                    style={{
+                      flex: 1, padding: "8px 0", borderRadius: 8, border: "1px solid rgba(255,85,114,0.4)",
+                      fontSize: 12, fontWeight: 700, cursor: isActing ? "not-allowed" : "pointer",
+                      background: "transparent", color: isActing ? "rgba(255,255,255,0.2)" : "#ff5572",
+                      fontFamily: "var(--font-display,sans-serif)", transition: "all 0.15s ease",
+                    }}
+                  >✕ Reject</button>
+                </div>
+              </div>
+            );
+          })}
         </div>
       )}
 
@@ -313,6 +424,18 @@ function ConfigTab({ accentColor }: { accentColor: string }) {
     } catch { /* ignore */ } finally { setToggling(false); }
   };
 
+  const [savingApproval, setSavingApproval] = useState(false);
+  const toggleAutoTrade = async () => {
+    if (!config) return;
+    setSavingApproval(true);
+    try {
+      // Auto-Trade ON  → requireManualApproval false (proposed trades execute)
+      // Auto-Trade OFF → requireManualApproval true  (trades wait for approval)
+      const res = await apiClient.put<{ ok: boolean; config: AgentConfig }>("/agent-runs/config", { requireManualApproval: !config.requireManualApproval });
+      setConfig(res.config);
+    } catch { /* ignore */ } finally { setSavingApproval(false); }
+  };
+
   if (loading) return <EmptyMsg msg="Loading…" />;
   if (!config) return <EmptyMsg msg="Could not load config." />;
 
@@ -353,12 +476,38 @@ function ConfigTab({ accentColor }: { accentColor: string }) {
         </div>
       </div>
 
+      {/* Auto-Trade toggle */}
+      {(() => {
+        const autoOn = !config.requireManualApproval;
+        return (
+          <div style={{ padding: "14px 14px", borderRadius: 10, background: "rgb(8,18,32)", border: `1px solid ${autoOn ? "#00e5a030" : "rgba(255,255,255,0.07)"}` }}>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+              <div style={{ paddingRight: 12 }}>
+                <p style={{ fontFamily: "var(--font-display,sans-serif)", fontSize: 14, fontWeight: 600, color: "rgba(255,255,255,0.85)", margin: "0 0 3px" }}>Auto-Trade</p>
+                <p style={{ fontSize: 12, color: "rgba(255,255,255,0.35)", margin: 0 }}>
+                  {autoOn ? "Proposed trades execute automatically" : "Proposed trades wait for manual approval"}
+                </p>
+              </div>
+              <button onClick={toggleAutoTrade} disabled={savingApproval} style={{
+                padding: "7px 16px", borderRadius: 8, fontSize: 12, fontWeight: 700,
+                fontFamily: "var(--font-display,sans-serif)", cursor: savingApproval ? "not-allowed" : "pointer",
+                border: "none", transition: "all 0.2s ease",
+                background: autoOn ? "rgba(0,229,160,0.15)" : "rgba(255,255,255,0.06)",
+                color: autoOn ? "#00e5a0" : "rgba(255,255,255,0.55)",
+                opacity: savingApproval ? 0.6 : 1,
+              }}>
+                {savingApproval ? "…" : autoOn ? "On" : "Off"}
+              </button>
+            </div>
+          </div>
+        );
+      })()}
+
       {/* Config rows */}
       {[
-        { label: "Mode",            val: config.mode.toUpperCase()                           },
-        { label: "Max Trade",       val: `$${config.maxTradeUsd}`                            },
-        { label: "Manual Approval", val: config.requireManualApproval ? "Required" : "Auto" },
-        { label: "Scheduler",       val: schedulerOn ? "Running" : "Stopped"                },
+        { label: "Mode",            val: config.mode.toUpperCase()           },
+        { label: "Max Trade",       val: `$${config.maxTradeUsd}`            },
+        { label: "Scheduler",       val: schedulerOn ? "Running" : "Stopped" },
       ].map(row => (
         <div key={row.label} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 12px", borderRadius: 8, background: "rgb(8,18,32)", border: "1px solid rgba(255,255,255,0.07)" }}>
           <span style={{ fontSize: 13, color: "rgba(255,255,255,0.45)", fontFamily: "var(--font-display,sans-serif)" }}>{row.label}</span>

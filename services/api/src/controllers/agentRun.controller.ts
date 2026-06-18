@@ -16,6 +16,7 @@ import { AgentRunDoc }                            from '../models/agentRun.model
 import { getOrCreateConfig, patchConfig }         from '../services/agentConfig.service'
 import { triggerOneTick, isSchedulerRunning }     from '../agents/loop/scheduler'
 import { checkKeyPresence }                       from '../execution/wallet/keystore'
+import { approveRun as doApproveRun, rejectRun as doRejectRun } from '../agents/loop/agent.loop'
 
 // ── List recent runs ──────────────────────────────────────────────────────────
 
@@ -91,6 +92,39 @@ export async function updateConfig(req: AuthRequest, res: Response, next: NextFu
     const config = await patchConfig(req.userId!, req.body)
     res.json({ ok: true, config })
   } catch (err: any) {
+    next(err)
+  }
+}
+
+// ── Approval queue ────────────────────────────────────────────────────────────
+
+export async function listApprovals(req: AuthRequest, res: Response, next: NextFunction) {
+  try {
+    const approvals = await AgentRunDoc
+      .find({ userId: req.userId, status: 'pending_approval' })
+      .sort({ startedAt: -1 })
+      .select('runId strategy decision chartSnapshot startedAt')
+      .lean()
+    res.json({ approvals, total: approvals.length })
+  } catch (err) { next(err) }
+}
+
+export async function approveRunCtrl(req: AuthRequest, res: Response, next: NextFunction) {
+  try {
+    const result = await doApproveRun(req.userId!, req.params.runId as string)
+    res.json(result)
+  } catch (err: any) {
+    if (err.statusCode === 404) return res.status(404).json({ error: err.message })
+    next(err)
+  }
+}
+
+export async function rejectRunCtrl(req: AuthRequest, res: Response, next: NextFunction) {
+  try {
+    await doRejectRun(req.userId!, req.params.runId as string)
+    res.sendStatus(204)
+  } catch (err: any) {
+    if (err.statusCode === 404) return res.status(404).json({ error: err.message })
     next(err)
   }
 }
