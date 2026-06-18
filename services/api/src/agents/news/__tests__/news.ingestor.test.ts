@@ -1,9 +1,13 @@
+// Shared getForCoin spy — captured once at module-mock time so clearMocks
+// doesn't lose the reference (clearMocks resets call history, not the fn itself).
+const mockGetForCoin = jest.fn(async () => [
+  { id: 'art-1', title: 'BTC rally continues', summary: 'Bitcoin surges', sentiment: 0, publishedAt: new Date().toISOString(), coins: ['BTC'], url: 'http://a.com/1', source: 'Test' },
+  { id: 'art-2', title: 'Already embedded article', summary: '', sentiment: 0, publishedAt: new Date().toISOString(), coins: ['BTC'], url: 'http://a.com/2', source: 'Test' },
+])
+
 jest.mock('@/services/news.service', () => ({
   NewsService: jest.fn().mockImplementation(() => ({
-    getForCoin: jest.fn(async () => [
-      { id: 'art-1', title: 'BTC rally continues', summary: 'Bitcoin surges', sentiment: 0, publishedAt: new Date().toISOString(), coins: ['BTC'], url: 'http://a.com/1', source: 'Test' },
-      { id: 'art-2', title: 'Already embedded article', summary: '', sentiment: 0, publishedAt: new Date().toISOString(), coins: ['BTC'], url: 'http://a.com/2', source: 'Test' },
-    ]),
+    getForCoin: mockGetForCoin,
   })),
 }))
 
@@ -25,6 +29,8 @@ import { ingestAndFetchNews } from '../news.ingestor'
 import { embed }              from '@/agents/memory/memory.embedder'
 import { saveMemory }         from '@/agents/memory/memory.store'
 
+beforeEach(() => jest.clearAllMocks())
+
 test('returns all articles and embeds only unseen ones', async () => {
   const result = await ingestAndFetchNews('user-1', 'BTC')
 
@@ -42,10 +48,6 @@ test('returns all articles and embeds only unseen ones', async () => {
 })
 
 test('maps common symbols to CoinGecko IDs for the news query', async () => {
-  const { NewsService } = require('@/services/news.service')
-  const getForCoin = NewsService.mock.results[0].value.getForCoin as jest.Mock
-  getForCoin.mockClear()
-
   await ingestAndFetchNews('user-1', 'ETH')
-  expect(getForCoin).toHaveBeenCalledWith('ethereum', 10)
+  expect(mockGetForCoin).toHaveBeenCalledWith('ethereum', 10)
 })

@@ -14,6 +14,14 @@ import { runReflection }  from '../memory/reflection.generator'
 const GLOBAL_INTERVAL_MS = Number(process.env.AGENT_LOOP_INTERVAL_MS) || DEFAULT_AGENT_CONFIG.loopIntervalMs
 const MAX_CONCURRENT_TICKS = 4
 
+const COINGECKO_TO_SYMBOL: Record<string, string> = {
+  bitcoin: 'BTC', ethereum: 'ETH', solana: 'SOL', binancecoin: 'BNB',
+  cardano: 'ADA', polkadot: 'DOT', 'matic-network': 'MATIC',
+  'avalanche-2': 'AVAX', chainlink: 'LINK', uniswap: 'UNI',
+  dogecoin: 'DOGE', ripple: 'XRP', litecoin: 'LTC', cosmos: 'ATOM',
+  filecoin: 'FIL',
+}
+
 let _timer: NodeJS.Timeout | null = null
 let _sweeping = false
 const _inFlight = new Set<string>()
@@ -36,7 +44,8 @@ export async function runEnabledUserTicks(): Promise<void> {
         const isChartSignal = cfg.strategies?.chartSignal && (cfg.watchlist ?? [])[0]
 
         if (isChartSignal) {
-          const symbol = (cfg.watchlist[0] as string).replace('bitcoin', 'BTC').replace('ethereum', 'ETH').toUpperCase()
+          const raw = (cfg.watchlist[0] as string).toLowerCase()
+          const symbol = COINGECKO_TO_SYMBOL[raw] ?? raw.toUpperCase()
           // eslint-disable-next-line @typescript-eslint/no-require-imports
           const { runCoinAnalysis } = require('@/agents/coinAnalysis/coinAnalysis.runner') as typeof import('@/agents/coinAnalysis/coinAnalysis.runner')
           await runCoinAnalysis(userId, symbol, 'scheduler')

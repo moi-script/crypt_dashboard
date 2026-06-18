@@ -148,7 +148,12 @@ async function autoExecuteBest(
   )
 
   if (!qualifying.length) {
-    for (const card of cards) card.approvalStatus = 'skipped'
+    for (const card of cards) {
+      card.approvalStatus = 'skipped'
+      if (card.signal && !card.skippedReason) {
+        card.skippedReason = `Confidence ${card.signal.confidence + card.newsImpact.confidenceDelta} below threshold ${config.minSignalConfidence}`
+      }
+    }
     return 'completed'
   }
 
@@ -193,6 +198,11 @@ export async function runCoinAnalysis(
   symbol:      string,
   triggeredBy: AnalysisTrigger,
 ): Promise<string> {
+  const running = await CoinAnalysisRunDoc.findOne({ userId, symbol: symbol.toUpperCase(), status: 'running' }).lean()
+  if (running) {
+    throw Object.assign(new Error(`Analysis for ${symbol} already in progress`), { statusCode: 409 })
+  }
+
   const coinAnalysisRunId = `car-${generateMyId(10 as number)}`
   const config            = await getOrCreateConfig(userId)
   const autoMode          = !config.requireManualApproval
@@ -304,7 +314,7 @@ export async function approveCard(
   )
 
   // Mark run completed once all pending cards are resolved
-  const updated = await CoinAnalysisRunDoc.findOne({ coinAnalysisRunId }).lean()
+  const updated = await CoinAnalysisRunDoc.findOne({ coinAnalysisRunId, userId }).lean()
   const allDone = updated?.strategyCards.every(c => c.approvalStatus !== 'pending') ?? false
   if (allDone) {
     await CoinAnalysisRunDoc.updateOne({ coinAnalysisRunId }, { $set: { status: 'completed', completedAt: new Date() } })
@@ -326,7 +336,7 @@ export async function rejectCard(
     throw Object.assign(new Error(`Card "${framework}" not found or not pending`), { statusCode: 404 })
   }
 
-  const updated = await CoinAnalysisRunDoc.findOne({ coinAnalysisRunId }).lean()
+  const updated = await CoinAnalysisRunDoc.findOne({ coinAnalysisRunId, userId }).lean()
   const allDone = updated?.strategyCards.every(c => c.approvalStatus !== 'pending') ?? false
   if (allDone) {
     await CoinAnalysisRunDoc.updateOne({ coinAnalysisRunId }, { $set: { status: 'completed', completedAt: new Date() } })

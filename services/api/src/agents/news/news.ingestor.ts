@@ -37,30 +37,32 @@ export async function ingestAndFetchNews(userId: string, symbol: string): Promis
   const coinId = symbolToCoinId(symbol)
   const raw    = await newsService.getForCoin(coinId, 10)
 
-  for (const article of raw) {
-    const exists = await AgentMemoryDoc.exists({ type: 'news', articleId: article.id })
-    if (exists) continue
+  await Promise.all(
+    raw.map(async (article) => {
+      const exists = await AgentMemoryDoc.exists({ type: 'news', articleId: article.id })
+      if (exists) return
 
-    const text      = `${article.title}. ${article.summary}`.slice(0, 8000)
-    const embedding = await embed(text)
+      const text      = `${article.title}. ${article.summary ?? ''}`.slice(0, 8000)
+      const embedding = await embed(text)
 
-    await saveMemory({
-      agentId:     userId,
-      runId:       `news-${article.id}`,
-      timestamp:   new Date(article.publishedAt),
-      coin:        symbol.toUpperCase(),
-      type:        'news',
-      summary:     article.title,
-      fullContext: { url: article.url, source: article.source },
-      embedding,
-      marketRegime: 'unknown',
-      signals:     [],
-      tools:       [],
-      articleId:   article.id,
-      headline:    article.title,
-      publishedAt: new Date(article.publishedAt),
-    } as any)
-  }
+      await saveMemory({
+        agentId:     userId,
+        runId:       `news-${article.id}`,
+        timestamp:   new Date(article.publishedAt),
+        coin:        symbol.toUpperCase(),
+        type:        'news',
+        summary:     article.title,
+        fullContext: { url: article.url, source: article.source },
+        embedding,
+        marketRegime: 'unknown',
+        signals:     [],
+        tools:       [],
+        articleId:   article.id,
+        headline:    article.title,
+        publishedAt: new Date(article.publishedAt),
+      } as any)
+    })
+  )
 
   return {
     articles:   raw.map(a => ({ title: a.title, summary: a.summary ?? '', sentiment: a.sentiment })),
