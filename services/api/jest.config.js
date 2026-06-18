@@ -5,7 +5,7 @@ module.exports = {
   roots: ['<rootDir>/src'],
   testMatch: ['**/__tests__/**/*.test.ts'],
    modulePaths:     ['<rootDir>/src'],
-  clearMocks: true,
+  clearMocks: false,
     moduleNameMapper: {
     '^@/(.*)$': '<rootDir>/src/$1',  // ← maps @/ to src/
   },
