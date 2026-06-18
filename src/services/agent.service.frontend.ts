@@ -185,8 +185,9 @@ export interface AgentConfig {
   enabled:               boolean;
   mode:                  "paper" | "cex" | "onchain";
   loopIntervalMs:        number;
-  strategies:            { yieldHunter: boolean; rebalance: boolean; airdropWatch: boolean };
+  strategies:            { yieldHunter: boolean; rebalance: boolean; airdropWatch: boolean; chartSignal: boolean };
   watchlist:             string[];
+  selectedCoin?:         string;
   maxTradeUsd:           number;
   requireManualApproval: boolean;
 }
