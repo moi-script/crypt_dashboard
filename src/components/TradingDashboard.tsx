@@ -7,7 +7,6 @@ import {
 } from "lucide-react";
 import { apiClient } from "@/services/api.client";
 import { intelligenceService, type ScanHistoryEntry } from "@/services/trading.service";
-import { CoinAnalysisPanel } from "@/components/CoinAnalysis/CoinAnalysisPanel";
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 type Bias = "long" | "short" | "neutral";
@@ -751,7 +750,6 @@ export default function TradingDashboard() {
         <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:14}}>
           <ChartAnalysisPanel/><OrderBlocksPanel/><PrimitivesPanel/>
         </div>
-        <CoinAnalysisPanel/>
       </div>
     </>
   );

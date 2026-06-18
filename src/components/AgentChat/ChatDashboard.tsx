@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { apiClient } from "@/services/api.client";
 import { useAuth } from "@/controllers/useAuth";
 import { PaperWalletDashboard } from "../PaperWalletDashboard";
@@ -10,8 +10,9 @@ import {
   listApprovals as fetchApprovals,
   approveRun as doApprove,
   rejectRun  as doReject,
+  coinAnalysisService,
 } from "@/services/agent.service.frontend";
-import type { ApprovalRun } from "@/services/agent.service.frontend";
+import type { ApprovalRun, CoinAnalysisRun, StrategyCard, StrategyFramework } from "@/services/agent.service.frontend";
 
 // ── Types (mirrors agent.service.frontend.ts) ─────────────────────────────────
 interface AgentRun {
@@ -691,9 +692,315 @@ function SignalsTab({ accentColor }: { accentColor: string }) {
   );
 }
 
+// ── PROPOSALS TAB ────────────────────────────────────────────────────────────
+
+const FW_COLOR: Record<StrategyFramework, string> = {
+  SmartMoney:  "#36b6ff",
+  Wyckoff:     "#a78bfa",
+  ElliottWave: "#ffb020",
+  Harmonic:    "#00e5a0",
+};
+const SYMBOLS = ["BTC", "ETH", "SOL", "BNB", "AVAX"] as const;
+
+function fmt2(n: number) {
+  return n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
+function ProposalCard({
+  card, runId, autoMode, onAction, accentColor,
+}: {
+  card: StrategyCard; runId: string; autoMode: boolean;
+  onAction: () => void; accentColor: string;
+}) {
+  const [expanded,  setExpanded]  = useState(false);
+  const [approving, setApproving] = useState(false);
+  const [rejecting, setRejecting] = useState(false);
+  const fc = FW_COLOR[card.framework];
+
+  const newsColor =
+    card.newsImpact.verdict === "supports"    ? "#00e5a0" :
+    card.newsImpact.verdict === "contradicts" ? "#ff5572" : "rgba(255,255,255,0.3)";
+
+  const approve = async () => {
+    setApproving(true);
+    try { await coinAnalysisService.approveCard(runId, card.framework); onAction(); }
+    catch {} finally { setApproving(false); }
+  };
+  const reject = async () => {
+    setRejecting(true);
+    try { await coinAnalysisService.rejectCard(runId, card.framework); onAction(); }
+    catch {} finally { setRejecting(false); }
+  };
+
+  const statusChip = () => {
+    if (card.approvalStatus === "auto_executed") return { label: "Auto-executed", color: "#36b6ff" };
+    if (card.approvalStatus === "approved")      return { label: "Approved",      color: "#00e5a0" };
+    if (card.approvalStatus === "rejected")      return { label: "Rejected",      color: "#ff5572" };
+    if (card.approvalStatus === "skipped")       return { label: "Skipped",       color: "rgba(255,255,255,0.3)" };
+    return null;
+  };
+  const sc = statusChip();
+
+  return (
+    <div style={{ borderRadius: 12, overflow: "hidden", border: `1px solid ${fc}25`, background: "rgb(4,10,18)", display: "flex", flexDirection: "column" }}>
+
+      {/* Card header */}
+      <div style={{ padding: "9px 12px", background: `${fc}10`, borderBottom: `1px solid ${fc}20`, display: "flex", alignItems: "center", gap: 7, flexWrap: "wrap" }}>
+        <span style={{ fontFamily: "var(--font-mono)", fontSize: 12, fontWeight: 800, color: fc }}>{card.framework}</span>
+        {card.signal && (
+          <span style={{ fontFamily: "var(--font-mono)", fontSize: 10, fontWeight: 700, padding: "2px 7px", borderRadius: 20,
+            color: card.signal.confidence >= 65 ? "#00e5a0" : card.signal.confidence >= 45 ? "#ffb020" : "#ff5572",
+            background: (card.signal.confidence >= 65 ? "#00e5a0" : card.signal.confidence >= 45 ? "#ffb020" : "#ff5572") + "18",
+            border: `1px solid ${(card.signal.confidence >= 65 ? "#00e5a0" : card.signal.confidence >= 45 ? "#ffb020" : "#ff5572")}30`,
+          }}>
+            {card.signal.confidence}% conf
+          </span>
+        )}
+        {card.newsImpact.verdict !== "neutral" && (
+          <span style={{ fontFamily: "var(--font-mono)", fontSize: 10, color: newsColor }}>
+            {card.newsImpact.confidenceDelta > 0 ? `+${card.newsImpact.confidenceDelta}` : card.newsImpact.confidenceDelta} news
+          </span>
+        )}
+        {sc && (
+          <span style={{ marginLeft: "auto", fontFamily: "var(--font-mono)", fontSize: 10, fontWeight: 700, color: sc.color, background: sc.color + "18", padding: "2px 7px", borderRadius: 20 }}>
+            {sc.label}
+          </span>
+        )}
+      </div>
+
+      {/* Chart */}
+      {card.chartSnapshot ? (
+        <MiniChart snapshot={card.chartSnapshot} />
+      ) : (
+        <div style={{ height: 150, display: "flex", alignItems: "center", justifyContent: "center", background: "rgb(8,18,32)", fontFamily: "var(--font-mono)", fontSize: 11, color: "rgba(255,255,255,0.25)" }}>
+          No signal
+        </div>
+      )}
+
+      {/* Levels */}
+      {card.signal && card.chartSnapshot && (
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 5, padding: "9px 12px 0" }}>
+          {[
+            { l: "Entry", v: `$${fmt2(card.chartSnapshot.entryZone.low)}–$${fmt2(card.chartSnapshot.entryZone.high)}`, c: "#00d4ff" },
+            { l: "SL",    v: `$${fmt2(card.chartSnapshot.stopLoss)}`, c: "#ff5572" },
+            { l: "TP1",   v: card.chartSnapshot.takeProfitLevels[0] ? `$${fmt2(card.chartSnapshot.takeProfitLevels[0])}` : "—", c: "#00e5a0" },
+          ].map(item => (
+            <div key={item.l} style={{ padding: "5px 7px", borderRadius: 7, background: `${item.c}08`, border: `1px solid ${item.c}18` }}>
+              <div style={{ fontFamily: "var(--font-mono)", fontSize: 8, color: "rgba(255,255,255,0.3)", marginBottom: 2, textTransform: "uppercase" }}>{item.l}</div>
+              <div style={{ fontFamily: "var(--font-mono)", fontSize: 10, fontWeight: 700, color: item.c }}>{item.v}</div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* News */}
+      {card.newsImpact.headlines.length > 0 && (
+        <div style={{ margin: "8px 12px 0", padding: "7px 9px", borderRadius: 8, background: `${newsColor}08`, border: `1px solid ${newsColor}20` }}>
+          <div style={{ fontFamily: "var(--font-mono)", fontSize: 8, color: "rgba(255,255,255,0.3)", marginBottom: 4, textTransform: "uppercase", letterSpacing: "0.06em" }}>
+            News · {card.newsImpact.verdict}
+          </div>
+          {card.newsImpact.headlines.map((h, i) => (
+            <div key={i} style={{ fontFamily: "var(--font-mono)", fontSize: 10, color: "rgba(255,255,255,0.55)", marginBottom: 2, lineHeight: 1.4, display: "flex", gap: 5 }}>
+              <span style={{ color: newsColor, flexShrink: 0 }}>{h.sentiment > 0 ? "↑" : h.sentiment < 0 ? "↓" : "·"}</span>
+              <span>{h.title}</span>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Narrative toggle */}
+      {card.llmNarrative && (
+        <div style={{ padding: "8px 12px 0" }}>
+          <button onClick={() => setExpanded(!expanded)} style={{ display: "flex", alignItems: "center", gap: 4, background: "transparent", border: "none", cursor: "pointer", fontFamily: "var(--font-mono)", fontSize: 10, color: "rgba(255,255,255,0.3)", padding: 0 }}>
+            {expanded ? "▲" : "▼"} {expanded ? "Hide" : "Show"} analysis
+          </button>
+          {expanded && (
+            <div style={{ marginTop: 5, padding: "8px 10px", borderRadius: 8, background: "rgba(0,0,0,0.25)", border: "1px solid rgba(255,255,255,0.07)", fontFamily: "var(--font-mono)", fontSize: 10, color: "rgba(255,255,255,0.55)", lineHeight: 1.7 }}>
+              {card.llmNarrative}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Approve / Reject */}
+      {!autoMode && card.approvalStatus === "pending" && card.signal && (
+        <div style={{ display: "flex", gap: 7, padding: "10px 12px" }}>
+          <button onClick={approve} disabled={approving || rejecting}
+            style={{ flex: 1, padding: "7px 0", borderRadius: 8, border: "1px solid #00e5a050", background: "#00e5a012", color: "#00e5a0", cursor: "pointer", fontFamily: "var(--font-mono)", fontSize: 11, fontWeight: 700 }}>
+            {approving ? "…" : "✓ Approve"}
+          </button>
+          <button onClick={reject} disabled={approving || rejecting}
+            style={{ flex: 1, padding: "7px 0", borderRadius: 8, border: "1px solid #ff557250", background: "#ff557210", color: "#ff5572", cursor: "pointer", fontFamily: "var(--font-mono)", fontSize: 11, fontWeight: 700 }}>
+            {rejecting ? "…" : "✕ Reject"}
+          </button>
+        </div>
+      )}
+
+      {card.approvalStatus === "skipped" && card.skippedReason && (
+        <div style={{ padding: "8px 12px", fontFamily: "var(--font-mono)", fontSize: 10, color: "rgba(255,255,255,0.25)", fontStyle: "italic" }}>
+          {card.skippedReason}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ProposalsTab({ accentColor }: { accentColor: string }) {
+  const [symbol,  setSymbol]  = useState<string>("BTC");
+  const [run,     setRun]     = useState<CoinAnalysisRun | null>(null);
+  const [running, setRunning] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [error,   setError]   = useState<string | null>(null);
+  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  const stopPoll = () => { if (pollRef.current) { clearInterval(pollRef.current); pollRef.current = null; } };
+  useEffect(() => () => stopPoll(), []);
+
+  const loadLatest = useCallback(async () => {
+    try {
+      const data = await coinAnalysisService.getLatest();
+      setRun(data);
+      if (data.symbol) setSymbol(data.symbol);
+    } catch { /* 404 is fine — no runs yet */ }
+    finally { setLoading(false); }
+  }, []);
+
+  useEffect(() => { loadLatest(); }, [loadLatest]);
+
+  // Background poll every 20s for scheduler-triggered runs
+  useEffect(() => {
+    const id = setInterval(loadLatest, 20_000);
+    return () => clearInterval(id);
+  }, [loadLatest]);
+
+  const pollRun = useCallback(async (runId: string) => {
+    try {
+      const data = await coinAnalysisService.getRun(runId);
+      setRun(data);
+      if (data.status !== "running") { stopPoll(); setRunning(false); }
+    } catch { stopPoll(); setRunning(false); }
+  }, []);
+
+  const triggerRun = async () => {
+    setRunning(true);
+    setError(null);
+    stopPoll();
+    try {
+      const { coinAnalysisRunId } = await coinAnalysisService.trigger(symbol);
+      pollRef.current = setInterval(() => pollRun(coinAnalysisRunId), 2500);
+    } catch (e: any) {
+      setError(e?.message ?? "Trigger failed");
+      setRunning(false);
+    }
+  };
+
+  const statusColor =
+    run?.status === "completed"        ? "#00e5a0" :
+    run?.status === "auto_executed"    ? "#36b6ff" :
+    run?.status === "pending_approval" ? "#a78bfa" :
+    run?.status === "failed"           ? "#ff5572" : "rgba(255,255,255,0.3)";
+
+  if (loading) {
+    return <div style={{ display: "flex", justifyContent: "center", padding: 32 }}>
+      <span style={{ fontFamily: "var(--font-mono)", fontSize: 12, color: "rgba(255,255,255,0.3)" }}>Loading…</span>
+    </div>;
+  }
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+
+      {/* Controls */}
+      <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap", padding: "10px 14px", borderRadius: 10, background: "rgb(6,14,22)", border: "1px solid rgba(255,255,255,0.07)" }}>
+        <div style={{ display: "flex", gap: 2, background: "rgba(0,0,0,0.3)", borderRadius: 8, padding: 2 }}>
+          {SYMBOLS.map(s => (
+            <button key={s} onClick={() => setSymbol(s)} disabled={running}
+              style={{ padding: "4px 9px", borderRadius: 6, border: "none", cursor: "pointer", fontSize: 10, fontFamily: "var(--font-mono)", fontWeight: 700, transition: "all 0.15s",
+                background: symbol === s ? accentColor : "transparent",
+                color: symbol === s ? "rgb(2,6,9)" : "rgba(255,255,255,0.4)" }}>
+              {s}
+            </button>
+          ))}
+        </div>
+        <button onClick={triggerRun} disabled={running}
+          style={{ display: "flex", alignItems: "center", gap: 6, padding: "6px 14px", borderRadius: 8, border: `1px solid ${accentColor}40`, background: running ? "transparent" : `${accentColor}15`, color: accentColor, cursor: running ? "default" : "pointer", fontFamily: "var(--font-mono)", fontSize: 11, fontWeight: 700 }}>
+          {running ? "⏳ Analysing…" : "⚡ Run Now"}
+        </button>
+        {run && (
+          <span style={{ marginLeft: "auto", fontFamily: "var(--font-mono)", fontSize: 10, color: statusColor }}>
+            {run.symbol} · {run.status.replace(/_/g, " ")}
+            {run.autoMode ? " · auto" : " · manual"}
+          </span>
+        )}
+      </div>
+
+      {/* Error */}
+      {error && (
+        <div style={{ padding: "10px 14px", borderRadius: 10, background: "#ff55720d", border: "1px solid #ff557230", fontFamily: "var(--font-mono)", fontSize: 11, color: "#ff5572" }}>
+          {error}
+        </div>
+      )}
+
+      {/* No run yet */}
+      {!run && !running && (
+        <div style={{ textAlign: "center", padding: "32px 0", fontFamily: "var(--font-mono)", fontSize: 12, color: "rgba(255,255,255,0.25)" }}>
+          No analysis run yet — click Run Now or wait for the scheduler.
+        </div>
+      )}
+
+      {/* Loading skeleton while agent is running */}
+      {running && (!run || run.status === "running") && (
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+          {(["SmartMoney", "Wyckoff", "ElliottWave", "Harmonic"] as const).map(fw => (
+            <div key={fw} style={{ borderRadius: 12, border: `1px solid ${FW_COLOR[fw]}20`, background: "rgb(4,10,18)", overflow: "hidden" }}>
+              <div style={{ padding: "9px 12px", background: `${FW_COLOR[fw]}0d`, borderBottom: `1px solid ${FW_COLOR[fw]}15`, fontFamily: "var(--font-mono)", fontSize: 12, fontWeight: 800, color: FW_COLOR[fw] }}>
+                {fw} <span style={{ fontSize: 10, fontWeight: 400, color: "rgba(255,255,255,0.3)", marginLeft: 6 }}>analysing…</span>
+              </div>
+              <div style={{ height: 150, background: "rgb(8,18,32)", display: "flex", alignItems: "center", justifyContent: "center", color: "rgba(255,255,255,0.15)", fontFamily: "var(--font-mono)", fontSize: 11 }}>
+                ···
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* 4 proposal cards */}
+      {run && run.strategyCards.length > 0 && (
+        <>
+          {/* Pending approval banner */}
+          {run.status === "pending_approval" && !run.autoMode && (
+            <div style={{ padding: "9px 14px", borderRadius: 10, background: "#a78bfa10", border: "1px solid #a78bfa30", fontFamily: "var(--font-mono)", fontSize: 11, color: "#a78bfa", display: "flex", alignItems: "center", gap: 8 }}>
+              ⚠ Trade proposals awaiting your approval — review the charts and approve or reject each.
+            </div>
+          )}
+
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+            {run.strategyCards.map(card => (
+              <ProposalCard
+                key={card.framework}
+                card={card}
+                runId={run.coinAnalysisRunId}
+                autoMode={run.autoMode}
+                accentColor={accentColor}
+                onAction={loadLatest}
+              />
+            ))}
+          </div>
+
+          <div style={{ display: "flex", gap: 12, fontFamily: "var(--font-mono)", fontSize: 9, color: "rgba(255,255,255,0.25)", flexWrap: "wrap" }}>
+            <span>Run: {run.coinAnalysisRunId.slice(0, 12)}…</span>
+            <span>Triggered by: {run.triggeredBy}</span>
+            <span>News sources: {run.newsArticlesUsed.length}</span>
+            {run.completedAt && <span>At: {new Date(run.completedAt).toLocaleTimeString()}</span>}
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
 // ── Main ChatDashboard ────────────────────────────────────────────────────────
 
-type DashTab = "runs" | "positions" | "signals" | "config" | "wallet";
+type DashTab = "runs" | "positions" | "signals" | "config" | "wallet" | "proposals";
 
 interface ChatDashboardProps {
   engine: {
@@ -704,7 +1011,7 @@ interface ChatDashboardProps {
 }
 
 export function ChatDashboard({ engine, accentColor = "#00d4ff" }: ChatDashboardProps) {
-  const [tab, setTab] = useState<DashTab>("runs");
+  const [tab, setTab] = useState<DashTab>("proposals");
 
   const aiMessageCount = engine.messages.filter(m => m.role === "agent").length;
   const toolExecutions = engine.messages.filter(m => m.toolResult).length;
@@ -718,6 +1025,7 @@ export function ChatDashboard({ engine, accentColor = "#00d4ff" }: ChatDashboard
   }
 
   const TABS: { id: DashTab; label: string }[] = [
+    { id: "proposals", label: "Proposals" },
     { id: "runs",      label: "Runs"      },
     { id: "positions", label: "Positions" },
     { id: "signals",   label: "Signals"   },
@@ -759,6 +1067,7 @@ export function ChatDashboard({ engine, accentColor = "#00d4ff" }: ChatDashboard
 
       {/* Tab content */}
       <div style={{ flex: 1, overflowY: "auto", padding: "14px 14px 24px" }}>
+        {tab === "proposals" && <ProposalsTab  accentColor={accentColor} />}
         {tab === "runs"      && <RunsTab      accentColor={accentColor} />}
         {tab === "positions" && <PositionsTab accentColor={accentColor} />}
         {tab === "signals"   && <SignalsTab   accentColor={accentColor} />}

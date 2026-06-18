@@ -454,6 +454,11 @@ export const coinAnalysisService = {
   trigger: (symbol: string) =>
     apiClient.post<{ coinAnalysisRunId: string }>('/coin-analysis/trigger', { symbol }),
 
+  getLatest: (symbol?: string) => {
+    const qs = symbol ? `?symbol=${symbol}` : ''
+    return apiClient.get<CoinAnalysisRun>(`/coin-analysis/latest${qs}`)
+  },
+
   getRun: (runId: string) =>
     apiClient.get<CoinAnalysisRun>(`/coin-analysis/${runId}`),
 
