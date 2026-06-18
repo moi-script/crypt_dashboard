@@ -1,7 +1,7 @@
 // services/api/src/models/agentMemory.model.ts
 
 import { Schema, model } from 'mongoose'
-import type { AgentMemoryEntry } from '../agents/memory/memory.types'
+import type { AgentMemoryEntry } from '@/agents/memory/memory.types'
 
 const OutcomeSchema = new Schema({
   pnl:            { type: Number, required: true },
