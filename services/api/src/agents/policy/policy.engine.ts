@@ -65,6 +65,7 @@ export async function runPolicyEngine(
   ctx:                    LoopContext,
   strategyContextSummary: string,
   config:                 AgentConfig,
+  memoryContext?:         string,
 ): Promise<Decision> {
   // Clear the candle cache at the start of each policy engine run
   // so tool calls in this run start fresh but share within the run
@@ -88,6 +89,7 @@ export async function runPolicyEngine(
     strategy:      ctx.strategy,
     walletSummary,
     maxTradeUsd:   config.maxTradeUsd,
+    memorySection: memoryContext,
   })
 
   const messages: Message[] = [

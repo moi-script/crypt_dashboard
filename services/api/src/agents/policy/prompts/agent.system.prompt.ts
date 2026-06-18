@@ -9,10 +9,11 @@
 import type { AgentMode } from '../../../config/agent.config'
 
 export interface SystemPromptContext {
-  mode:         AgentMode
-  strategy:     string
+  mode:          AgentMode
+  strategy:      string
   walletSummary: string
-  maxTradeUsd:  number
+  maxTradeUsd:   number
+  memorySection?: string
 }
 
 export function buildAgentSystemPrompt(ctx: SystemPromptContext): string {
@@ -51,7 +52,7 @@ Max trade size: $${ctx.maxTradeUsd} USD
 - ALWAYS prefer no_action over a speculative trade. The cost of a bad trade >> cost of a missed opportunity.
 - Expected profit must exceed fees/gas. If you cannot estimate profit, default to no_action or set_alert.
 - If skills are in conflict or data is ambiguous, set an alert and do not trade.
-
+${ctx.memorySection ? `\n${ctx.memorySection}` : ''}
 ## Output format
 Call your tools, then call exactly one act tool. No prose explanations outside tool calls.
 Your rationale belongs inside the tool call's "rationale" field.`

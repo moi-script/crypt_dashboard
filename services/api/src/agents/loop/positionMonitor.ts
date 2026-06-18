@@ -15,12 +15,13 @@
 import { PositionDoc, OrderDoc } from '../../models/position.model'
 import { executePaper, getLivePrice } from '../../execution/modes/paper.executor'
 import { generateMyId } from '../../utils/nanoid'
+import { writeOutcome } from '../memory/memory.writer'
 import type { TradeIntent } from './loop.types'
 
 type ExitReason = 'stop_loss' | 'take_profit'
 
 async function closePosition(
-  position: { positionId: string; userId?: string; tokenIn: string; tokenOut: string; entryAmountUsd: number; entryPrice?: number; strategy: string; confidence?: number },
+  position: { positionId: string; userId?: string; tokenIn: string; tokenOut: string; entryAmountUsd: number; entryPrice?: number; strategy: string; confidence?: number; runId?: string; entryAt?: Date },
   exitPrice: number,
   reason: ExitReason,
 ): Promise<void> {
@@ -77,6 +78,17 @@ async function closePosition(
   } })
 
   console.log(`[PositionMonitor] Closed ${position.positionId} (${reason}) — PnL: $${(result.simulatedPnlUsd ?? 0).toFixed(2)}`)
+
+  // Write outcome memory — non-fatal
+  await writeOutcome(position.runId ?? '', {
+    pnl:            result.simulatedPnlUsd ?? 0,
+    pnlPercent:     position.entryAmountUsd > 0
+      ? ((result.simulatedPnlUsd ?? 0) / position.entryAmountUsd) * 100
+      : 0,
+    durationHeldMs: result.executedAt.getTime() - new Date(position.entryAt ?? result.executedAt).getTime(),
+    closedAt:       result.executedAt,
+    success:        (result.simulatedPnlUsd ?? 0) > 0,
+  }).catch((err: any) => console.warn('[PositionMonitor] writeOutcome failed:', err.message))
 }
 
 // ── Limit-order activation ──────────────────────────────────────────────────

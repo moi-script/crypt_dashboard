@@ -36,8 +36,8 @@ test('getOhlcv returns candles for valid symbol and timeframe', async () => {
   expect(payload.candles).toHaveLength(1)
 })
 
-test('getOhlcv rejects unknown symbol', async () => {
-  const req: any = { params: { symbol: 'SCAMCOIN' }, query: { timeframe: '4h' } }
+test('getOhlcv rejects invalid symbol format', async () => {
+  const req: any = { params: { symbol: 'SCAM COIN!' }, query: { timeframe: '4h' } }
   const res      = mockRes()
   await getOhlcv(req, res)
 

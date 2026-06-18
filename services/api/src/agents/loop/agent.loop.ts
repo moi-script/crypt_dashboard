@@ -39,6 +39,9 @@ import type { LoopContext, WalletState, AgentRunRecord, TradeIntent, ExecutionRe
 import type { Strategy } from '../policy/strategies/strategy.types'
 
 import { generateMyId } from '@/utils/nanoid'
+import { retrieve }            from '../memory/memory.retriever'
+import { renderMemorySection } from '../policy/prompts/memory.section.prompt'
+import { writeDecision }       from '../memory/memory.writer'
 
 // How long a pending limit order waits for price to re-enter the entry zone
 // before it's cancelled. Defaults to 6h.
@@ -250,10 +253,20 @@ export async function runLoopTick(userId: string): Promise<void> {
     const { text: contextSummary } = buildContextSummary(loopCtx, strategyResult.contextSummary)
     loopCtx.contextSummary = contextSummary
 
+    // ── Memory retrieval (RAG) ──────────────────────────────────────────────
+    let memoryContext: string | undefined
+    try {
+      const coin = config.watchlist[0] ?? 'BTC'
+      const memResult = await retrieve(userId, coin.toUpperCase(), contextSummary)
+      memoryContext = renderMemorySection(memResult) || undefined
+    } catch (err: any) {
+      console.warn('[AgentLoop] Memory retrieval failed (non-fatal):', err.message)
+    }
+
     await persistOpportunities(userId, strategy, runId, strategyResult.metadata)
 
     const decision = strategyResult.deterministicDecision
-      ?? await runPolicyEngine(loopCtx, contextSummary, config)
+      ?? await runPolicyEngine(loopCtx, contextSummary, config, memoryContext)
 
     const gateway = await executeIntent(decision.intent, walletState, {
       userId, config, runId, strategy,
@@ -261,6 +274,9 @@ export async function runLoopTick(userId: string): Promise<void> {
     })
 
     await persistExecution(userId, config.mode, runId, decision.intent, gateway.execution, strategy, decision.confidence)
+
+    // ── Write decision memory ───────────────────────────────────────────────
+    await writeDecision(loopCtx, decision)
 
     // Save chart snapshot for chartSignal runs that produced a signal
     const chartSnapshot = strategyResult.metadata?.chartSnapshot as import('@/agents/loop/loop.types').ChartSnapshot | undefined
