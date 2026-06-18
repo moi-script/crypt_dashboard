@@ -91,15 +91,20 @@ export type ExecutionStatus =
 
 export interface AgentRunDecision {
   intent: {
-    type:           string;
-    tokenIn?:       string;
-    tokenOut?:      string;
-    amountUsd?:     number;
-    rationale?:     string;
-    coinId?:        string;
-    condition?:     string;
-    threshold?:     number;
-    targetWeights?: Record<string, number>;
+    type:             string;
+    tokenIn?:         string;
+    tokenOut?:        string;
+    amountUsd?:       number;
+    rationale?:       string;
+    coinId?:          string;
+    condition?:       string;
+    threshold?:       number;
+    targetWeights?:   Record<string, number>;
+    stopLossPrice?:   number;
+    takeProfitPrice?: number;
+    entryZoneLow?:    number;
+    entryZoneHigh?:   number;
+    framework?:       string;
   };
   confidence:    number;
   reasoning:     string;

@@ -256,27 +256,47 @@ function RunsTab({ accentColor }: { accentColor: string }) {
                   )}
                 </div>
 
-                {/* SL · TP summary */}
-                {ap.chartSnapshot && (
-                  <div style={{ padding: "0 12px 8px", display: "flex", gap: 14 }}>
-                    <span style={{ fontSize: 11, color: "#ff5572", fontFamily: "var(--font-mono)" }}>
-                      SL {ap.chartSnapshot.stopLoss.toLocaleString()}
-                    </span>
-                    {ap.chartSnapshot.takeProfitLevels.slice(0, 2).map((tp, i) => (
-                      <span key={i} style={{ fontSize: 11, color: "#00e5a0", fontFamily: "var(--font-mono)" }}>
-                        TP{i + 1} {tp.toLocaleString()}
-                      </span>
-                    ))}
-                    <span style={{ fontSize: 11, color: "#a78bfa", fontFamily: "var(--font-mono)", marginLeft: "auto" }}>
-                      {ap.chartSnapshot.framework}
-                    </span>
-                  </div>
-                )}
+                {/* SL · TP summary line */}
+                {(() => {
+                  const sl  = ap.chartSnapshot?.stopLoss      ?? intent?.stopLossPrice;
+                  const tps = ap.chartSnapshot?.takeProfitLevels ?? (intent?.takeProfitPrice ? [intent.takeProfitPrice] : []);
+                  const fw  = ap.chartSnapshot?.framework     ?? intent?.framework;
+                  if (!sl && !tps.length && !fw) return null;
+                  return (
+                    <div style={{ padding: "0 12px 8px", display: "flex", gap: 14, flexWrap: "wrap" }}>
+                      {sl != null && (
+                        <span style={{ fontSize: 11, color: "#ff5572", fontFamily: "var(--font-mono)" }}>
+                          SL {sl.toLocaleString()}
+                        </span>
+                      )}
+                      {tps.slice(0, 3).map((tp, i) => (
+                        <span key={i} style={{ fontSize: 11, color: "#00e5a0", fontFamily: "var(--font-mono)" }}>
+                          TP{tps.length > 1 ? i + 1 : ""} {tp.toLocaleString()}
+                        </span>
+                      ))}
+                      {fw && (
+                        <span style={{ fontSize: 11, color: "#a78bfa", fontFamily: "var(--font-mono)", marginLeft: "auto" }}>
+                          {fw}
+                        </span>
+                      )}
+                    </div>
+                  );
+                })()}
 
-                {/* Mini chart (if snapshot available) */}
-                {ap.chartSnapshot && (
-                  <div style={{ padding: "0 12px 10px" }}>
-                    <MiniChart snapshot={ap.chartSnapshot} />
+                {/* Chart — shown for any propose_trade with a supported coin */}
+                {intent?.type === "propose_trade" && (intent?.tokenOut || ap.chartSnapshot) && (
+                  <div style={{ padding: "0 10px 10px" }}>
+                    <MiniChart
+                      snapshot={ap.chartSnapshot}
+                      symbol={intent?.tokenOut}
+                      stopLoss={ap.chartSnapshot?.stopLoss ?? intent?.stopLossPrice}
+                      takeProfits={
+                        ap.chartSnapshot?.takeProfitLevels ??
+                        (intent?.takeProfitPrice ? [intent.takeProfitPrice] : [])
+                      }
+                      entryZoneLow={ap.chartSnapshot?.entryZone?.low ?? intent?.entryZoneLow}
+                      entryZoneHigh={ap.chartSnapshot?.entryZone?.high ?? intent?.entryZoneHigh}
+                    />
                   </div>
                 )}
 
