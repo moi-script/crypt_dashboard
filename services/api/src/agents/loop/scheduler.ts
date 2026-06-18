@@ -9,6 +9,7 @@
 import { runLoopTick } from './agent.loop'
 import { AgentConfigDoc } from '../../models/agentConfig.model'
 import { DEFAULT_AGENT_CONFIG } from '../../config/agent.config'
+import { runReflection }  from '../memory/reflection.generator'
 
 const GLOBAL_INTERVAL_MS = Number(process.env.AGENT_LOOP_INTERVAL_MS) || DEFAULT_AGENT_CONFIG.loopIntervalMs
 const MAX_CONCURRENT_TICKS = 4
@@ -72,6 +73,41 @@ export function stopScheduler(): void {
 
 export function isSchedulerRunning(): boolean {
   return _timer !== null
+}
+
+// ── Nightly reflection sweep ──────────────────────────────────────────────────
+
+let _reflectionTimer: NodeJS.Timeout | null = null
+
+export function startReflectionScheduler(): void {
+  if (_reflectionTimer) return
+
+  const MS_PER_DAY = 24 * 60 * 60 * 1000
+
+  _reflectionTimer = setInterval(async () => {
+    try {
+      const enabled = await AgentConfigDoc.find({ enabled: true }).select('userId watchlist').lean()
+      for (const cfg of enabled) {
+        const coins = (cfg.watchlist ?? ['bitcoin']).slice(0, 3)  // cap at 3 coins per user
+        for (const coin of coins) {
+          const symbol = coin.replace('bitcoin', 'BTC').replace('ethereum', 'ETH').toUpperCase()
+          await runReflection(cfg.userId, symbol).catch(() => {})
+        }
+      }
+    } catch (err: any) {
+      console.error('[ReflectionScheduler] Sweep error:', err.message)
+    }
+  }, MS_PER_DAY)
+
+  if (_reflectionTimer.unref) _reflectionTimer.unref()
+  console.log('[ReflectionScheduler] Nightly reflection job started.')
+}
+
+export function stopReflectionScheduler(): void {
+  if (_reflectionTimer) {
+    clearInterval(_reflectionTimer)
+    _reflectionTimer = null
+  }
 }
 
 /** Manually trigger one tick for a single user (used by the admin/API trigger). */

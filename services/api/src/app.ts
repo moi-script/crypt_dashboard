@@ -15,7 +15,7 @@ import paperWalletRoutes from './routes/paperWallet.routes'
 import agentRunRoutes                          from './routes/agentRun.routes'
 import positionRoutes                          from './routes/position.routes'
 import { opportunityRouter }                   from './routes/position.routes'
-import { startScheduler, isSchedulerRunning }  from './agents/loop/scheduler'
+import { startScheduler, isSchedulerRunning, startReflectionScheduler }  from './agents/loop/scheduler'
 import { startPositionMonitor, isPositionMonitorRunning } from './agents/loop/positionMonitor'
 import agent from './routes/agent.routes';
 // ── S03 routes ────────────────────────────────────────────────────────────────
@@ -99,6 +99,7 @@ async function start() {
   if (!isSchedulerRunning()) {
     startScheduler()
   }
+  startReflectionScheduler()
   if (!isPositionMonitorRunning()) {
     startPositionMonitor()
   }
