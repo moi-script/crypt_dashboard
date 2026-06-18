@@ -1,7 +1,7 @@
 // services/api/src/models/agentMemory.model.ts
 
 import { Schema, model } from 'mongoose'
-import type { AgentMemoryEntry } from '../agents/memory/memory.types'
+import type { AgentMemoryEntry } from '@/agents/memory/memory.types'
 
 const OutcomeSchema = new Schema({
   pnl:            { type: Number, required: true },
@@ -16,7 +16,7 @@ const AgentMemorySchema = new Schema<AgentMemoryEntry>({
   runId:       { type: String, required: true, index: true },
   timestamp:   { type: Date,   required: true, index: true },
   coin:        { type: String, required: true, index: true },
-  type:        { type: String, enum: ['decision', 'observation', 'outcome'], required: true },
+  type:        { type: String, enum: ['decision', 'observation', 'outcome', 'news'], required: true },
   summary:     { type: String, required: true },
   fullContext: { type: Schema.Types.Mixed, default: {} },
   embedding:   { type: [Number], required: true },
@@ -25,6 +25,9 @@ const AgentMemorySchema = new Schema<AgentMemoryEntry>({
   marketRegime: { type: String, default: 'unknown' },
   signals:     [String],
   tools:       [String],
+  articleId:   String,
+  headline:    String,
+  publishedAt: Date,
 }, { timestamps: true })
 
 AgentMemorySchema.index({ agentId: 1, coin: 1, timestamp: -1 })

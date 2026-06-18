@@ -1,4 +1,4 @@
-export type MemoryEntryType = 'decision' | 'observation' | 'outcome'
+export type MemoryEntryType = 'decision' | 'observation' | 'outcome' | 'news'
 
 export interface AgentMemoryEntry {
   _id?:        string
@@ -26,6 +26,11 @@ export interface AgentMemoryEntry {
   marketRegime: string
   signals:      string[]
   tools:        string[]
+
+  // news-specific (only populated when type === 'news')
+  articleId?:   string
+  headline?:    string
+  publishedAt?: Date
 }
 
 export interface AgentReflection {

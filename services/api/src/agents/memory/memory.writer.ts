@@ -38,7 +38,6 @@ export async function writeDecision(
         contextSummary: ctx.contextSummary.slice(0, 1000),
         intent:         decision.intent,
         toolCallTrace:  decision.toolCallTrace,
-        walletState:    ctx.walletState,
       },
       embedding,
       marketRegime: (ctx.marketData?.regime as string) ?? 'unknown',

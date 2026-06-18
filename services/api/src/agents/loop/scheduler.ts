@@ -14,13 +14,25 @@ import { runReflection }  from '../memory/reflection.generator'
 const GLOBAL_INTERVAL_MS = Number(process.env.AGENT_LOOP_INTERVAL_MS) || DEFAULT_AGENT_CONFIG.loopIntervalMs
 const MAX_CONCURRENT_TICKS = 4
 
+const COINGECKO_TO_SYMBOL: Record<string, string> = {
+  bitcoin: 'BTC', ethereum: 'ETH', solana: 'SOL', binancecoin: 'BNB',
+  cardano: 'ADA', polkadot: 'DOT', 'matic-network': 'MATIC',
+  'avalanche-2': 'AVAX', chainlink: 'LINK', uniswap: 'UNI',
+  dogecoin: 'DOGE', ripple: 'XRP', litecoin: 'LTC', cosmos: 'ATOM',
+  filecoin: 'FIL',
+}
+
 let _timer: NodeJS.Timeout | null = null
 let _sweeping = false
 const _inFlight = new Set<string>()
 
 /** Find all enabled users and run one bounded-concurrency tick per user. */
 export async function runEnabledUserTicks(): Promise<void> {
-  const enabled = await AgentConfigDoc.find({ enabled: true }).select('userId').lean()
+  const enabled = await AgentConfigDoc
+    .find({ enabled: true })
+    .select('userId watchlist strategies')
+    .lean()
+
   const userIds = enabled.map(c => c.userId).filter(id => !_inFlight.has(id))
 
   for (let i = 0; i < userIds.length; i += MAX_CONCURRENT_TICKS) {
@@ -28,7 +40,18 @@ export async function runEnabledUserTicks(): Promise<void> {
     await Promise.all(batch.map(async userId => {
       _inFlight.add(userId)
       try {
-        await runLoopTick(userId)
+        const cfg = enabled.find(c => c.userId === userId)!
+        const isChartSignal = cfg.strategies?.chartSignal && (cfg.watchlist ?? [])[0]
+
+        if (isChartSignal) {
+          const raw = (cfg.watchlist[0] as string).toLowerCase()
+          const symbol = COINGECKO_TO_SYMBOL[raw] ?? raw.toUpperCase()
+          // eslint-disable-next-line @typescript-eslint/no-require-imports
+          const { runCoinAnalysis } = require('@/agents/coinAnalysis/coinAnalysis.runner') as typeof import('@/agents/coinAnalysis/coinAnalysis.runner')
+          await runCoinAnalysis(userId, symbol, 'scheduler')
+        } else {
+          await runLoopTick(userId)
+        }
       } catch (err: any) {
         console.error(`[Scheduler] Tick failed for ${userId}:`, err.message)
       } finally {

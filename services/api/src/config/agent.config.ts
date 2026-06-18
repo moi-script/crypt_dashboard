@@ -40,6 +40,9 @@ export interface AgentConfig {
 
   /** If true, every proposed action pauses for manual approval via the API */
   requireManualApproval: boolean
+
+  /** Coin pinned for on-demand analysis runs (e.g. "BTC"). watchlist[0] is used for scheduled runs. */
+  selectedCoin?: string
 }
 
 /** Seed values for a brand-new per-user agent config. */

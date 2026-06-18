@@ -63,7 +63,7 @@ const STRATEGIES: Record<string, Strategy> = {
 
 // ── Wallet state (paper mode) ─────────────────────────────────────────────────
 
-async function loadWalletState(userId: string, config: AgentConfig): Promise<WalletState> {
+export async function loadWalletState(userId: string, config: AgentConfig): Promise<WalletState> {
   const wallet = await getOrCreateWallet(userId)
 
   const today = new Date()
