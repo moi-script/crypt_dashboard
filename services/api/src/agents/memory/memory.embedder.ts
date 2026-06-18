@@ -1,22 +1,16 @@
-import OpenAI from 'openai'
+import { pipeline, type FeatureExtractionPipeline } from '@huggingface/transformers'
 import { MEMORY_CONFIG } from './memory.config'
 
-let _client: OpenAI | null = null
+let _pipeline: FeatureExtractionPipeline | null = null
 
-function getClient(): OpenAI {
-  if (_client) return _client
-  const apiKey = process.env.DEEPSEEK_API_KEY
-  if (!apiKey) {
-    throw new Error('[MemoryEmbedder] DEEPSEEK_API_KEY is not set. Configure it in .env.local.')
-  }
-  _client = new OpenAI({ baseURL: 'https://api.deepseek.com', apiKey })
-  return _client
+async function getPipeline(): Promise<FeatureExtractionPipeline> {
+  if (_pipeline) return _pipeline
+  _pipeline = await pipeline('feature-extraction', MEMORY_CONFIG.embeddingModel, { device: 'cpu' })
+  return _pipeline
 }
 
 export async function embed(text: string): Promise<number[]> {
-  const response = await getClient().embeddings.create({
-    model: MEMORY_CONFIG.embeddingModel,
-    input: text.slice(0, 8000),
-  })
-  return response.data[0].embedding
+  const extractor = await getPipeline()
+  const output = await extractor(text.slice(0, 8000), { pooling: 'mean', normalize: true })
+  return Array.from(output.data as Float32Array)
 }
