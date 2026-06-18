@@ -106,7 +106,6 @@ export async function getPrimitives(req: Request, res: Response): Promise<void> 
 import { ohlcvIngest } from '../read/ingestion/ohlcv.ingest'
 import type { Timeframe } from '../read/ingestion/ohlcv.ingest'
 
-const ALLOWED_SYMBOLS   = new Set(['BTCUSDT', 'ETHUSDT'])
 const ALLOWED_TIMEFRAMES = new Set<Timeframe>(['1m', '5m', '15m', '1h', '4h', '1d', '1w'])
 
 export async function getOhlcv(req: Request, res: Response): Promise<void> {
@@ -115,8 +114,8 @@ export async function getOhlcv(req: Request, res: Response): Promise<void> {
     const timeframe = ((req.query.timeframe ?? '4h') as string) as Timeframe
     const limit     = Math.min(parseInt((req.query.limit ?? '') as string) || 300, 500)
 
-    if (!ALLOWED_SYMBOLS.has(symbol)) {
-      res.status(400).json({ error: `Symbol "${symbol}" not supported. Use BTCUSDT or ETHUSDT.` })
+    if (!/^[A-Z0-9]{2,20}$/.test(symbol)) {
+      res.status(400).json({ error: `Invalid symbol "${symbol}".` })
       return
     }
     if (!ALLOWED_TIMEFRAMES.has(timeframe)) {
