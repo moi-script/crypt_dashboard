@@ -46,6 +46,7 @@ interface AgentConfig {
   selectedCoin?:         string;
   maxTradeUsd:           number;
   requireManualApproval: boolean;
+  allowShorts?:          boolean;
 }
 
 interface AgentRunStats {
@@ -65,6 +66,8 @@ interface Position {
   tokenOut:        string;
   entryAmountUsd:  number;
   entryPrice?:     number;
+  exitPrice?:      number;
+  exitAt?:         string;
   isOpen:          boolean;
   realizedPnlUsd?: number;
   strategy:        string;
@@ -227,21 +230,41 @@ function RunsTab({ accentColor }: { accentColor: string }) {
       {/* ── Trade proposals — shown when a run exists or is in progress ── */}
       {displayRun && (
         <div style={{ borderRadius: 12, overflow: "hidden", border: "1px solid rgba(255,255,255,0.08)", background: "rgb(4,10,18)" }}>
-          <div style={{ padding: "10px 14px", borderBottom: "1px solid rgba(255,255,255,0.07)", display: "flex", alignItems: "center", gap: 8 }}>
-            <span style={{ fontFamily: "var(--font-mono)", fontSize: 10, fontWeight: 700, color: "rgba(255,255,255,0.45)", textTransform: "uppercase", letterSpacing: "0.1em" }}>
-              Trade Proposals
-            </span>
-            {displayRun && (
-              <span style={{ fontFamily: "var(--font-mono)", fontSize: 10, color: displayRun.status === "pending_approval" ? "#a78bfa" : displayRun.status === "completed" || displayRun.status === "auto_executed" ? "#00e5a0" : accentColor }}>
-                {displayRun.symbol} · {displayRun.status.replace(/_/g, " ")}
-              </span>
-            )}
-            {displayRun.status === "running" && !displayRun.strategyCards?.length && (
-              <span style={{ fontFamily: "var(--font-mono)", fontSize: 10, color: accentColor }}>
-                Analysing {displayRun.symbol ?? selectedCoin} across 4 strategies…
-              </span>
-            )}
-          </div>
+          {(() => {
+            const signalCards = displayRun.strategyCards?.filter(c => c.signal) ?? [];
+            const longCount  = signalCards.filter(c => c.signal?.bias === "long").length;
+            const shortCount = signalCards.filter(c => c.signal?.bias === "short").length;
+            const confluenceCount = Math.max(longCount, shortCount);
+            const confluenceBias  = longCount >= shortCount ? "LONG" : "SHORT";
+            return (
+              <div style={{ padding: "10px 14px", borderBottom: "1px solid rgba(255,255,255,0.07)", display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                <span style={{ fontFamily: "var(--font-mono)", fontSize: 10, fontWeight: 700, color: "rgba(255,255,255,0.45)", textTransform: "uppercase", letterSpacing: "0.1em" }}>
+                  Trade Proposals
+                </span>
+                {displayRun && (
+                  <span style={{ fontFamily: "var(--font-mono)", fontSize: 10, color: displayRun.status === "pending_approval" ? "#a78bfa" : displayRun.status === "completed" || displayRun.status === "auto_executed" ? "#00e5a0" : accentColor }}>
+                    {displayRun.symbol} · {displayRun.status.replace(/_/g, " ")}
+                  </span>
+                )}
+                {displayRun.status === "running" && !displayRun.strategyCards?.length && (
+                  <span style={{ fontFamily: "var(--font-mono)", fontSize: 10, color: accentColor }}>
+                    Analysing {displayRun.symbol ?? selectedCoin} across 4 strategies…
+                  </span>
+                )}
+                {confluenceCount >= 2 && (
+                  <span style={{
+                    marginLeft: "auto", fontFamily: "var(--font-mono)", fontSize: 10, fontWeight: 800,
+                    color: confluenceBias === "LONG" ? "#00e5a0" : "#ff5572",
+                    background: (confluenceBias === "LONG" ? "#00e5a0" : "#ff5572") + "18",
+                    border: `1px solid ${(confluenceBias === "LONG" ? "#00e5a0" : "#ff5572")}35`,
+                    padding: "3px 10px", borderRadius: 20, letterSpacing: "0.06em",
+                  }}>
+                    ⬡ {confluenceCount}× CONFLUENCE · {confluenceBias}
+                  </span>
+                )}
+              </div>
+            );
+          })()}
 
           <div style={{ padding: "12px 14px" }}>
             {/* Parallel strategy skeletons while running */}
@@ -632,11 +655,19 @@ function ConfigTab({ accentColor }: { accentColor: string }) {
     if (!config) return;
     setSavingApproval(true);
     try {
-      // Auto-Trade ON  → requireManualApproval false (proposed trades execute)
-      // Auto-Trade OFF → requireManualApproval true  (trades wait for approval)
       const res = await apiClient.put<{ ok: boolean; config: AgentConfig }>("/agent-runs/config", { requireManualApproval: !config.requireManualApproval });
       setConfig(res.config);
     } catch { /* ignore */ } finally { setSavingApproval(false); }
+  };
+
+  const [savingShorts, setSavingShorts] = useState(false);
+  const toggleShorts = async () => {
+    if (!config) return;
+    setSavingShorts(true);
+    try {
+      const res = await apiClient.put<{ ok: boolean; config: AgentConfig }>("/agent-runs/config", { allowShorts: !config.allowShorts });
+      setConfig(res.config);
+    } catch { /* ignore */ } finally { setSavingShorts(false); }
   };
 
   const saveCoin = async (coin: string) => {
@@ -713,6 +744,32 @@ function ConfigTab({ accentColor }: { accentColor: string }) {
             </div>
           </div>
       ))(!config.requireManualApproval)}
+
+      {/* Allow Shorts toggle */}
+      {(shortsOn => (
+        <div style={{ padding: "14px 14px", borderRadius: 10, background: "rgb(8,18,32)", border: `1px solid ${shortsOn ? "#ff557230" : "rgba(255,255,255,0.07)"}` }}>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+            <div style={{ paddingRight: 12 }}>
+              <p style={{ fontFamily: "var(--font-display,sans-serif)", fontSize: 14, fontWeight: 600, color: "rgba(255,255,255,0.85)", margin: "0 0 3px" }}>Short Positions</p>
+              <p style={{ fontSize: 12, color: "rgba(255,255,255,0.35)", margin: 0 }}>
+                {shortsOn
+                  ? "Short signals will execute — requires margin/perp trading"
+                  : "Long-only mode · short signals are skipped"}
+              </p>
+            </div>
+            <button onClick={toggleShorts} disabled={savingShorts} style={{
+              padding: "7px 16px", borderRadius: 8, fontSize: 12, fontWeight: 700,
+              fontFamily: "var(--font-display,sans-serif)", cursor: savingShorts ? "not-allowed" : "pointer",
+              border: "none", transition: "all 0.2s ease",
+              background: shortsOn ? "rgba(255,85,114,0.18)" : "rgba(255,255,255,0.06)",
+              color: shortsOn ? "#ff5572" : "rgba(255,255,255,0.4)",
+              opacity: savingShorts ? 0.6 : 1,
+            }}>
+              {savingShorts ? "…" : shortsOn ? "Enabled" : "Disabled"}
+            </button>
+          </div>
+        </div>
+      ))(!!config.allowShorts)}
 
       {/* Config rows */}
       {[
@@ -834,44 +891,74 @@ function PositionsTab({ accentColor }: { accentColor: string }) {
             cancelled: { label: "Cancelled", color: "#ff5572" },
           }[status];
           const isPending = status === "pending";
+          // Infer how a closed position was exited by comparing exit price vs SL/TP levels
+          const closeReason = status === "closed" && pos.exitPrice !== undefined
+            ? pos.stopLossPrice   !== undefined && pos.exitPrice <= pos.stopLossPrice   * 1.001 ? "sl_triggered"
+            : pos.takeProfitPrice !== undefined && pos.exitPrice >= pos.takeProfitPrice * 0.999 ? "tp_hit"
+            : "closed"
+            : null;
           return (
-          <div key={pos.positionId} style={{ padding: "11px 12px", borderRadius: 10, background: "rgb(8,18,32)", border: `1px solid ${status === "open" ? accentColor + "25" : isPending ? "#ffb02033" : "rgba(255,255,255,0.07)"}` }}>
-            <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 5 }}>
-              <span style={{ fontSize: 14, fontWeight: 600, color: "rgba(255,255,255,0.85)", fontFamily: "var(--font-display,sans-serif)" }}>
-                {pos.tokenIn} → {pos.tokenOut}
-              </span>
-              <span style={{ fontSize: 11, fontWeight: 700, color: badge.color, background: `${badge.color}1f`, padding: "2px 7px", borderRadius: 5, marginLeft: "auto" }}>
-                {badge.label}
-              </span>
-            </div>
-            <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
-              <span style={{ fontSize: 12, color: "rgba(255,255,255,0.4)", fontFamily: "var(--font-mono)" }}>
-                {isPending
-                  ? `$${pos.entryAmountUsd.toFixed(2)} · limit${pos.entryZoneLow !== undefined && pos.entryZoneHigh !== undefined ? ` @ $${pos.entryZoneLow.toFixed(2)}–$${pos.entryZoneHigh.toFixed(2)}` : ""}`
-                  : `$${pos.entryAmountUsd.toFixed(2)}${pos.entryPrice !== undefined ? ` @ $${pos.entryPrice.toFixed(4)}` : ""}`}
-              </span>
-              {isPending && pos.entryExpiresAt && (
-                <span style={{ fontSize: 11, color: "#ffb020", fontFamily: "var(--font-mono)" }}>
-                  expires {new Date(pos.entryExpiresAt).toLocaleString("en-GB", { dateStyle: "short", timeStyle: "short" })}
+            <div key={pos.positionId} style={{ padding: "11px 12px", borderRadius: 10, background: "rgb(8,18,32)", border: `1px solid ${status === "open" ? accentColor + "25" : isPending ? "#ffb02033" : closeReason === "sl_triggered" ? "#ff557222" : closeReason === "tp_hit" ? "#00e5a022" : "rgba(255,255,255,0.07)"}` }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 5 }}>
+                <span style={{ fontSize: 14, fontWeight: 600, color: "rgba(255,255,255,0.85)", fontFamily: "var(--font-display,sans-serif)" }}>
+                  {pos.tokenIn} → {pos.tokenOut}
                 </span>
-              )}
-              {pos.realizedPnlUsd !== undefined && (
-                <span style={{ fontSize: 13, fontWeight: 700, color: pnlColor(pos.realizedPnlUsd), marginLeft: "auto", fontFamily: "var(--font-mono)" }}>
-                  {pos.realizedPnlUsd >= 0 ? "+" : ""}${pos.realizedPnlUsd.toFixed(4)}
+                {/* Auto-close badge */}
+                {closeReason === "sl_triggered" && (
+                  <span style={{ fontSize: 10, fontWeight: 700, color: "#ff5572", background: "#ff557218", border: "1px solid #ff557230", padding: "2px 7px", borderRadius: 5 }}>
+                    ⚡ SL Auto-closed
+                  </span>
+                )}
+                {closeReason === "tp_hit" && (
+                  <span style={{ fontSize: 10, fontWeight: 700, color: "#00e5a0", background: "#00e5a018", border: "1px solid #00e5a030", padding: "2px 7px", borderRadius: 5 }}>
+                    ✓ TP Hit
+                  </span>
+                )}
+                <span style={{ fontSize: 11, fontWeight: 700, color: badge.color, background: `${badge.color}1f`, padding: "2px 7px", borderRadius: 5, marginLeft: "auto" }}>
+                  {badge.label}
                 </span>
-              )}
-            </div>
-            <p style={{ fontSize: 11, color: "rgba(255,255,255,0.25)", margin: "5px 0 0", fontFamily: "var(--font-mono)" }}>
-              {pos.strategy}{pos.framework ? ` · ${pos.framework}` : ""}{pos.confidence !== undefined ? ` · ${pos.confidence}% conf` : ""} · {new Date(pos.entryAt).toLocaleString("en-GB", { dateStyle: "short", timeStyle: "short" })}
-            </p>
-            {(pos.stopLossPrice !== undefined || pos.takeProfitPrice !== undefined) && (
-              <p style={{ fontSize: 11, color: "rgba(255,255,255,0.35)", margin: "3px 0 0", fontFamily: "var(--font-mono)" }}>
-                {pos.stopLossPrice !== undefined && <span style={{ color: "#ff5572" }}>SL ${pos.stopLossPrice.toFixed(2)}</span>}
-                {pos.stopLossPrice !== undefined && pos.takeProfitPrice !== undefined && "  ·  "}
-                {pos.takeProfitPrice !== undefined && <span style={{ color: "#00e5a0" }}>TP ${pos.takeProfitPrice.toFixed(2)}</span>}
+              </div>
+
+              <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
+                <span style={{ fontSize: 12, color: "rgba(255,255,255,0.4)", fontFamily: "var(--font-mono)" }}>
+                  {isPending
+                    ? `$${pos.entryAmountUsd.toFixed(2)} · limit${pos.entryZoneLow !== undefined && pos.entryZoneHigh !== undefined ? ` @ $${pos.entryZoneLow.toFixed(2)}–$${pos.entryZoneHigh.toFixed(2)}` : ""}`
+                    : `$${pos.entryAmountUsd.toFixed(2)}${pos.entryPrice !== undefined ? ` @ $${pos.entryPrice.toFixed(4)}` : ""}`}
+                </span>
+                {/* Entry → Exit price trail for closed positions */}
+                {status === "closed" && pos.exitPrice !== undefined && pos.entryPrice !== undefined && (
+                  <span style={{ fontSize: 11, fontFamily: "var(--font-mono)", color: "rgba(255,255,255,0.3)" }}>
+                    <span style={{ color: "rgba(255,255,255,0.45)" }}>${pos.entryPrice.toFixed(4)}</span>
+                    {" → "}
+                    <span style={{ color: pnlColor(pos.exitPrice - pos.entryPrice) }}>${pos.exitPrice.toFixed(4)}</span>
+                  </span>
+                )}
+                {isPending && pos.entryExpiresAt && (
+                  <span style={{ fontSize: 11, color: "#ffb020", fontFamily: "var(--font-mono)" }}>
+                    expires {new Date(pos.entryExpiresAt).toLocaleString("en-GB", { dateStyle: "short", timeStyle: "short" })}
+                  </span>
+                )}
+                {pos.realizedPnlUsd !== undefined && (
+                  <span style={{ fontSize: 13, fontWeight: 700, color: pnlColor(pos.realizedPnlUsd), marginLeft: "auto", fontFamily: "var(--font-mono)" }}>
+                    {pos.realizedPnlUsd >= 0 ? "+" : ""}${pos.realizedPnlUsd.toFixed(4)}
+                  </span>
+                )}
+              </div>
+
+              <p style={{ fontSize: 11, color: "rgba(255,255,255,0.25)", margin: "5px 0 0", fontFamily: "var(--font-mono)" }}>
+                {pos.strategy}{pos.framework ? ` · ${pos.framework}` : ""}{pos.confidence !== undefined ? ` · ${pos.confidence}% conf` : ""}
+                {" · "}{new Date(pos.entryAt).toLocaleString("en-GB", { dateStyle: "short", timeStyle: "short" })}
+                {pos.exitAt && <span> → {new Date(pos.exitAt).toLocaleString("en-GB", { dateStyle: "short", timeStyle: "short" })}</span>}
               </p>
-            )}
-          </div>
+
+              {(pos.stopLossPrice !== undefined || pos.takeProfitPrice !== undefined) && (
+                <p style={{ fontSize: 11, color: "rgba(255,255,255,0.35)", margin: "3px 0 0", fontFamily: "var(--font-mono)" }}>
+                  {pos.stopLossPrice   !== undefined && <span style={{ color: closeReason === "sl_triggered" ? "#ff5572" : "rgba(255,85,114,0.6)" }}>SL ${pos.stopLossPrice.toFixed(2)}</span>}
+                  {pos.stopLossPrice   !== undefined && pos.takeProfitPrice !== undefined && "  ·  "}
+                  {pos.takeProfitPrice !== undefined && <span style={{ color: closeReason === "tp_hit" ? "#00e5a0" : "rgba(0,229,160,0.6)" }}>TP ${pos.takeProfitPrice.toFixed(2)}</span>}
+                </p>
+              )}
+            </div>
           );
         })}
         {!loading && positions.length === 0 && <EmptyMsg msg="No positions yet — run the agent loop first." />}
@@ -1080,7 +1167,27 @@ function ProposalCard({
       )}
 
       {card.approvalStatus === "skipped" && card.skippedReason && (
-        <div style={{ padding: "8px 12px", fontFamily: "var(--font-mono)", fontSize: 10, color: "rgba(255,255,255,0.25)", fontStyle: "italic" }}>
+        <div style={{
+          padding: "8px 12px",
+          fontFamily: "var(--font-mono)", fontSize: 10, fontStyle: "italic",
+          color: card.skippedReason.startsWith("LLM vetoed")
+            ? "#a78bfa"
+            : card.skippedReason.startsWith("Already in open")
+            ? "#ffb020"
+            : "rgba(255,255,255,0.25)",
+          borderTop: card.skippedReason.startsWith("LLM vetoed")
+            ? "1px solid #a78bfa18"
+            : card.skippedReason.startsWith("Already in open")
+            ? "1px solid #ffb02018"
+            : undefined,
+          background: card.skippedReason.startsWith("LLM vetoed")
+            ? "#a78bfa08"
+            : card.skippedReason.startsWith("Already in open")
+            ? "#ffb02008"
+            : undefined,
+        }}>
+          {card.skippedReason.startsWith("LLM vetoed") && "🤖 "}
+          {card.skippedReason.startsWith("Already in open") && "⚠ "}
           {card.skippedReason}
         </div>
       )}
