@@ -25,7 +25,7 @@ export async function retrieve(
           queryVector,
           numCandidates: MEMORY_CONFIG.topK * 10,
           limit:        MEMORY_CONFIG.topK,
-          filter:       { coin, type: { $in: ['decision', 'outcome'] } },
+          filter:       { coin, type: { $in: ['decision', 'outcome', 'news'] } },
         },
       },
       {
