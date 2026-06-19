@@ -441,7 +441,7 @@ function RunsTab({ accentColor }: { accentColor: string }) {
                         <PriceSparkline
                           snapshot={ap.chartSnapshot}
                           timeframe="4h"
-                          height={220}
+                          height={260}
                         />
                       </div>
                     </div>

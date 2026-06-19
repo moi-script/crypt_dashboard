@@ -26,14 +26,14 @@ function toSec(ms: number): UTCTimestamp {
 export function PriceSparkline({
   snapshot,
   timeframe = "4h",
-  height = 220,
+  height = 260,
 }: SparklineProps) {
   const containerRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     if (!containerRef.current) return;
 
-    const FUTURE_BARS = 24; // blank bars on the right showing projection space
+    const FUTURE_BARS = 18; // blank bars on the right showing projection space
 
     const chart = createChart(containerRef.current, {
       height,
@@ -51,14 +51,14 @@ export function PriceSparkline({
         timeVisible:    true,
         secondsVisible: false,
         borderColor:    "rgba(255,255,255,0.08)",
-        rightOffset:    FUTURE_BARS,  // leave blank future space on right
-        barSpacing:     7,
+        rightOffset:    FUTURE_BARS,
+        barSpacing:     11,
         fixRightEdge:   false,
         fixLeftEdge:    true,
       },
       rightPriceScale: {
         borderColor:  "rgba(255,255,255,0.08)",
-        scaleMargins: { top: 0.1, bottom: 0.1 },
+        scaleMargins: { top: 0.06, bottom: 0.06 },
       },
       handleScroll: false,
       handleScale:  false,
@@ -66,7 +66,7 @@ export function PriceSparkline({
 
     let destroyed = false;
 
-    getOhlcv(snapshot.binanceSymbol, timeframe, 50)
+    getOhlcv(snapshot.binanceSymbol, timeframe, 30)
       .then(({ candles }) => {
         if (destroyed || !candles?.length) return;
 
