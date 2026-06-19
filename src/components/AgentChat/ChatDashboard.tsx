@@ -243,7 +243,7 @@ function RunsTab({ accentColor }: { accentColor: string }) {
           {/* Trigger button */}
           <button onClick={trigger} disabled={triggering}
             style={{ display: "flex", alignItems: "center", gap: 6, padding: "6px 14px", borderRadius: 8, border: `1px solid ${accentColor}40`, background: triggering ? "transparent" : `${accentColor}15`, color: accentColor, cursor: triggering ? "default" : "pointer", fontFamily: "var(--font-mono)", fontSize: 11, fontWeight: 700, marginLeft: "auto" }}>
-            {triggering ? "⏳ Running…" : "⚡ Run Analysis"}
+            {triggering ? "⏳ Running…" : "⚡ Run Agent"}
           </button>
         </div>
         {/* Agent status hint */}
@@ -252,13 +252,7 @@ function RunsTab({ accentColor }: { accentColor: string }) {
             Agent loop is halted — you can still trigger a manual analysis above.
           </div>
         )}
-        {/* Parallel strategies label */}
-        <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
-          <span style={{ fontFamily: "var(--font-mono)", fontSize: 9, color: "rgba(255,255,255,0.25)" }}>Runs in parallel:</span>
-          {(["SmartMoney", "Wyckoff", "ElliottWave", "Harmonic"] as const).map(fw => (
-            <span key={fw} style={{ fontFamily: "var(--font-mono)", fontSize: 9, fontWeight: 700, color: FW_COLOR[fw], background: FW_COLOR[fw] + "12", padding: "2px 6px", borderRadius: 4 }}>{fw}</span>
-          ))}
-        </div>
+
       </div>
 
       {/* ── Trade proposals — only shown after this session triggers a run ── */}
@@ -478,21 +472,6 @@ function RunsTab({ accentColor }: { accentColor: string }) {
         </div>
       )}
 
-      {/* Trigger button */}
-      <button
-        onClick={trigger}
-        disabled={triggering || loading}
-        style={{
-          width: "100%", padding: "10px 0", borderRadius: 10,
-          fontSize: 13, fontWeight: 700, fontFamily: "var(--font-display,sans-serif)",
-          color: triggering ? "rgba(255,255,255,0.3)" : "#020609",
-          background: triggering ? "rgb(12,24,42)" : accentColor,
-          border: "none", cursor: triggering ? "not-allowed" : "pointer",
-          opacity: triggering ? 0.6 : 1, transition: "all 0.2s ease",
-        }}
-      >
-        {triggering ? "Running…" : "▶  Run One Tick"}
-      </button>
 
       {/* Run list */}
       {loading && runs.length === 0 && <EmptyMsg msg="Loading…" />}
