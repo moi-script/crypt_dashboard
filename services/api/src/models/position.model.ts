@@ -36,8 +36,10 @@ export interface IPosition {
   entryZoneLow?:    number   // limit-order entry zone (pending positions)
   entryZoneHigh?:   number
   entryExpiresAt?:  Date     // cancel the pending limit order after this time
-  framework?:       string   // 'SmartMoney' | 'Wyckoff' | 'ElliottWave' | 'Harmonic'
-  confidence?:      number   // 0-100, from the originating signal
+  framework?:          string   // 'SmartMoney' | 'Wyckoff' | 'ElliottWave' | 'Harmonic'
+  confidence?:         number   // 0-100, from the originating signal
+  trailingStopPct?:    number   // % below high-water-mark; server-side monitor updates SL
+  highWaterMarkPrice?: number   // highest price reached since open (trailing stop reference)
 }
 
 const PositionSchema = new Schema<IPosition>({
@@ -66,8 +68,10 @@ const PositionSchema = new Schema<IPosition>({
   entryZoneLow:    Number,
   entryZoneHigh:   Number,
   entryExpiresAt:  Date,
-  framework:       String,
-  confidence:      Number,
+  framework:           String,
+  confidence:          Number,
+  trailingStopPct:     Number,
+  highWaterMarkPrice:  Number,
 }, { timestamps: true })
 
 PositionSchema.index({ isOpen: 1, mode: 1 })

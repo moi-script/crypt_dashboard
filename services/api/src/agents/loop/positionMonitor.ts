@@ -205,6 +205,30 @@ export async function runPositionMonitorSweep(): Promise<void> {
     }
   }
 
+  // ── Server-side trailing stop: ratchet SL up as price rises ─────────────
+  for (const position of openPositions) {
+    const trailPct = (position as any).trailingStopPct as number | undefined
+    if (!trailPct || !position.entryPrice) continue
+    const currentPrice = prices[position.tokenOut]
+    if (!currentPrice) continue
+
+    const hwm       = ((position as any).highWaterMarkPrice as number | undefined) ?? position.entryPrice
+    const newHwm    = Math.max(hwm, currentPrice)
+    const newTrailSL = parseFloat((newHwm * (1 - trailPct / 100)).toFixed(4))
+    const currentSL  = position.stopLossPrice ?? 0
+
+    if (newHwm > hwm || newTrailSL > currentSL) {
+      const update: Record<string, number> = { highWaterMarkPrice: newHwm }
+      if (newTrailSL > currentSL) update.stopLossPrice = newTrailSL
+      await PositionDoc.updateOne({ positionId: position.positionId }, { $set: update }).catch(() => {})
+      if (newTrailSL > currentSL) {
+        console.log(`[PositionMonitor] Trail: ${position.positionId} SL $${currentSL.toFixed(4)} → $${newTrailSL.toFixed(4)} (HWM $${newHwm.toFixed(4)})`)
+        // Refresh in-memory value so the SL/TP check below uses the new SL
+        position.stopLossPrice = newTrailSL
+      }
+    }
+  }
+
   // ── Open positions: stop-loss / take-profit ───────────────────────────────
   for (const position of openPositions) {
     const currentPrice = prices[position.tokenOut]

@@ -39,6 +39,44 @@ function getClient(): OpenAI {
   return _deepseek
 }
 
+// ── Correlated asset groups — max 2 open from any one group ──────────────────
+
+const CORRELATED_GROUPS: Set<string>[] = [
+  new Set(['BTC', 'ETH', 'SOL', 'BNB', 'AVAX', 'MATIC', 'ARB', 'OP', 'NEAR', 'APT', 'SUI', 'INJ']),
+]
+
+// ── Session / macro-event risk ────────────────────────────────────────────────
+
+function getSessionRisk(): { session: string; block: boolean; reason?: string } {
+  const now = new Date()
+  const h   = now.getUTCHours()
+  const m   = now.getUTCMinutes()
+  const day = now.getUTCDay()
+
+  if (h >= 21) {
+    return { session: 'Dead Zone', block: true, reason: `Post-NY dead zone (${h}:${String(m).padStart(2, '0')} UTC) — skip new entries` }
+  }
+  if (day === 5 && h >= 12 && (h < 14 || (h === 14 && m < 30))) {
+    return { session: 'NFP Window', block: true, reason: 'Friday 12:15–14:30 UTC NFP window — high slippage, skipping' }
+  }
+  if (day === 3 && h >= 18 && h < 20) {
+    return { session: 'FOMC Window', block: false, reason: 'Wednesday FOMC window — confidence threshold raised +10' }
+  }
+  const sessionName = h < 8 ? 'Asian' : h < 16 ? 'London' : 'New York'
+  return { session: sessionName, block: false }
+}
+
+// ── 24h Binance spot volume ───────────────────────────────────────────────────
+
+async function fetch24hVolumeUsd(binanceSymbol: string): Promise<number | null> {
+  try {
+    const r = await fetch(`https://api.binance.com/api/v3/ticker/24hr?symbol=${binanceSymbol}`)
+    if (!r.ok) return null
+    const d = await r.json() as { quoteVolume: string }
+    return parseFloat(d.quoteVolume)
+  } catch { return null }
+}
+
 // ── Framework → strategy runner map ───────────────────────────────────────────
 
 type StrategyRunner = (p: MarketPrimitives) => ChartStrategyResult
@@ -177,11 +215,20 @@ async function autoExecuteBest(
   memoryContext:     string | undefined,
   cardsSummary:      string,
 ): Promise<CoinAnalysisRunStatus> {
-  // ── De-duplication: don't stack positions in the same symbol ──────────────
-  const alreadyOpen = await PositionDoc.countDocuments({
-    userId, tokenOut: symbol.toUpperCase(), isOpen: true, mode: config.mode,
-  }).catch(() => 0)
+  // ── Session / macro-event gate ────────────────────────────────────────────
+  const sessionRisk = getSessionRisk()
+  if (sessionRisk.block) {
+    for (const card of cards) {
+      card.approvalStatus = 'skipped'
+      if (card.signal) card.skippedReason = `Session blocked [${sessionRisk.session}]: ${sessionRisk.reason}`
+    }
+    return 'completed'
+  }
 
+  // ── De-duplication: don't stack positions in the same symbol ──────────────
+  const allOpen = await PositionDoc.find({ userId, isOpen: true, mode: config.mode }).lean()
+
+  const alreadyOpen = allOpen.filter(p => p.tokenOut === symbol.toUpperCase()).length
   if (alreadyOpen > 0) {
     for (const card of cards) {
       card.approvalStatus = 'skipped'
@@ -190,20 +237,63 @@ async function autoExecuteBest(
     return 'completed'
   }
 
+  // ── Correlation filter: max 2 positions from any correlated group ──────────
+  for (const group of CORRELATED_GROUPS) {
+    if (group.has(symbol.toUpperCase())) {
+      const correlatedOpen = allOpen.filter(p => group.has(p.tokenOut))
+      if (correlatedOpen.length >= 2) {
+        const held = correlatedOpen.map(p => p.tokenOut).join(', ')
+        for (const card of cards) {
+          card.approvalStatus = 'skipped'
+          if (card.signal) card.skippedReason = `Correlation risk: already holding ${held} — max 2 correlated positions`
+        }
+        return 'completed'
+      }
+    }
+  }
+
+  // ── Confidence threshold — raise during FOMC window ──────────────────────
+  const confidenceThreshold = config.minSignalConfidence + (sessionRisk.session === 'FOMC Window' ? 10 : 0)
+
   const qualifying = cards.filter(c =>
     c.signal !== null &&
     (c.signal.bias === 'long' || config.allowShorts) &&
-    (c.signal.confidence + c.newsImpact.confidenceDelta) >= config.minSignalConfidence,
+    (c.signal.confidence + c.newsImpact.confidenceDelta) >= confidenceThreshold,
   )
 
   if (!qualifying.length) {
     for (const card of cards) {
       card.approvalStatus = 'skipped'
       if (card.signal && !card.skippedReason) {
-        card.skippedReason = `Confidence ${card.signal.confidence + card.newsImpact.confidenceDelta} below threshold ${config.minSignalConfidence}`
+        const adj = card.signal.confidence + card.newsImpact.confidenceDelta
+        card.skippedReason = `Confidence ${adj} below threshold ${confidenceThreshold}${sessionRisk.session === 'FOMC Window' ? ' (+10 FOMC)' : ''}`
       }
     }
     return 'completed'
+  }
+
+  // ── Cooldown: require +15% confidence if same symbol rejected in last 2h ──
+  const recentRejection = await CoinAnalysisRunDoc.findOne({
+    userId,
+    symbol: symbol.toUpperCase(),
+    completedAt: { $gte: new Date(Date.now() - 2 * 60 * 60 * 1000) },
+    'strategyCards.approvalStatus': 'rejected',
+  }).lean()
+
+  if (recentRejection) {
+    const cooldownThreshold = confidenceThreshold + 15
+    const afterCooldown = qualifying.filter(c =>
+      (c.signal!.confidence + c.newsImpact.confidenceDelta) >= cooldownThreshold,
+    )
+    if (!afterCooldown.length) {
+      for (const card of qualifying) {
+        card.approvalStatus = 'skipped'
+        card.skippedReason = `Cooldown: ${symbol} rejected <2h ago — need ${cooldownThreshold}%+ confidence (got ${card.signal!.confidence + card.newsImpact.confidenceDelta}%)`
+      }
+      return 'completed'
+    }
+    qualifying.length = 0
+    qualifying.push(...afterCooldown)
   }
 
   // ── Policy engine gate: LLM validates card results before execution ───────
@@ -242,10 +332,24 @@ async function autoExecuteBest(
   const adjustedConf = best.signal!.confidence + best.newsImpact.confidenceDelta
 
   // ── Confluence bonus: 2+ frameworks agree → increase position size ─────────
-  // Each additional agreeing framework adds 25%, capped at 2× maxTradeUsd.
   const agreeingCount = qualifying.filter(c => c.signal?.bias === best.signal!.bias).length
   const confluenceMultiplier = Math.min(2, 1 + (agreeingCount - 1) * 0.25)
-  const tradeAmount = config.maxTradeUsd * confluenceMultiplier
+
+  // ── Portfolio-derived position sizing (risk-based) ─────────────────────────
+  // Risk 1% of portfolio per trade, sized from SL distance. Cap at maxTradeUsd.
+  const entryMid   = (best.signal!.entry_zone.low + best.signal!.entry_zone.high) / 2
+  const slDistance = entryMid > 0 && best.signal!.stop_loss > 0
+    ? Math.abs(entryMid - best.signal!.stop_loss) / entryMid
+    : 0.02
+  const portfolioRisk  = (walletState.totalValueUsd ?? 0) * 0.01
+  const riskBasedSize  = slDistance > 0 ? portfolioRisk / slDistance : config.maxTradeUsd
+  const tradeAmount    = Math.min(riskBasedSize * confluenceMultiplier, config.maxTradeUsd)
+
+  // ── Volume check — flag low-liquidity setups in the rationale ─────────────
+  const vol24h    = await fetch24hVolumeUsd(`${symbol}USDT`)
+  const volumeTag = vol24h !== null
+    ? ` [vol $${(vol24h / 1e6).toFixed(0)}M${vol24h < 30_000_000 ? ' ⚠ low-vol' : ''}]`
+    : ''
 
   const intent: TradeIntent = {
     type:            'propose_trade',
@@ -253,7 +357,10 @@ async function autoExecuteBest(
     tokenOut:        symbol,
     amountUsd:       tradeAmount,
     maxSlippageBps:  50,
-    rationale:       best.signal!.reasoning + (agreeingCount >= 2 ? ` [${agreeingCount} frameworks confluent → ${confluenceMultiplier.toFixed(2)}× size]` : ''),
+    rationale:       best.signal!.reasoning +
+                     (agreeingCount >= 2 ? ` [${agreeingCount} frameworks confluent → ${confluenceMultiplier.toFixed(2)}× size]` : '') +
+                     ` [risk-sized: 1% of $${(walletState.totalValueUsd ?? 0).toFixed(0)} / ${(slDistance * 100).toFixed(1)}% SL = $${tradeAmount.toFixed(0)}]` +
+                     volumeTag,
     stopLossPrice:   best.signal!.stop_loss,
     takeProfitPrice: best.signal!.take_profit_levels[0],
     entryZoneLow:    best.signal!.entry_zone.low,
@@ -377,13 +484,19 @@ export async function approveCard(
   const walletState = await loadWalletState(userId, config)
   const adjustedConf = card.signal.confidence + card.newsImpact.confidenceDelta
 
+  // Portfolio-derived sizing (same logic as autoExecuteBest)
+  const entryMid     = (card.signal.entry_zone.low + card.signal.entry_zone.high) / 2
+  const slDistance   = entryMid > 0 && card.signal.stop_loss > 0 ? Math.abs(entryMid - card.signal.stop_loss) / entryMid : 0.02
+  const riskBasedSize = slDistance > 0 ? ((walletState.totalValueUsd ?? 0) * 0.01) / slDistance : config.maxTradeUsd
+  const tradeAmount  = Math.min(riskBasedSize, config.maxTradeUsd)
+
   const intent: TradeIntent = {
     type:            'propose_trade',
     tokenIn:         'USDC',
     tokenOut:        run.symbol,
-    amountUsd:       config.maxTradeUsd,
+    amountUsd:       tradeAmount,
     maxSlippageBps:  50,
-    rationale:       card.signal.reasoning,
+    rationale:       card.signal.reasoning + ` [manual approve · risk-sized: 1% of $${(walletState.totalValueUsd ?? 0).toFixed(0)} / ${(slDistance * 100).toFixed(1)}% SL = $${tradeAmount.toFixed(0)}]`,
     stopLossPrice:   card.signal.stop_loss,
     takeProfitPrice: card.signal.take_profit_levels[0],
     entryZoneLow:    card.signal.entry_zone.low,

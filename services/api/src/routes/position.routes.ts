@@ -4,7 +4,7 @@
 
 import { Router } from 'express'
 import { auth }   from '../middleware/auth'
-import { listPositions, getDailyPnl, getPnlSummary, updatePosition } from '../controllers/position.controller'
+import { listPositions, getDailyPnl, getPnlSummary, updatePosition, partialExitPosition } from '../controllers/position.controller'
 
 const router = Router()
 router.use(auth)
@@ -12,7 +12,8 @@ router.use(auth)
 router.get('/pnl/daily',          getDailyPnl)
 router.get('/pnl/summary',        getPnlSummary)
 router.get('/',                   listPositions)
-router.patch('/:positionId',      updatePosition)
+router.patch('/:positionId',              updatePosition)
+router.post('/:positionId/partial-exit',  partialExitPosition)
 
 export default router
 
