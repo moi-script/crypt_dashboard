@@ -373,8 +373,24 @@ function RunsTab({ accentColor }: { accentColor: string }) {
             Pending Approval ({approvals.length})
           </p>
           {approvals.map(ap => {
-            const intent = ap.decision?.intent;
+            const intent   = ap.decision?.intent;
             const isActing = approving === ap.runId;
+
+            // R:R ratio from snapshot levels
+            const rrApproval = ap.chartSnapshot ? (() => {
+              const entry  = (ap.chartSnapshot.entryZone.low + ap.chartSnapshot.entryZone.high) / 2;
+              const risk   = entry - ap.chartSnapshot.stopLoss;
+              const reward = (ap.chartSnapshot.takeProfitLevels[0] ?? 0) - entry;
+              return risk > 0 && reward > 0 ? (reward / risk) : null;
+            })() : null;
+
+            // Position sizing — risk in $ from SL distance
+            const riskUsdApproval = ap.chartSnapshot && intent?.amountUsd ? (() => {
+              const entry  = (ap.chartSnapshot.entryZone.low + ap.chartSnapshot.entryZone.high) / 2;
+              const riskPt = entry > 0 ? (entry - ap.chartSnapshot.stopLoss) / entry : 0;
+              return { riskPct: riskPt * 100, riskUsd: riskPt * intent.amountUsd };
+            })() : null;
+
             return (
               <div key={ap.runId} style={{
                 borderRadius: 10, background: "rgb(8,18,32)",
@@ -395,6 +411,18 @@ function RunsTab({ accentColor }: { accentColor: string }) {
                       ${intent.amountUsd}
                     </span>
                   )}
+                  {/* R:R badge */}
+                  {rrApproval !== null && (
+                    <span style={{
+                      fontSize: 11, fontWeight: 800, fontFamily: "var(--font-mono)",
+                      color: rrApproval >= 2 ? "#00e5a0" : rrApproval >= 1 ? "#ffb020" : "#ff5572",
+                      background: (rrApproval >= 2 ? "#00e5a0" : rrApproval >= 1 ? "#ffb020" : "#ff5572") + "12",
+                      border: `1px solid ${(rrApproval >= 2 ? "#00e5a0" : rrApproval >= 1 ? "#ffb020" : "#ff5572")}30`,
+                      padding: "2px 8px", borderRadius: 5,
+                    }}>
+                      R:R 1:{rrApproval.toFixed(1)}
+                    </span>
+                  )}
                   {ap.decision?.confidence != null && (
                     <span style={{ fontSize: 11, color: "rgba(255,255,255,0.35)", marginLeft: "auto", fontFamily: "var(--font-mono)" }}>
                       {ap.decision.confidence}% conf
@@ -402,9 +430,9 @@ function RunsTab({ accentColor }: { accentColor: string }) {
                   )}
                 </div>
 
-                {/* SL · TP summary */}
+                {/* SL · TP summary + framework + risk sizing */}
                 {ap.chartSnapshot && (
-                  <div style={{ padding: "0 12px 8px", display: "flex", gap: 14 }}>
+                  <div style={{ padding: "0 12px 8px", display: "flex", gap: 14, flexWrap: "wrap", alignItems: "center" }}>
                     <span style={{ fontSize: 11, color: "#ff5572", fontFamily: "var(--font-mono)" }}>
                       SL {ap.chartSnapshot.stopLoss.toLocaleString()}
                     </span>
@@ -413,20 +441,25 @@ function RunsTab({ accentColor }: { accentColor: string }) {
                         TP{i + 1} {tp.toLocaleString()}
                       </span>
                     ))}
-                    <span style={{ fontSize: 11, color: "#a78bfa", fontFamily: "var(--font-mono)", marginLeft: "auto" }}>
+                    <span style={{ fontSize: 10, color: "#a78bfa", fontFamily: "var(--font-mono)", marginLeft: "auto" }}>
                       {ap.chartSnapshot.framework}
                     </span>
+                    {riskUsdApproval && (
+                      <span style={{ fontSize: 10, fontFamily: "var(--font-mono)", color: "rgba(255,255,255,0.3)" }}>
+                        risking ${riskUsdApproval.riskUsd.toFixed(2)} · {riskUsdApproval.riskPct.toFixed(1)}%
+                      </span>
+                    )}
                   </div>
                 )}
 
-                {/* Interactive chart — click to expand with scroll/zoom/timeframe switching */}
+                {/* Interactive chart — 1D default, click to expand */}
                 {ap.chartSnapshot && (
                   <div style={{ padding: "0 12px 10px" }}>
                     <div style={{ fontSize: 9, fontFamily: "var(--font-mono)", color: "rgba(255,255,255,0.3)", marginBottom: 4, display: "flex", justifyContent: "space-between" }}>
-                      <span>{ap.chartSnapshot.binanceSymbol} · 4H</span>
+                      <span>{ap.chartSnapshot.binanceSymbol} · 1D</span>
                       <span style={{ color: "rgba(255,255,255,0.2)" }}>click to expand</span>
                     </div>
-                    <MiniChart snapshot={ap.chartSnapshot} />
+                    <MiniChart snapshot={ap.chartSnapshot} defaultTimeframe="1d" />
                   </div>
                 )}
 
@@ -495,10 +528,28 @@ function RunsTab({ accentColor }: { accentColor: string }) {
                 onClick={() => setExpanded(isOpen ? null : run.runId)}
                 style={{ width: "100%", padding: "12px 14px", background: "transparent", border: "none", cursor: "pointer", textAlign: "left" }}
               >
-                {/* Row 1: badges + time + chevron */}
+                {/* Row 1: badges + win/loss + time + chevron */}
                 <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 6 }}>
                   <StatusBadge status={run.status} />
                   {run.decision && <IntentBadge type={run.decision.intent.type} />}
+                  {/* WIN / LOSS badge */}
+                  {execOk && pnl !== undefined && (
+                    <span style={{
+                      fontSize: 10, fontWeight: 800, fontFamily: "var(--font-mono)",
+                      color: pnl >= 0 ? "#00e5a0" : "#ff5572",
+                      background: (pnl >= 0 ? "#00e5a0" : "#ff5572") + "18",
+                      border: `1px solid ${(pnl >= 0 ? "#00e5a0" : "#ff5572")}35`,
+                      padding: "2px 8px", borderRadius: 20,
+                    }}>
+                      {pnl >= 0 ? "WIN" : "LOSS"} {pnl >= 0 ? "+" : ""}${pnl.toFixed(2)}
+                    </span>
+                  )}
+                  {/* No-action reason chip */}
+                  {run.decision?.intent.type === "no_action" && run.decision.intent.rationale && (
+                    <span style={{ fontSize: 10, fontFamily: "var(--font-mono)", color: "rgba(255,255,255,0.25)", background: "rgba(255,255,255,0.04)", padding: "2px 7px", borderRadius: 5, maxWidth: 160, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                      {run.decision.intent.rationale.slice(0, 50)}
+                    </span>
+                  )}
                   <span style={{ marginLeft: "auto", fontSize: 10, color: "rgba(255,255,255,0.25)", fontFamily: "var(--font-mono)", flexShrink: 0 }}>
                     {new Date(run.startedAt).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" })}
                     {dur !== null && <span style={{ color: "rgba(255,255,255,0.15)" }}> · {dur}s</span>}
@@ -919,85 +970,190 @@ function positionSnapshot(pos: Position) {
 // ── POSITIONS TAB ─────────────────────────────────────────────────────────────
 
 function PositionsTab({ accentColor }: { accentColor: string }) {
-  const [positions,  setPositions]  = useState<Position[]>([]);
-  const [pnl,        setPnl]        = useState<PnlSummary | null>(null);
-  const [loading,    setLoading]    = useState(true);
+  const [positions,   setPositions]   = useState<Position[]>([]);
+  const [pnl,         setPnl]         = useState<PnlSummary | null>(null);
+  const [loading,     setLoading]     = useState(true);
+  const [livePrices,  setLivePrices]  = useState<Record<string, number>>({});
+  const [trailInputs, setTrailInputs] = useState<Record<string, string>>({});
+  const [updatingSl,  setUpdatingSl]  = useState<Record<string, boolean>>({});
   const pnlColor = (v: number) => v >= 0 ? "#00e5a0" : "#ff5572";
 
-  useEffect(() => {
-    Promise.all([
-      apiClient.get<{ positions: Position[]; count: number }>("/positions?limit=30"),
-      apiClient.get<PnlSummary>("/positions/pnl/summary"),
-    ])
-      .then(([pos, summary]) => { setPositions(pos.positions ?? []); setPnl(summary); })
-      .catch(() => {})
-      .finally(() => setLoading(false));
+  const reloadPositions = useCallback(async () => {
+    try {
+      const [pos, summary] = await Promise.all([
+        apiClient.get<{ positions: Position[]; count: number }>("/positions?limit=30"),
+        apiClient.get<PnlSummary>("/positions/pnl/summary"),
+      ]);
+      setPositions(pos.positions ?? []);
+      setPnl(summary);
+    } catch {}
   }, []);
+
+  useEffect(() => {
+    reloadPositions().finally(() => setLoading(false));
+  }, [reloadPositions]);
+
+  // Live price feed — poll Binance for every open position symbol every 10s
+  useEffect(() => {
+    const openSymbols = [...new Set(
+      positions.filter(p => (p.status ?? (p.isOpen ? "open" : "closed")) === "open" && p.entryPrice).map(p => p.tokenOut)
+    )];
+    if (!openSymbols.length) return;
+    const fetchPrices = async () => {
+      const prices: Record<string, number> = {};
+      await Promise.all(openSymbols.map(async sym => {
+        try {
+          const r = await fetch(`https://api.binance.com/api/v3/ticker/price?symbol=${sym}USDT`);
+          const d = await r.json() as { price: string };
+          const p = parseFloat(d.price);
+          if (isFinite(p) && p > 0) prices[sym] = p;
+        } catch {}
+      }));
+      setLivePrices(prices);
+    };
+    fetchPrices();
+    const id = setInterval(fetchPrices, 10_000);
+    return () => clearInterval(id);
+  }, [positions]);
+
+  // Drawdown / risk stats from closed position history
+  const riskStats = (() => {
+    const closed = positions
+      .filter(p => p.status === "closed" && p.realizedPnlUsd !== undefined)
+      .sort((a, b) => new Date(a.exitAt ?? a.entryAt).getTime() - new Date(b.exitAt ?? b.entryAt).getTime());
+    let peak = 0, equity = 0, maxDrawdown = 0, maxDrawdownPct = 0, worstLoss = 0, streak = 0, maxStreak = 0;
+    for (const p of closed) {
+      const v = p.realizedPnlUsd ?? 0;
+      equity += v;
+      if (equity > peak) peak = equity;
+      const dd = peak > 0 ? peak - equity : 0;
+      const ddPct = peak > 0 ? (dd / peak) * 100 : 0;
+      if (dd > maxDrawdown) { maxDrawdown = dd; maxDrawdownPct = ddPct; }
+      if (v < 0) { streak++; if (streak > maxStreak) maxStreak = streak; if (v < worstLoss) worstLoss = v; }
+      else streak = 0;
+    }
+    return { maxDrawdown, maxDrawdownPct, worstLoss, maxStreak };
+  })();
+
+  const moveToBreakeven = async (pos: Position) => {
+    if (!pos.entryPrice) return;
+    setUpdatingSl(prev => ({ ...prev, [pos.positionId]: true }));
+    try { await apiClient.patch(`/positions/${pos.positionId}`, { stopLossPrice: pos.entryPrice }); await reloadPositions(); }
+    catch {} finally { setUpdatingSl(prev => ({ ...prev, [pos.positionId]: false })); }
+  };
+
+  const applyTrailing = async (pos: Position) => {
+    const pct = parseFloat(trailInputs[pos.positionId] ?? "");
+    const cur = livePrices[pos.tokenOut];
+    if (!isFinite(pct) || pct <= 0 || pct > 20 || !cur) return;
+    const newSl = parseFloat((cur * (1 - pct / 100)).toFixed(2));
+    setUpdatingSl(prev => ({ ...prev, [pos.positionId]: true }));
+    try { await apiClient.patch(`/positions/${pos.positionId}`, { stopLossPrice: newSl }); await reloadPositions(); }
+    catch {} finally { setUpdatingSl(prev => ({ ...prev, [pos.positionId]: false })); }
+  };
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
       {pnl && (
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 7 }}>
-          {[
-            { label: "Total PnL",  val: `${pnl.totalPnlUsd >= 0 ? "+" : ""}$${pnl.totalPnlUsd.toFixed(2)}`, color: pnlColor(pnl.totalPnlUsd) },
-            { label: "Win Rate",   val: pnl.winRate !== null ? `${pnl.winRate}%` : "—",                        color: "rgba(255,255,255,0.7)" },
-            { label: "Open",       val: String(pnl.openPositions),                                              color: accentColor },
-            { label: "Trades",     val: String(pnl.totalTrades),                                                color: "rgba(255,255,255,0.7)" },
-          ].map(s => (
-            <div key={s.label} style={{ padding: "10px 8px", borderRadius: 10, background: "rgb(8,18,32)", border: "1px solid rgba(255,255,255,0.07)", textAlign: "center" }}>
-              <p style={{ fontSize: 18, fontWeight: 700, color: s.color, margin: "0 0 2px", fontFamily: "var(--font-mono)" }}>{s.val}</p>
-              <p style={{ fontSize: 10, color: "rgba(255,255,255,0.35)", margin: 0, textTransform: "uppercase", letterSpacing: "0.05em" }}>{s.label}</p>
+        <>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 7 }}>
+            {[
+              { label: "Total PnL", val: `${pnl.totalPnlUsd >= 0 ? "+" : ""}$${pnl.totalPnlUsd.toFixed(2)}`, color: pnlColor(pnl.totalPnlUsd) },
+              { label: "Win Rate",  val: pnl.winRate !== null ? `${pnl.winRate}%` : "—",                        color: "rgba(255,255,255,0.7)" },
+              { label: "Open",      val: String(pnl.openPositions),                                              color: accentColor },
+              { label: "Trades",    val: String(pnl.totalTrades),                                                color: "rgba(255,255,255,0.7)" },
+            ].map(s => (
+              <div key={s.label} style={{ padding: "10px 8px", borderRadius: 10, background: "rgb(8,18,32)", border: "1px solid rgba(255,255,255,0.07)", textAlign: "center" }}>
+                <p style={{ fontSize: 18, fontWeight: 700, color: s.color, margin: "0 0 2px", fontFamily: "var(--font-mono)" }}>{s.val}</p>
+                <p style={{ fontSize: 10, color: "rgba(255,255,255,0.35)", margin: 0, textTransform: "uppercase", letterSpacing: "0.05em" }}>{s.label}</p>
+              </div>
+            ))}
+          </div>
+          {/* Risk stats row — drawdown, worst loss, loss streak */}
+          {positions.some(p => p.status === "closed") && (
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 7 }}>
+              {[
+                { label: "Max Drawdown", val: riskStats.maxDrawdown > 0 ? `-$${riskStats.maxDrawdown.toFixed(2)}` : "—", color: riskStats.maxDrawdown > 0 ? "#ff5572" : "rgba(255,255,255,0.3)" },
+                { label: "Worst Loss",   val: riskStats.worstLoss  < 0 ? `$${riskStats.worstLoss.toFixed(2)}`   : "—",  color: riskStats.worstLoss  < 0 ? "#ff5572" : "rgba(255,255,255,0.3)" },
+                { label: "Loss Streak",  val: riskStats.maxStreak  > 0 ? String(riskStats.maxStreak)            : "—",  color: riskStats.maxStreak  > 0 ? "#ffb020" : "rgba(255,255,255,0.3)" },
+              ].map(s => (
+                <div key={s.label} style={{ padding: "8px 6px", borderRadius: 10, background: "rgb(8,18,32)", border: "1px solid rgba(255,85,114,0.1)", textAlign: "center" }}>
+                  <p style={{ fontSize: 15, fontWeight: 700, color: s.color, margin: "0 0 2px", fontFamily: "var(--font-mono)" }}>{s.val}</p>
+                  <p style={{ fontSize: 9, color: "rgba(255,255,255,0.25)", margin: 0, textTransform: "uppercase", letterSpacing: "0.05em" }}>{s.label}</p>
+                </div>
+              ))}
             </div>
-          ))}
-        </div>
+          )}
+        </>
       )}
 
       {loading && positions.length === 0 && <EmptyMsg msg="Loading…" />}
       <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
         {positions.map(pos => {
-          const status = pos.status ?? (pos.isOpen ? "open" : "closed");
+          const status      = pos.status ?? (pos.isOpen ? "open" : "closed");
+          const isOpen      = status === "open";
+          const isPending   = status === "pending";
           const badge = {
-            pending:   { label: "Pending", color: "#ffb020" },
-            open:      { label: "Open",     color: accentColor },
-            closed:    { label: "Closed",   color: "rgba(255,255,255,0.25)" },
-            cancelled: { label: "Cancelled", color: "#ff5572" },
+            pending:   { label: "Pending",   color: "#ffb020" },
+            open:      { label: "Open",       color: accentColor },
+            closed:    { label: "Closed",     color: "rgba(255,255,255,0.25)" },
+            cancelled: { label: "Cancelled",  color: "#ff5572" },
           }[status];
-          const isPending = status === "pending";
-          // Infer how a closed position was exited by comparing exit price vs SL/TP levels
           const closeReason = status === "closed" && pos.exitPrice !== undefined
             ? pos.stopLossPrice   !== undefined && pos.exitPrice <= pos.stopLossPrice   * 1.001 ? "sl_triggered"
             : pos.takeProfitPrice !== undefined && pos.exitPrice >= pos.takeProfitPrice * 0.999 ? "tp_hit"
             : "closed"
             : null;
+
+          // Live data for open positions
+          const livePrice   = isOpen && pos.entryPrice ? livePrices[pos.tokenOut] : undefined;
+          const livePct     = livePrice && pos.entryPrice ? ((livePrice - pos.entryPrice) / pos.entryPrice) * 100 : undefined;
+          const livePnlUsd  = livePct !== undefined ? (livePct / 100) * pos.entryAmountUsd : undefined;
+          const nearSl      = livePrice && pos.stopLossPrice   ? livePrice <= pos.stopLossPrice   * 1.02 : false;
+          const nearTp      = livePrice && pos.takeProfitPrice ? livePrice >= pos.takeProfitPrice * 0.98 : false;
+
+          // R:R ratio
+          const rrRatio = pos.stopLossPrice && pos.takeProfitPrice && pos.entryPrice ? (() => {
+            const risk   = pos.entryPrice - pos.stopLossPrice;
+            const reward = pos.takeProfitPrice - pos.entryPrice;
+            return risk > 0 ? (reward / risk) : null;
+          })() : null;
+
           return (
-            <div key={pos.positionId} style={{ padding: "11px 12px", borderRadius: 10, background: "rgb(8,18,32)", border: `1px solid ${status === "open" ? accentColor + "25" : isPending ? "#ffb02033" : closeReason === "sl_triggered" ? "#ff557222" : closeReason === "tp_hit" ? "#00e5a022" : "rgba(255,255,255,0.07)"}` }}>
+            <div key={pos.positionId} style={{
+              padding: "11px 12px", borderRadius: 10, background: "rgb(8,18,32)",
+              border: `1px solid ${isOpen ? (nearSl ? "#ff557240" : nearTp ? "#00e5a040" : accentColor + "25") : isPending ? "#ffb02033" : closeReason === "sl_triggered" ? "#ff557222" : closeReason === "tp_hit" ? "#00e5a022" : "rgba(255,255,255,0.07)"}`,
+              boxShadow: nearSl ? "0 0 14px rgba(255,85,114,0.07)" : nearTp ? "0 0 14px rgba(0,229,160,0.07)" : "none",
+            }}>
+              {/* Row 1: pair name + close reason + proximity alerts + status badge */}
               <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 5 }}>
                 <span style={{ fontSize: 14, fontWeight: 600, color: "rgba(255,255,255,0.85)", fontFamily: "var(--font-display,sans-serif)" }}>
                   {pos.tokenIn} → {pos.tokenOut}
                 </span>
-                {/* Auto-close badge */}
                 {closeReason === "sl_triggered" && (
-                  <span style={{ fontSize: 10, fontWeight: 700, color: "#ff5572", background: "#ff557218", border: "1px solid #ff557230", padding: "2px 7px", borderRadius: 5 }}>
-                    ⚡ SL Auto-closed
-                  </span>
+                  <span style={{ fontSize: 10, fontWeight: 700, color: "#ff5572", background: "#ff557218", border: "1px solid #ff557230", padding: "2px 7px", borderRadius: 5 }}>⚡ SL Auto-closed</span>
                 )}
                 {closeReason === "tp_hit" && (
-                  <span style={{ fontSize: 10, fontWeight: 700, color: "#00e5a0", background: "#00e5a018", border: "1px solid #00e5a030", padding: "2px 7px", borderRadius: 5 }}>
-                    ✓ TP Hit
-                  </span>
+                  <span style={{ fontSize: 10, fontWeight: 700, color: "#00e5a0", background: "#00e5a018", border: "1px solid #00e5a030", padding: "2px 7px", borderRadius: 5 }}>✓ TP Hit</span>
+                )}
+                {nearSl && (
+                  <span style={{ fontSize: 10, fontWeight: 700, color: "#ff5572", background: "#ff557218", border: "1px solid #ff557240", padding: "2px 7px", borderRadius: 5 }}>⚠ Near SL</span>
+                )}
+                {nearTp && !nearSl && (
+                  <span style={{ fontSize: 10, fontWeight: 700, color: "#00e5a0", background: "#00e5a018", border: "1px solid #00e5a040", padding: "2px 7px", borderRadius: 5 }}>⬆ Near TP</span>
                 )}
                 <span style={{ fontSize: 11, fontWeight: 700, color: badge.color, background: `${badge.color}1f`, padding: "2px 7px", borderRadius: 5, marginLeft: "auto" }}>
                   {badge.label}
                 </span>
               </div>
 
+              {/* Row 2: amount / price / realized P&L */}
               <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
                 <span style={{ fontSize: 12, color: "rgba(255,255,255,0.4)", fontFamily: "var(--font-mono)" }}>
                   {isPending
                     ? `$${pos.entryAmountUsd.toFixed(2)} · limit${pos.entryZoneLow !== undefined && pos.entryZoneHigh !== undefined ? ` @ $${pos.entryZoneLow.toFixed(2)}–$${pos.entryZoneHigh.toFixed(2)}` : ""}`
                     : `$${pos.entryAmountUsd.toFixed(2)}${pos.entryPrice !== undefined ? ` @ $${pos.entryPrice.toFixed(4)}` : ""}`}
                 </span>
-                {/* Entry → Exit price trail for closed positions */}
                 {status === "closed" && pos.exitPrice !== undefined && pos.entryPrice !== undefined && (
                   <span style={{ fontSize: 11, fontFamily: "var(--font-mono)", color: "rgba(255,255,255,0.3)" }}>
                     <span style={{ color: "rgba(255,255,255,0.45)" }}>${pos.entryPrice.toFixed(4)}</span>
@@ -1017,31 +1173,106 @@ function PositionsTab({ accentColor }: { accentColor: string }) {
                 )}
               </div>
 
+              {/* Row 3: strategy meta */}
               <p style={{ fontSize: 11, color: "rgba(255,255,255,0.25)", margin: "5px 0 0", fontFamily: "var(--font-mono)" }}>
                 {pos.strategy}{pos.framework ? ` · ${pos.framework}` : ""}{pos.confidence !== undefined ? ` · ${pos.confidence}% conf` : ""}
                 {" · "}{new Date(pos.entryAt).toLocaleString("en-GB", { dateStyle: "short", timeStyle: "short" })}
                 {pos.exitAt && <span> → {new Date(pos.exitAt).toLocaleString("en-GB", { dateStyle: "short", timeStyle: "short" })}</span>}
               </p>
 
+              {/* Row 4: SL / TP / R:R */}
               {(pos.stopLossPrice !== undefined || pos.takeProfitPrice !== undefined) && (
                 <p style={{ fontSize: 11, color: "rgba(255,255,255,0.35)", margin: "3px 0 0", fontFamily: "var(--font-mono)" }}>
                   {pos.stopLossPrice   !== undefined && <span style={{ color: closeReason === "sl_triggered" ? "#ff5572" : "rgba(255,85,114,0.6)" }}>SL ${pos.stopLossPrice.toFixed(2)}</span>}
                   {pos.stopLossPrice   !== undefined && pos.takeProfitPrice !== undefined && "  ·  "}
                   {pos.takeProfitPrice !== undefined && <span style={{ color: closeReason === "tp_hit" ? "#00e5a0" : "rgba(0,229,160,0.6)" }}>TP ${pos.takeProfitPrice.toFixed(2)}</span>}
+                  {rrRatio !== null && (
+                    <span style={{ marginLeft: 10, color: rrRatio >= 2 ? "rgba(0,229,160,0.55)" : rrRatio >= 1 ? "rgba(255,176,32,0.55)" : "rgba(255,85,114,0.55)" }}>
+                      R:R 1:{rrRatio.toFixed(1)}
+                    </span>
+                  )}
                 </p>
               )}
 
-              {/* Chart — same interactive MiniChart as the approval cards */}
+              {/* ── Live P&L block (open positions with a live price) ── */}
+              {isOpen && livePrice && livePct !== undefined && livePnlUsd !== undefined && (
+                <div style={{ marginTop: 8, padding: "8px 10px", borderRadius: 8, background: livePct >= 0 ? "#00e5a00a" : "#ff55720a", border: `1px solid ${livePct >= 0 ? "#00e5a020" : "#ff557220"}` }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
+                    <span style={{ fontSize: 11, color: "rgba(255,255,255,0.4)", fontFamily: "var(--font-mono)" }}>
+                      ${(pos.entryPrice ?? 0).toLocaleString()} → <span style={{ color: livePct >= 0 ? "#00e5a0" : "#ff5572", fontWeight: 700 }}>${livePrice.toLocaleString()}</span>
+                    </span>
+                    <span style={{ fontSize: 13, fontWeight: 800, color: livePct >= 0 ? "#00e5a0" : "#ff5572", fontFamily: "var(--font-mono)" }}>
+                      {livePnlUsd >= 0 ? "+" : ""}${livePnlUsd.toFixed(2)} · {livePct >= 0 ? "+" : ""}{livePct.toFixed(2)}%
+                    </span>
+                  </div>
+                  <div style={{ display: "flex", gap: 14, flexWrap: "wrap" }}>
+                    {pos.stopLossPrice && (
+                      <span style={{ fontSize: 10, fontFamily: "var(--font-mono)", color: nearSl ? "#ff5572" : "rgba(255,85,114,0.55)" }}>
+                        SL {(((pos.stopLossPrice - livePrice) / livePrice) * 100).toFixed(2)}% away
+                      </span>
+                    )}
+                    {pos.takeProfitPrice && (
+                      <span style={{ fontSize: 10, fontFamily: "var(--font-mono)", color: nearTp ? "#00e5a0" : "rgba(0,229,160,0.55)" }}>
+                        TP {(((pos.takeProfitPrice - livePrice) / livePrice) * 100).toFixed(2)}% away
+                      </span>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {/* ── SL management controls (open positions only) ── */}
+              {isOpen && pos.entryPrice && (
+                <div style={{ marginTop: 7, display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
+                  <button
+                    onClick={() => moveToBreakeven(pos)}
+                    disabled={!!updatingSl[pos.positionId]}
+                    style={{
+                      padding: "5px 10px", borderRadius: 6, border: "1px solid #ffb02040",
+                      background: "#ffb02010", color: "#ffb020", fontSize: 10,
+                      fontFamily: "var(--font-mono)", cursor: updatingSl[pos.positionId] ? "not-allowed" : "pointer",
+                      fontWeight: 700, opacity: updatingSl[pos.positionId] ? 0.5 : 1,
+                    }}
+                  >
+                    {updatingSl[pos.positionId] ? "…" : "Move SL → BE"}
+                  </button>
+                  <input
+                    type="number" min="0.1" max="20" step="0.1"
+                    placeholder="Trail %"
+                    value={trailInputs[pos.positionId] ?? ""}
+                    onChange={e => setTrailInputs(prev => ({ ...prev, [pos.positionId]: e.target.value }))}
+                    style={{
+                      width: 62, padding: "4px 7px", borderRadius: 6,
+                      border: "1px solid rgba(255,255,255,0.1)",
+                      background: "rgba(255,255,255,0.04)", color: "rgba(255,255,255,0.65)",
+                      fontSize: 11, fontFamily: "var(--font-mono)", outline: "none",
+                    }}
+                  />
+                  <button
+                    onClick={() => applyTrailing(pos)}
+                    disabled={!!updatingSl[pos.positionId] || !trailInputs[pos.positionId]}
+                    style={{
+                      padding: "5px 10px", borderRadius: 6, border: "1px solid rgba(255,255,255,0.1)",
+                      background: "rgba(255,255,255,0.04)", color: "rgba(255,255,255,0.45)",
+                      fontSize: 10, fontFamily: "var(--font-mono)", cursor: "pointer",
+                      opacity: !trailInputs[pos.positionId] ? 0.35 : 1,
+                    }}
+                  >
+                    Set Trail
+                  </button>
+                </div>
+              )}
+
+              {/* Chart */}
               {(() => {
                 const snap = positionSnapshot(pos);
                 if (!snap) return null;
                 return (
                   <div style={{ marginTop: 10 }}>
                     <div style={{ fontSize: 9, fontFamily: "var(--font-mono)", color: "rgba(255,255,255,0.25)", marginBottom: 3, display: "flex", justifyContent: "space-between" }}>
-                      <span>{snap.binanceSymbol} · 4H</span>
+                      <span>{snap.binanceSymbol} · 1D</span>
                       <span style={{ color: "rgba(255,255,255,0.15)" }}>click to expand</span>
                     </div>
-                    <MiniChart snapshot={snap} />
+                    <MiniChart snapshot={snap} defaultTimeframe="1d" />
                   </div>
                 );
               })()}
@@ -1059,13 +1290,20 @@ function PositionsTab({ accentColor }: { accentColor: string }) {
 function SignalsTab({ accentColor }: { accentColor: string }) {
   const [opps,    setOpps]    = useState<Opportunity[]>([]);
   const [loading, setLoading] = useState(true);
+  const [acting,  setActing]  = useState<Record<string, boolean>>({});
 
-  useEffect(() => {
-    apiClient.get<{ opportunities: Opportunity[]; count: number }>("/opportunities?limit=30")
-      .then(d => setOpps(d.opportunities ?? []))
-      .catch(() => {})
-      .finally(() => setLoading(false));
+  const reload = useCallback(async () => {
+    try { const d = await apiClient.get<{ opportunities: Opportunity[]; count: number }>("/opportunities?limit=30"); setOpps(d.opportunities ?? []); }
+    catch {}
   }, []);
+
+  useEffect(() => { reload().finally(() => setLoading(false)); }, [reload]);
+
+  const deploy = async (opp: Opportunity) => {
+    setActing(prev => ({ ...prev, [opp.opportunityId]: true }));
+    try { await apiClient.post(`/opportunities/${opp.opportunityId}/act`, { actionTaken: "capital_deployed" }); await reload(); }
+    catch {} finally { setActing(prev => ({ ...prev, [opp.opportunityId]: false })); }
+  };
 
   const typeColor: Record<string, string> = {
     yield_anomaly:   "#00e5a0",
@@ -1079,9 +1317,10 @@ function SignalsTab({ accentColor }: { accentColor: string }) {
     <div style={{ display: "flex", flexDirection: "column", gap: 7 }}>
       {loading && opps.length === 0 && <EmptyMsg msg="Loading…" />}
       {opps.map(opp => {
-        const col = typeColor[opp.type] ?? "#94a3b8";
+        const col      = typeColor[opp.type] ?? "#94a3b8";
+        const isActing = acting[opp.opportunityId];
         return (
-          <div key={opp.opportunityId} style={{ padding: "12px 12px", borderRadius: 10, background: "rgb(8,18,32)", border: `1px solid ${col}22` }}>
+          <div key={opp.opportunityId} style={{ padding: "12px 12px", borderRadius: 10, background: "rgb(8,18,32)", border: `1px solid ${opp.acted ? col + "40" : col + "22"}` }}>
             <div style={{ display: "flex", alignItems: "flex-start", gap: 8, marginBottom: 6 }}>
               <p style={{ fontFamily: "var(--font-display,sans-serif)", fontSize: 13, fontWeight: 600, color: "rgba(255,255,255,0.85)", margin: 0, flex: 1, lineHeight: 1.4 }}>
                 {opp.title}
@@ -1093,13 +1332,34 @@ function SignalsTab({ accentColor }: { accentColor: string }) {
                 <span style={{ fontSize: 13, fontWeight: 700, color: col, fontFamily: "var(--font-mono)" }}>{opp.score}</span>
               </div>
             </div>
-            <p style={{ fontFamily: "var(--font-display,sans-serif)", fontSize: 12, lineHeight: 1.6, color: "rgba(255,255,255,0.45)", margin: "0 0 6px" }}>{opp.detail}</p>
+            <p style={{ fontFamily: "var(--font-display,sans-serif)", fontSize: 12, lineHeight: 1.6, color: "rgba(255,255,255,0.45)", margin: "0 0 8px" }}>{opp.detail}</p>
             <div style={{ display: "flex", gap: 5, flexWrap: "wrap", alignItems: "center" }}>
               {opp.protocol && <span style={{ fontSize: 11, color: "rgba(255,255,255,0.4)", background: "rgba(255,255,255,0.05)", padding: "2px 6px", borderRadius: 4 }}>{opp.protocol}</span>}
               {opp.chain    && <span style={{ fontSize: 11, color: "rgba(255,255,255,0.4)", background: "rgba(255,255,255,0.05)", padding: "2px 6px", borderRadius: 4 }}>{opp.chain}</span>}
-              <span style={{ fontSize: 11, color: "rgba(255,255,255,0.25)", marginLeft: "auto" }}>
-                {opp.acted ? "✓ acted" : "• unacted"}
+              <span style={{ fontSize: 11, color: "rgba(255,255,255,0.25)" }}>
+                {new Date(opp.detectedAt).toLocaleString("en-GB", { dateStyle: "short", timeStyle: "short" })}
               </span>
+              <div style={{ marginLeft: "auto", display: "flex", gap: 5, alignItems: "center" }}>
+                {opp.acted ? (
+                  <span style={{ fontSize: 11, fontWeight: 700, color: col, background: `${col}12`, border: `1px solid ${col}30`, padding: "3px 10px", borderRadius: 6, fontFamily: "var(--font-mono)" }}>
+                    ✓ Deployed
+                  </span>
+                ) : (
+                  <button
+                    onClick={() => deploy(opp)}
+                    disabled={isActing}
+                    style={{
+                      padding: "5px 12px", borderRadius: 6,
+                      border: `1px solid ${col}50`, background: `${col}12`,
+                      color: col, fontSize: 11, fontWeight: 700,
+                      fontFamily: "var(--font-mono)", cursor: isActing ? "not-allowed" : "pointer",
+                      opacity: isActing ? 0.5 : 1,
+                    }}
+                  >
+                    {isActing ? "…" : "Deploy →"}
+                  </button>
+                )}
+              </div>
             </div>
           </div>
         );
@@ -1194,20 +1454,40 @@ function ProposalCard({
         </div>
       )}
 
-      {/* Levels */}
+      {/* Levels + R:R */}
       {card.signal && card.chartSnapshot && (
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 5, padding: "9px 12px 0" }}>
-          {[
-            { l: "Entry", v: `$${fmt2(card.chartSnapshot.entryZone.low)}–$${fmt2(card.chartSnapshot.entryZone.high)}`, c: "#00d4ff" },
-            { l: "SL",    v: `$${fmt2(card.chartSnapshot.stopLoss)}`, c: "#ff5572" },
-            { l: "TP1",   v: card.chartSnapshot.takeProfitLevels[0] ? `$${fmt2(card.chartSnapshot.takeProfitLevels[0])}` : "—", c: "#00e5a0" },
-          ].map(item => (
-            <div key={item.l} style={{ padding: "5px 7px", borderRadius: 7, background: `${item.c}08`, border: `1px solid ${item.c}18` }}>
-              <div style={{ fontFamily: "var(--font-mono)", fontSize: 8, color: "rgba(255,255,255,0.3)", marginBottom: 2, textTransform: "uppercase" }}>{item.l}</div>
-              <div style={{ fontFamily: "var(--font-mono)", fontSize: 10, fontWeight: 700, color: item.c }}>{item.v}</div>
-            </div>
-          ))}
-        </div>
+        <>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 5, padding: "9px 12px 0" }}>
+            {[
+              { l: "Entry", v: `$${fmt2(card.chartSnapshot.entryZone.low)}–$${fmt2(card.chartSnapshot.entryZone.high)}`, c: "#00d4ff" },
+              { l: "SL",    v: `$${fmt2(card.chartSnapshot.stopLoss)}`, c: "#ff5572" },
+              { l: "TP1",   v: card.chartSnapshot.takeProfitLevels[0] ? `$${fmt2(card.chartSnapshot.takeProfitLevels[0])}` : "—", c: "#00e5a0" },
+            ].map(item => (
+              <div key={item.l} style={{ padding: "5px 7px", borderRadius: 7, background: `${item.c}08`, border: `1px solid ${item.c}18` }}>
+                <div style={{ fontFamily: "var(--font-mono)", fontSize: 8, color: "rgba(255,255,255,0.3)", marginBottom: 2, textTransform: "uppercase" }}>{item.l}</div>
+                <div style={{ fontFamily: "var(--font-mono)", fontSize: 10, fontWeight: 700, color: item.c }}>{item.v}</div>
+              </div>
+            ))}
+          </div>
+          {/* R:R ratio row */}
+          {(() => {
+            const entry  = (card.chartSnapshot.entryZone.low + card.chartSnapshot.entryZone.high) / 2;
+            const risk   = entry - card.chartSnapshot.stopLoss;
+            const reward = (card.chartSnapshot.takeProfitLevels[0] ?? 0) - entry;
+            if (risk <= 0 || reward <= 0) return null;
+            const rr = reward / risk;
+            const rrColor = rr >= 2 ? "#00e5a0" : rr >= 1 ? "#ffb020" : "#ff5572";
+            return (
+              <div style={{ padding: "6px 12px 0", display: "flex", alignItems: "center", gap: 8 }}>
+                <span style={{ fontFamily: "var(--font-mono)", fontSize: 10, color: "rgba(255,255,255,0.25)" }}>R:R</span>
+                <span style={{ fontFamily: "var(--font-mono)", fontSize: 11, fontWeight: 800, color: rrColor }}>1:{rr.toFixed(1)}</span>
+                <div style={{ flex: 1, height: 3, borderRadius: 2, background: "rgba(255,255,255,0.06)", overflow: "hidden" }}>
+                  <div style={{ height: "100%", width: `${Math.min(rr / 3, 1) * 100}%`, background: rrColor, borderRadius: 2 }} />
+                </div>
+              </div>
+            );
+          })()}
+        </>
       )}
 
       {/* News */}

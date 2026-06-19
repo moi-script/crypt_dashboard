@@ -1,14 +1,36 @@
 /**
  * position.controller.ts
  *
- * GET /api/positions          — list open/closed positions
- * GET /api/positions/pnl/daily — today's PnL
- * GET /api/positions/pnl/summary — all-time PnL breakdown
+ * GET   /api/positions              — list open/closed positions
+ * PATCH /api/positions/:positionId  — update SL / TP on an open position
+ * GET   /api/positions/pnl/daily    — today's PnL
+ * GET   /api/positions/pnl/summary  — all-time PnL breakdown
  */
 
 import type { Response, NextFunction } from 'express'
 import type { AuthRequest }            from '../middleware/auth'
 import { PositionDoc, OrderDoc }       from '../models/position.model'
+
+export async function updatePosition(req: AuthRequest, res: Response, next: NextFunction) {
+  try {
+    const { positionId } = req.params
+    const allowed = ['stopLossPrice', 'takeProfitPrice']
+    const update: Record<string, number> = {}
+    for (const field of allowed) {
+      const v = req.body[field]
+      if (v !== undefined && isFinite(Number(v)) && Number(v) > 0) update[field] = Number(v)
+    }
+    if (!Object.keys(update).length) return res.status(400).json({ error: 'No valid fields to update' })
+
+    const pos = await PositionDoc.findOneAndUpdate(
+      { positionId, userId: req.userId!, isOpen: true },
+      { $set: update },
+      { new: true },
+    ).lean()
+    if (!pos) return res.status(404).json({ error: 'Position not found or not open' })
+    res.json({ ok: true, position: pos })
+  } catch (err) { next(err) }
+}
 
 export async function listPositions(req: AuthRequest, res: Response, next: NextFunction) {
   try {

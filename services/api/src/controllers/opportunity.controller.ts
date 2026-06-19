@@ -43,6 +43,20 @@ export async function getOpportunity(req: AuthRequest, res: Response, next: Next
   } catch (err) { next(err) }
 }
 
+export async function actOnOpportunity(req: AuthRequest, res: Response, next: NextFunction) {
+  try {
+    const { id } = req.params
+    const { actionTaken } = req.body
+    const opp = await OpportunityDoc.findOneAndUpdate(
+      { opportunityId: id, userId: req.userId! },
+      { $set: { acted: true, actionTaken: actionTaken ?? 'capital_deployed' } },
+      { new: true },
+    ).lean()
+    if (!opp) return res.status(404).json({ error: `Opportunity "${id}" not found` })
+    res.json({ ok: true, opportunity: opp })
+  } catch (err) { next(err) }
+}
+
 export async function getOpportunitySummary(req: AuthRequest, res: Response, next: NextFunction) {
   try {
     const now     = new Date()

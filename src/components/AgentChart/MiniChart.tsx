@@ -8,12 +8,13 @@ import type { ChartSnapshot } from "@/services/agent.service.frontend";
 type TF = "15m" | "1h" | "4h" | "1d" | "1w";
 
 interface Props {
-  snapshot: ChartSnapshot;
+  snapshot:          ChartSnapshot;
+  defaultTimeframe?: TF;
 }
 
-export function MiniChart({ snapshot }: Props) {
+export function MiniChart({ snapshot, defaultTimeframe = "1d" }: Props) {
   const [open, setOpen]           = useState(false);
-  const [timeframe, setTimeframe] = useState<TF>("4h");
+  const [timeframe, setTimeframe] = useState<TF>(defaultTimeframe);
 
   return (
     <>
