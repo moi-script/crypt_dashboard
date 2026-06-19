@@ -1,52 +1,30 @@
 "use client";
 
-/**
- * PriceSparkline
- *
- * A compact, chrome-free chart for trade proposal cards.
- * Shows: neon-green price area  ·  purple linear-regression trendline
- *        red dashed SL line      ·  green dashed TP line  ·  amber entry mid
- *
- * Powered by lightweight-charts (already in the bundle).
- * No axes, no grid, no crosshair — pure signal.
- */
-
 import { useEffect, useRef } from "react";
 import {
   createChart,
+  CandlestickSeries,
   LineSeries,
+  type ISeriesApi,
   type UTCTimestamp,
 } from "lightweight-charts";
 import { getOhlcv } from "@/services/agent.service.frontend";
+import type { ChartSnapshot } from "@/services/agent.service.frontend";
 
 export interface SparklineProps {
-  binanceSymbol:    string;
-  stopLoss:         number;
-  takeProfitLevels: number[];
-  entryZone:        { high: number; low: number };
-  height?:          number;
+  snapshot:   ChartSnapshot;
+  timeframe?: string;
+  height?:    number;
 }
 
-// ── Simple linear regression over an array of y-values ─────────────────────
-function linReg(ys: number[]): { start: number; end: number } {
-  const n = ys.length;
-  if (n < 2) return { start: ys[0] ?? 0, end: ys[0] ?? 0 };
-  let sx = 0, sy = 0, sxy = 0, sx2 = 0;
-  for (let i = 0; i < n; i++) {
-    sx  += i; sy += ys[i]; sxy += i * ys[i]; sx2 += i * i;
-  }
-  const d   = n * sx2 - sx * sx || 1;
-  const m   = (n * sxy - sx * sy) / d;
-  const b   = (sy - m * sx) / n;
-  return { start: b, end: b + m * (n - 1) };
+function toSec(ms: number): UTCTimestamp {
+  return Math.floor(ms / 1000) as UTCTimestamp;
 }
 
 export function PriceSparkline({
-  binanceSymbol,
-  stopLoss,
-  takeProfitLevels,
-  entryZone,
-  height = 96,
+  snapshot,
+  timeframe = "4h",
+  height = 180,
 }: SparklineProps) {
   const containerRef = useRef<HTMLDivElement>(null);
 
@@ -56,78 +34,118 @@ export function PriceSparkline({
     const chart = createChart(containerRef.current, {
       height,
       layout: {
-        background:  { color: "transparent" },
-        textColor:   "rgba(0,0,0,0)",          // hide all labels
+        background: { color: "rgb(8,18,32)" },
+        textColor:  "rgba(255,255,255,0.45)",
+        fontSize:   10,
       },
-      grid:            { vertLines: { visible: false }, horzLines: { visible: false } },
-      crosshair:       { mode: 0 },             // hide crosshair
-      timeScale:       { visible: false },
-      rightPriceScale: { visible: false },
-      leftPriceScale:  { visible: false },
-      handleScroll:    false,
-      handleScale:     false,
+      grid: {
+        vertLines: { color: "rgba(255,255,255,0.04)" },
+        horzLines: { color: "rgba(255,255,255,0.04)" },
+      },
+      crosshair: { mode: 1 },
+      timeScale: {
+        timeVisible:     true,
+        secondsVisible:  false,
+        borderColor:     "rgba(255,255,255,0.08)",
+        barSpacing:      4,
+        fixLeftEdge:     true,
+        fixRightEdge:    true,
+      },
+      rightPriceScale: {
+        borderColor: "rgba(255,255,255,0.08)",
+        scaleMargins: { top: 0.12, bottom: 0.12 },
+      },
+      handleScroll: false,
+      handleScale:  false,
     });
 
     let destroyed = false;
 
-    getOhlcv(binanceSymbol, "4h")
+    getOhlcv(snapshot.binanceSymbol, timeframe, 80)
       .then(({ candles }) => {
         if (destroyed || !candles?.length) return;
 
-        const slice  = candles.slice(-60);
-        const toSec  = (ms: number) => Math.floor(ms / 1000) as UTCTimestamp;
-
-        // ── Price line (neon green) ────────────────────────────────────────
-        const priceSeries = chart.addSeries(LineSeries, {
-          color:                  "#00e5a0",
-          lineWidth:              2,
-          lineStyle:              0,
-          priceLineVisible:       false,
-          lastValueVisible:       false,
-          crosshairMarkerVisible: false,
+        const candleSeries = chart.addSeries(CandlestickSeries, {
+          upColor:         "#00e5a0",
+          downColor:       "#ff5572",
+          borderUpColor:   "#00e5a0",
+          borderDownColor: "#ff5572",
+          wickUpColor:     "#00e5a0",
+          wickDownColor:   "#ff5572",
         });
-        const priceData = slice.map(c => ({
+
+        const data = candles.map(c => ({
           time:  toSec(c.timestamp),
-          value: c.close,
+          open:  c.open,
+          high:  c.high,
+          low:   c.low,
+          close: c.close,
         }));
-        priceSeries.setData(priceData);
+        candleSeries.setData(data);
 
-        // ── Linear regression trendline (purple) ──────────────────────────
-        const { start, end } = linReg(slice.map(c => c.close));
-        const trendSeries = chart.addSeries(LineSeries, {
-          color:                  "#a78bfa",
-          lineWidth:              2,
-          lineStyle:              0,
-          priceLineVisible:       false,
-          lastValueVisible:       false,
-          crosshairMarkerVisible: false,
+        // ── Entry zone ──────────────────────────────────────────────────────
+        candleSeries.createPriceLine({
+          price: snapshot.entryZone.high,
+          color: "#ffb020cc", lineWidth: 1, lineStyle: 2,
+          axisLabelVisible: true, title: "Entry Hi",
         });
-        trendSeries.setData([
-          { time: toSec(slice[0].timestamp),                value: start },
-          { time: toSec(slice[slice.length - 1].timestamp), value: end   },
-        ]);
-
-        // ── Stop loss (red dashed) ─────────────────────────────────────────
-        priceSeries.createPriceLine({
-          price: stopLoss, color: "#ff5572bb",
-          lineWidth: 1, lineStyle: 2,
-          axisLabelVisible: false, title: "",
+        candleSeries.createPriceLine({
+          price: snapshot.entryZone.low,
+          color: "#ffb020cc", lineWidth: 1, lineStyle: 2,
+          axisLabelVisible: true, title: "Entry Lo",
         });
 
-        // ── TP1 (green dashed) ────────────────────────────────────────────
-        if (takeProfitLevels[0]) {
-          priceSeries.createPriceLine({
-            price: takeProfitLevels[0], color: "#00e5a0bb",
-            lineWidth: 1, lineStyle: 2,
-            axisLabelVisible: false, title: "",
+        // ── Stop loss ───────────────────────────────────────────────────────
+        candleSeries.createPriceLine({
+          price: snapshot.stopLoss,
+          color: "#ff5572", lineWidth: 2, lineStyle: 2,
+          axisLabelVisible: true, title: "SL",
+        });
+
+        // ── Take profit levels ──────────────────────────────────────────────
+        snapshot.takeProfitLevels.forEach((tp, i) => {
+          candleSeries.createPriceLine({
+            price: tp,
+            color: "#00e5a0", lineWidth: 2, lineStyle: 2,
+            axisLabelVisible: true, title: i === 0 ? "TP1" : `TP${i + 1}`,
           });
-        }
+        });
 
-        // ── Entry zone midpoint (amber dotted) ────────────────────────────
-        priceSeries.createPriceLine({
-          price: (entryZone.high + entryZone.low) / 2,
-          color: "#ffb020bb", lineWidth: 1, lineStyle: 3,
-          axisLabelVisible: false, title: "",
+        // ── Support / resistance ────────────────────────────────────────────
+        snapshot.overlays.supportResistance?.forEach(sr => {
+          candleSeries.createPriceLine({
+            price: sr.price,
+            color: sr.type === "support" ? "#00e5a060" : "#ff557260",
+            lineWidth: sr.strength === "strong" ? 2 : 1,
+            lineStyle: 0,
+            axisLabelVisible: true,
+            title: sr.type === "support" ? "S" : "R",
+          });
+        });
+
+        // ── Trendlines ──────────────────────────────────────────────────────
+        const firstTime = data[0].time;
+        const lastTime  = data[data.length - 1].time;
+
+        snapshot.overlays.trendlines?.forEach(tl => {
+          const color = tl.direction === "up" ? "#ffb02090" : "#ff557260";
+          const t1 = toSec(tl.p1.time);
+          const t2 = toSec(tl.p2.time);
+          const tStart = Math.max(firstTime, Math.min(t1, t2)) as UTCTimestamp;
+          const tEnd   = Math.min(lastTime,  Math.max(t1, t2)) as UTCTimestamp;
+          const span   = t2 - t1 || 1;
+          const slope  = (tl.p2.price - tl.p1.price) / span;
+          const pStart = tl.p1.price + slope * (tStart - t1);
+          const pEnd   = tl.p1.price + slope * (tEnd   - t1);
+
+          const tlSeries: ISeriesApi<"Line"> = chart.addSeries(LineSeries, {
+            color, lineWidth: 2, lineStyle: 0,
+            lastValueVisible: false, priceLineVisible: false, crosshairMarkerVisible: false,
+          });
+          tlSeries.setData([
+            { time: tStart, value: pStart },
+            { time: tEnd,   value: pEnd   },
+          ]);
         });
 
         chart.timeScale().fitContent();
@@ -135,7 +153,7 @@ export function PriceSparkline({
       .catch(() => {
         if (!destroyed && containerRef.current) {
           containerRef.current.innerHTML =
-            '<p style="color:rgba(255,255,255,0.15);text-align:center;padding:12px;font-size:10px;font-family:monospace">chart unavailable</p>';
+            '<p style="color:rgba(255,85,114,0.7);text-align:center;padding:20px;font-size:11px;font-family:monospace">chart data unavailable</p>';
         }
       });
 
@@ -143,7 +161,7 @@ export function PriceSparkline({
       destroyed = true;
       chart.remove();
     };
-  }, [binanceSymbol, stopLoss, takeProfitLevels, entryZone, height]);
+  }, [snapshot, timeframe, height]);
 
   return <div ref={containerRef} style={{ width: "100%", height }} />;
 }
