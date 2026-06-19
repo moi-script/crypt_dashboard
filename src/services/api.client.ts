@@ -157,6 +157,7 @@ async function tryRefresh(): Promise<boolean> {
     });
     if (!res.ok) {
       tokenStore.clear();
+      if (typeof window !== "undefined") window.location.replace("/login");
       return false;
     }
     const tokens = (await res.json()) as {
