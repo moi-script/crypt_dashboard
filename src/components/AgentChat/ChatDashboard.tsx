@@ -419,33 +419,15 @@ function RunsTab({ accentColor }: { accentColor: string }) {
                   </div>
                 )}
 
-                {/* Candlestick chart with SL / TP / entry zone overlays */}
+                {/* Interactive chart — click to expand with scroll/zoom/timeframe switching */}
                 {ap.chartSnapshot && (
-                  <>
-                    {/* Header row */}
-                    <div style={{ padding: "0 12px 3px", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                      <span style={{ fontSize: 9, fontFamily: "var(--font-mono)", color: "rgba(255,255,255,0.35)", letterSpacing: "0.05em" }}>
-                        {ap.chartSnapshot.binanceSymbol} · 4H
-                      </span>
-                      <div style={{ display: "flex", gap: 7 }}>
-                        <span style={{ fontSize: 9, fontFamily: "var(--font-mono)", color: "#00e5a0" }}>▲ Bull</span>
-                        <span style={{ fontSize: 9, fontFamily: "var(--font-mono)", color: "#ff5572" }}>▼ Bear</span>
-                        <span style={{ fontSize: 9, fontFamily: "var(--font-mono)", color: "#ff5572" }}>╌ SL</span>
-                        <span style={{ fontSize: 9, fontFamily: "var(--font-mono)", color: "#00e5a0" }}>╌ TP</span>
-                        <span style={{ fontSize: 9, fontFamily: "var(--font-mono)", color: "#ffb020" }}>╌ Entry</span>
-                      </div>
+                  <div style={{ padding: "0 12px 10px" }}>
+                    <div style={{ fontSize: 9, fontFamily: "var(--font-mono)", color: "rgba(255,255,255,0.3)", marginBottom: 4, display: "flex", justifyContent: "space-between" }}>
+                      <span>{ap.chartSnapshot.binanceSymbol} · 4H</span>
+                      <span style={{ color: "rgba(255,255,255,0.2)" }}>click to expand</span>
                     </div>
-                    {/* Chart */}
-                    <div style={{ padding: "0 12px 10px" }}>
-                      <div style={{ borderRadius: 8, overflow: "hidden", border: "1px solid rgba(255,255,255,0.08)" }}>
-                        <PriceSparkline
-                          snapshot={ap.chartSnapshot}
-                          timeframe="4h"
-                          height={260}
-                        />
-                      </div>
-                    </div>
-                  </>
+                    <MiniChart snapshot={ap.chartSnapshot} />
+                  </div>
                 )}
 
                 {/* Approve / Reject buttons */}
