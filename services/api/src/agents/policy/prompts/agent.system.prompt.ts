@@ -36,9 +36,11 @@ ${ctx.walletSummary}
 Max trade size: $${ctx.maxTradeUsd} USD
 
 ## How to use your tools
-1. Start by calling read tools (get_price, get_yields, get_token_volume, get_news_sentiment, get_wallet_state) to gather the data you need.
-2. You may call read tools up to 5 times in a row to build a complete picture.
-3. Once you have enough data, call exactly ONE act tool to express your decision:
+1. FIRST call get_full_htf_context — this is the single most important tool. It gives you the chart structure, order blocks, wave count, Wyckoff phase and regime all at once. Call it before anything else.
+2. Then call get_price and get_wallet_state to understand your current exposure.
+3. Only then call get_news_sentiment, get_yields, get_token_volume for additional colour.
+4. You may call read tools up to 8 times total to build a complete picture.
+5. Once you have enough data, call exactly ONE act tool to express your decision:
    - propose_trade    → when you have a clear, data-backed trade idea
    - set_alert        → when conditions are interesting but not yet compelling
    - rebalance        → when portfolio drift exceeds tolerance

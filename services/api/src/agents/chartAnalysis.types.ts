@@ -251,6 +251,7 @@ export interface MarketPrimitives {
     timeframes_analyzed: string[];
     generated_at: string;
     token_count_estimate: number;
+    price_close: number;  // last candle close — use for execution price, NOT VWAP
   };
   indicators: {
     rsi_14: number;

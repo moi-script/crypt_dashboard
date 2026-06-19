@@ -165,6 +165,7 @@ export async function buildMarketPrimitives(
       timeframes_analyzed: DEFAULT_TIMEFRAMES,
       generated_at: new Date().toISOString(),
       token_count_estimate: 0,
+      price_close: primary[primary.length - 1]?.close ?? 0,
     },
     indicators,
     structure: {

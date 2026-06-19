@@ -40,8 +40,8 @@ export function runSmartMoneyStrategy(primitives: MarketPrimitives): ChartStrate
     return { signal: null, skipped: true, skip_reason: `No unmitigated ${targetObType} OB found to use as entry` };
   }
 
-  // Use the nearest OB to current price
-  const currentPrice = indicators.vwap.value;
+  // Use last candle close — VWAP is a session average and can be 2-3% off real price
+  const currentPrice = primitives.meta.price_close;
   const entryOB = activeOBs.sort((a, b) =>
     Math.abs(((a.price_high + a.price_low) / 2) - currentPrice) -
     Math.abs(((b.price_high + b.price_low) / 2) - currentPrice)
@@ -49,6 +49,7 @@ export function runSmartMoneyStrategy(primitives: MarketPrimitives): ChartStrate
 
   const entryHigh = entryOB.price_high;
   const entryLow  = entryOB.price_low;
+  const entryMidForCalc = (entryLow + entryHigh) / 2;
   const atr       = indicators.atr_14;
 
   // ── Stop Loss ───────────────────────────────────────────────
@@ -56,24 +57,32 @@ export function runSmartMoneyStrategy(primitives: MarketPrimitives): ChartStrate
     ? entryLow - atr * 0.5
     : entryHigh + atr * 0.5;
 
-  // ── Take Profit Levels ──────────────────────────────────────
-  const riskAmount = Math.abs(
-    (bias === 'long' ? (entryLow + entryHigh) / 2 : (entryLow + entryHigh) / 2) - stopLoss
-  );
+  const riskAmount = Math.abs(entryMidForCalc - stopLoss);
 
-  const tp1 = bias === 'long'
-    ? (entryLow + entryHigh) / 2 + riskAmount * 2.0
-    : (entryLow + entryHigh) / 2 - riskAmount * 2.0;
-  const tp2 = bias === 'long'
-    ? (entryLow + entryHigh) / 2 + riskAmount * 3.0
-    : (entryLow + entryHigh) / 2 - riskAmount * 3.0;
+  // ── Take Profit — targeting market structure, not mechanical R-multiples ──
+  // TP1: nearest strong key level beyond entry (liquidity pool / swing high)
+  const tp1Level = bias === 'long'
+    ? structure.key_levels
+        .filter(kl => kl.type === 'resistance' && kl.price > entryHigh && kl.strength !== 'weak')
+        .sort((a, b) => a.price - b.price)[0]?.price
+    : structure.key_levels
+        .filter(kl => kl.type === 'support' && kl.price < entryLow && kl.strength !== 'weak')
+        .sort((a, b) => b.price - a.price)[0]?.price;
+
+  // TP2: range extreme (VAH for longs, VAL for shorts) — where buy-side liquidity pools
+  const tp2Level = bias === 'long' ? structure.vah : structure.val;
+
+  const tp1 = tp1Level ?? (bias === 'long' ? entryMidForCalc + riskAmount * 2.0 : entryMidForCalc - riskAmount * 2.0);
+  const tp2 = (tp2Level && (bias === 'long' ? tp2Level > tp1 : tp2Level < tp1))
+    ? tp2Level
+    : (bias === 'long' ? entryMidForCalc + riskAmount * 3.0 : entryMidForCalc - riskAmount * 3.0);
   const tp3 = fibonacci
     ? (bias === 'long'
         ? fibonacci.extensions['1.618'] ?? tp2 * 1.05
         : fibonacci.extensions['1.618'] ?? tp2 * 0.95)
     : tp2 * (bias === 'long' ? 1.05 : 0.95);
 
-  const rr = parseFloat((riskAmount > 0 ? (Math.abs(tp1 - ((entryLow + entryHigh) / 2)) / riskAmount) : 0).toFixed(2));
+  const rr = parseFloat((riskAmount > 0 ? (Math.abs(tp1 - entryMidForCalc) / riskAmount) : 0).toFixed(2));
 
   if (rr < MIN_RR) {
     return { signal: null, skipped: true, skip_reason: `R:R ${rr} below SmartMoney minimum ${MIN_RR}` };

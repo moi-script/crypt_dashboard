@@ -11,13 +11,15 @@ import { ingestAndFetchNews }        from '@/agents/news/news.ingestor'
 import { scoreNewsImpact }           from '@/agents/news/news.impact'
 import { buildChartSnapshot }        from './chartSnapshot.util'
 import { CoinAnalysisRunDoc }        from '@/models/coinAnalysisRun.model'
+import { PositionDoc }               from '@/models/position.model'
 import { runSmartMoneyStrategy }     from '@/agents/policy/strategies/smartMoney.strategy'
 import { runWyckoffStrategy }        from '@/agents/policy/strategies/wyckoff.strategy'
 import { runElliottStrategy }        from '@/agents/policy/strategies/elliott.strategy'
 import { runHarmonicStrategy }       from '@/agents/policy/strategies/harmonic.strategy'
+import { runPolicyEngine }           from '@/agents/policy/policy.engine'
 import { generateMyId }              from '@/utils/nanoid'
 import type { AgentConfig }          from '@/config/agent.config'
-import type { TradeIntent, ExecutionResult } from '@/agents/loop/loop.types'
+import type { TradeIntent, ExecutionResult, LoopContext } from '@/agents/loop/loop.types'
 import type { MarketPrimitives }     from '@/agents/chartAnalysis.types'
 import type { ChartStrategyResult, TradeSignal } from '@/agents/policy/strategies/strategy.types'
 import type {
@@ -96,6 +98,7 @@ async function runStrategyCard(
   primitives:    MarketPrimitives,
   articles:      NewsArticleInput[],
   memoryContext: string | undefined,
+  config:        AgentConfig,
 ): Promise<StrategyCard> {
   const runner = RUNNERS[framework]
   const result = runner(primitives)
@@ -114,9 +117,9 @@ async function runStrategyCard(
     return noSignalCard(result.skip_reason ?? 'No signal')
   }
 
-  // Paper wallet is spot-only — skip short signals
-  if (result.signal.bias !== 'long') {
-    return noSignalCard(`Short bias not supported (${framework})`)
+  // Reject short signals unless config.allowShorts is explicitly enabled
+  if (result.signal.bias !== 'long' && !config.allowShorts) {
+    return noSignalCard(`Short bias disabled — enable allowShorts in config to trade both directions`)
   }
 
   const signal    = result.signal
@@ -137,18 +140,59 @@ async function runStrategyCard(
   }
 }
 
+// ── Build a compact text summary of all strategy cards for the policy engine ──
+
+function buildCardsSummary(cards: StrategyCard[], symbol: string): string {
+  const lines = [`Chart signal summary for ${symbol}:`]
+  for (const card of cards) {
+    if (card.signal) {
+      const conf = card.signal.confidence + card.newsImpact.confidenceDelta
+      lines.push(
+        `  ${card.framework}: ${card.signal.bias.toUpperCase()} ${conf}% — ` +
+        `${card.signal.setup_name} | entry $${card.signal.entry_zone.low}–$${card.signal.entry_zone.high} ` +
+        `SL $${card.signal.stop_loss} TP $${card.signal.take_profit_levels[0]} R:R ${card.signal.risk_reward} | ` +
+        `news=${card.newsImpact.verdict}`,
+      )
+    } else {
+      lines.push(`  ${card.framework}: SKIPPED — ${card.skippedReason ?? 'no signal'}`)
+    }
+  }
+  const agreeingBias = cards.filter(c => c.signal?.bias === 'long').length > cards.filter(c => c.signal?.bias === 'short').length ? 'long' : 'short'
+  const agreementCount = cards.filter(c => c.signal?.bias === agreeingBias).length
+  if (agreementCount >= 2) {
+    lines.push(`  CONFLUENCE: ${agreementCount} frameworks agree on ${agreeingBias.toUpperCase()} — stronger signal.`)
+  }
+  return lines.join('\n')
+}
+
 // ── Auto-execute: pick best qualifying card ───────────────────────────────────
 
 async function autoExecuteBest(
-  userId:           string,
+  userId:            string,
   coinAnalysisRunId: string,
-  symbol:           string,
-  cards:            StrategyCard[],
-  config:           AgentConfig,
+  symbol:            string,
+  cards:             StrategyCard[],
+  config:            AgentConfig,
+  walletState:       Awaited<ReturnType<typeof loadWalletState>>,
+  memoryContext:     string | undefined,
+  cardsSummary:      string,
 ): Promise<CoinAnalysisRunStatus> {
+  // ── De-duplication: don't stack positions in the same symbol ──────────────
+  const alreadyOpen = await PositionDoc.countDocuments({
+    userId, tokenOut: symbol.toUpperCase(), isOpen: true, mode: config.mode,
+  }).catch(() => 0)
+
+  if (alreadyOpen > 0) {
+    for (const card of cards) {
+      card.approvalStatus = 'skipped'
+      if (card.signal) card.skippedReason = `Already in open ${symbol} position — skipping to avoid stacking`
+    }
+    return 'completed'
+  }
+
   const qualifying = cards.filter(c =>
     c.signal !== null &&
-    c.signal.bias === 'long' &&
+    (c.signal.bias === 'long' || config.allowShorts) &&
     (c.signal.confidence + c.newsImpact.confidenceDelta) >= config.minSignalConfidence,
   )
 
@@ -162,21 +206,54 @@ async function autoExecuteBest(
     return 'completed'
   }
 
+  // ── Policy engine gate: LLM validates card results before execution ───────
+  // The LLM sees the deterministic strategy signals AND can call read tools.
+  // If it disagrees with the chart signals, it vetoes the trade.
+  try {
+    const loopCtx: LoopContext = {
+      runId:          coinAnalysisRunId,
+      userId,
+      strategy:       'chartSignal',
+      startedAt:      Date.now(),
+      contextSummary: cardsSummary,
+      walletState,
+      marketData:     {},
+      config,
+    }
+    const decision = await runPolicyEngine(loopCtx, cardsSummary, config, memoryContext)
+    if (decision.intent.type === 'no_action') {
+      for (const card of cards) {
+        card.approvalStatus = 'skipped'
+        if (card.signal && !card.skippedReason) {
+          card.skippedReason = `LLM vetoed: ${decision.reasoning.slice(0, 120)}`
+        }
+      }
+      return 'completed'
+    }
+  } catch (err: any) {
+    console.warn('[CoinAnalysis] Policy engine veto check failed (non-fatal, proceeding):', err.message)
+  }
+
+  // ── Pick best card — highest adjusted confidence ──────────────────────────
   const best = qualifying.reduce((a, b) =>
     (a.signal!.confidence + a.newsImpact.confidenceDelta) >=
     (b.signal!.confidence + b.newsImpact.confidenceDelta) ? a : b,
   )
-
-  const walletState = await loadWalletState(userId, config)
   const adjustedConf = best.signal!.confidence + best.newsImpact.confidenceDelta
+
+  // ── Confluence bonus: 2+ frameworks agree → increase position size ─────────
+  // Each additional agreeing framework adds 25%, capped at 2× maxTradeUsd.
+  const agreeingCount = qualifying.filter(c => c.signal?.bias === best.signal!.bias).length
+  const confluenceMultiplier = Math.min(2, 1 + (agreeingCount - 1) * 0.25)
+  const tradeAmount = config.maxTradeUsd * confluenceMultiplier
 
   const intent: TradeIntent = {
     type:            'propose_trade',
     tokenIn:         'USDC',
     tokenOut:        symbol,
-    amountUsd:       config.maxTradeUsd,
+    amountUsd:       tradeAmount,
     maxSlippageBps:  50,
-    rationale:       best.signal!.reasoning,
+    rationale:       best.signal!.reasoning + (agreeingCount >= 2 ? ` [${agreeingCount} frameworks confluent → ${confluenceMultiplier.toFixed(2)}× size]` : ''),
     stopLossPrice:   best.signal!.stop_loss,
     takeProfitPrice: best.signal!.take_profit_levels[0],
     entryZoneLow:    best.signal!.entry_zone.low,
@@ -186,7 +263,7 @@ async function autoExecuteBest(
 
   await executeIntent(intent, walletState, {
     userId, config, runId: coinAnalysisRunId, strategy: 'chartSignal',
-    rationale: best.signal!.reasoning, confidence: adjustedConf,
+    rationale: intent.rationale, confidence: adjustedConf,
   })
 
   for (const card of cards) {
@@ -243,14 +320,20 @@ export async function runCoinAnalysis(
     // 4. All 4 strategy cards in parallel
     const cards = await Promise.all(
       FRAMEWORKS.map(fw =>
-        runStrategyCard(fw, symbol.toUpperCase(), binanceSymbol, primitives, articles, memoryContext),
+        runStrategyCard(fw, symbol.toUpperCase(), binanceSymbol, primitives, articles, memoryContext, config),
       ),
     )
 
-    // 5. Route: auto-execute or mark pending
+    // 5. Build cards summary for policy engine + logging
+    const cardsSummary = buildCardsSummary(cards, symbol.toUpperCase())
+
+    // 6. Route: auto-execute or mark pending
+    const walletState = await loadWalletState(userId, config)
     let finalStatus: CoinAnalysisRunStatus
     if (autoMode) {
-      finalStatus = await autoExecuteBest(userId, coinAnalysisRunId, symbol.toUpperCase(), cards, config)
+      finalStatus = await autoExecuteBest(
+        userId, coinAnalysisRunId, symbol.toUpperCase(), cards, config, walletState, memoryContext, cardsSummary,
+      )
     } else {
       finalStatus = 'pending_approval'
       for (const card of cards) {

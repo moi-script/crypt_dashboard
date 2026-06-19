@@ -42,6 +42,7 @@ import { generateMyId } from '@/utils/nanoid'
 import { retrieve }            from '../memory/memory.retriever'
 import { renderMemorySection } from '../policy/prompts/memory.section.prompt'
 import { writeDecision }       from '../memory/memory.writer'
+import { ohlcvIngest }         from '@/read/ingestion/ohlcv.ingest'
 
 // How long a pending limit order waits for price to re-enter the entry zone
 // before it's cancelled. Defaults to 6h.
@@ -217,6 +218,49 @@ async function persistExecution(
   }
 }
 
+// ── Invalidation monitor: close positions that hit SL or TP ──────────────────
+// Runs at the start of every loop tick before any new analysis.
+// Uses the last 1H candle close as a proxy for current price.
+
+async function monitorAndCloseStoppedPositions(userId: string, config: AgentConfig): Promise<void> {
+  const openPositions = await PositionDoc.find({
+    userId, isOpen: true, mode: config.mode,
+    stopLossPrice: { $exists: true, $ne: null },
+  }).lean().catch(() => [])
+
+  if (!openPositions.length) return
+
+  for (const pos of openPositions as any[]) {
+    if (!pos.tokenOut) continue
+    try {
+      const symbol = `${String(pos.tokenOut).toUpperCase()}USDT`
+      const { candles } = await ohlcvIngest.fetch({ symbol, timeframe: '1h', limit: 1 })
+      const currentPrice = candles[candles.length - 1]?.close
+      if (!currentPrice) continue
+
+      const slHit = pos.stopLossPrice   && currentPrice <= pos.stopLossPrice
+      const tpHit = pos.takeProfitPrice && currentPrice >= pos.takeProfitPrice
+
+      if (slHit || tpHit) {
+        const entryPrice   = pos.entryPrice ?? currentPrice
+        const pnlPct       = (currentPrice - entryPrice) / entryPrice
+        const realizedPnlUsd = (pos.entryAmountUsd ?? 0) * pnlPct
+
+        await PositionDoc.updateOne(
+          { _id: pos._id },
+          { $set: { isOpen: false, status: 'closed', exitAt: new Date(), exitPrice: currentPrice, realizedPnlUsd } },
+        )
+        console.log(
+          `[AgentLoop] ${tpHit ? 'TP' : 'SL'} triggered: ${pos.positionId} ` +
+          `${pos.tokenOut} @ $${currentPrice} | PnL: $${realizedPnlUsd.toFixed(2)}`,
+        )
+      }
+    } catch (err: any) {
+      console.warn(`[AgentLoop] SL monitor failed for ${pos.positionId}:`, err.message)
+    }
+  }
+}
+
 // ── Main loop tick ────────────────────────────────────────────────────────────
 
 export async function runLoopTick(userId: string): Promise<void> {
@@ -226,6 +270,9 @@ export async function runLoopTick(userId: string): Promise<void> {
     console.log(`[AgentLoop] Skipping tick for ${userId} — agent disabled.`)
     return
   }
+
+  // Check and close any open positions that hit SL/TP before starting analysis
+  await monitorAndCloseStoppedPositions(userId, config)
 
   const runId     = `run-${generateMyId(10 as number)}`
   const startedAt = new Date()

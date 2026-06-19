@@ -60,7 +60,7 @@ export function runHarmonicStrategy(primitives: MarketPrimitives): ChartStrategy
   let confidence = 45;
 
   confluenceFactors.push(`${name} pattern ${harmonics.completion_pct.toFixed(0)}% complete`);
-  confidence += Math.round((harmonics.completion_pct - 85) / 15 * 20);
+  confidence += Math.round((harmonics.completion_pct - 75) / 25 * 20);
 
   const validRatioCount = Object.values(ratios).filter(v => v > 0).length;
   if (validRatioCount >= 3) { confluenceFactors.push(`${validRatioCount}/4 Fibonacci ratios validated`); confidence += 10; }

@@ -43,6 +43,9 @@ export interface AgentConfig {
 
   /** Coin pinned for on-demand analysis runs (e.g. "BTC"). watchlist[0] is used for scheduled runs. */
   selectedCoin?: string
+
+  /** Allow short positions. Defaults false (spot/paper only goes long). Enable when margin/perp trading is available. */
+  allowShorts?: boolean
 }
 
 /** Seed values for a brand-new per-user agent config. */
@@ -55,4 +58,5 @@ export const DEFAULT_AGENT_CONFIG: AgentConfig = {
   maxTradeUsd: 100,
   requireManualApproval: true,
   minSignalConfidence: 55,
+  allowShorts: false,
 }

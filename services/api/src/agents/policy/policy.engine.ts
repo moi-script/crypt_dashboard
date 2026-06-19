@@ -44,7 +44,7 @@ export function selectSkillsForRegime(regime: MarketRegime): string[] {
   return REGIME_TO_SKILLS[regime] ?? ['smartMoney', 'structure', 'fibonacci'];
 }
 
-const MAX_READ_ITERATIONS = 5
+const MAX_READ_ITERATIONS = 8
 
 let _deepseek: OpenAI | null = null
 function getClient(): OpenAI {

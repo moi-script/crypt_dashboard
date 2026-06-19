@@ -58,16 +58,28 @@ export function scoreNewsImpact(
   let verdict:         'supports' | 'contradicts' | 'neutral'
   let confidenceDelta: number
 
-  if (avg > 0.2) {
+  if (avg > 0.5 && isLong) {
+    // Extremely bullish news + long signal = "buy the rumor, sell the news" risk.
+    // News may already be priced in — fade the hype, apply a small penalty.
+    verdict         = 'contradicts'
+    confidenceDelta = -5
+  } else if (avg > 0.2) {
+    // Moderately bullish — supports long, slight headwind for short
     verdict         = isLong ? 'supports' : 'contradicts'
-    confidenceDelta = isLong ? 5 : -10
+    // Cap the upside news boost at +8 so it never single-handedly cross a threshold
+    confidenceDelta = isLong ? 8 : -8
   } else if (avg < -0.2) {
+    // Bearish news — headwind for long, tailwind for short
     verdict         = isLong ? 'contradicts' : 'supports'
-    confidenceDelta = isLong ? -10 : 5
+    confidenceDelta = isLong ? -10 : 8
   } else {
     verdict         = 'neutral'
     confidenceDelta = 0
   }
+
+  // News reinforces structure — never alone decides a trade.
+  // Hard cap: chart signal confidence must be the dominant factor.
+  confidenceDelta = Math.max(-10, Math.min(8, confidenceDelta))
 
   return { verdict, confidenceDelta, headlines }
 }
