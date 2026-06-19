@@ -30,7 +30,7 @@ export async function syncOrderBlocks(
   const currentPrice = freshCandles[freshCandles.length - 1].close;
 
   try {
-    const existing = await OrderBlockModel.find({ symbol, status: 'active' }).lean();
+    const existing = await OrderBlockModel.find({ symbol, status: 'unmitigated' }).lean();
     const existingIds = new Set(existing.map((ob: any) => ob.id));
 
     // Insert net-new OBs (not in DB yet)
@@ -54,7 +54,7 @@ export async function syncOrderBlocks(
     }
 
     // Return refreshed active list from DB
-    const active = await OrderBlockModel.find({ symbol, status: 'active' })
+    const active = await OrderBlockModel.find({ symbol, status: 'unmitigated' })
       .sort({ origin_timestamp: -1 })
       .lean();
 
@@ -69,7 +69,7 @@ export async function syncOrderBlocks(
 // ─── Get active OBs from DB ───────────────────────────────────
 export async function getActiveOrderBlocks(symbol: string): Promise<OrderBlock[]> {
   try {
-    const result = await OrderBlockModel.find({ symbol, status: 'active' })
+    const result = await OrderBlockModel.find({ symbol, status: 'unmitigated' })
       .sort({ origin_timestamp: -1 })
       .lean();
     return result as unknown as OrderBlock[];

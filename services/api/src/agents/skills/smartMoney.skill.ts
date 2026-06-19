@@ -102,17 +102,17 @@ export function detectBullishOrderBlocks(candles: Candle[], timeframe = '4H', ma
       low: origin.low,
       origin_timestamp: origin.timestamp,
       timeframe,
-      status: mitigated ? 'mitigated' : 'active',
+      status: mitigated ? 'mitigated' : 'unmitigated',
       associated_fvg,
       strength,
     });
 
-    if (blocks.filter(b => b.status === 'active').length >= maxBlocks) break;
+    if (blocks.filter(b => b.status === 'unmitigated').length >= maxBlocks) break;
   }
 
   // Return most recent unmitigated blocks first
   return blocks
-    .filter(b => b.status === 'active')
+    .filter(b => b.status === 'unmitigated')
     .slice(-maxBlocks)
     .reverse();
 }
@@ -162,16 +162,16 @@ export function detectBearishOrderBlocks(candles: Candle[], timeframe = '4H', ma
       low: origin.low,
       origin_timestamp: origin.timestamp,
       timeframe,
-      status: mitigated ? 'mitigated' : 'active',
+      status: mitigated ? 'mitigated' : 'unmitigated',
       associated_fvg,
       strength,
     });
 
-    if (blocks.filter(b => b.status === 'active').length >= maxBlocks) break;
+    if (blocks.filter(b => b.status === 'unmitigated').length >= maxBlocks) break;
   }
 
   return blocks
-    .filter(b => b.status === 'active')
+    .filter(b => b.status === 'unmitigated')
     .slice(-maxBlocks)
     .reverse();
 }

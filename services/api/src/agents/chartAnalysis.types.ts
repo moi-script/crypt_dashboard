@@ -38,7 +38,7 @@ export interface OrderBlock {
   low: number;
   origin_timestamp: number;
   timeframe: string;
-  status: 'active' | 'mitigated' | 'broken';
+  status: 'unmitigated' | 'mitigated' | 'broken';
   associated_fvg?: FairValueGap;
   strength: number; // 0-100
 }

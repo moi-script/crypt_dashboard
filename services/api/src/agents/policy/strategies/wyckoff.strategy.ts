@@ -153,6 +153,63 @@ export function runWyckoffStrategy(primitives: MarketPrimitives): ChartStrategyR
     return { signal, skipped: false };
   }
 
+  // ── Phase D/E markup entry (no confirmed Spring required) ─────
+  // Phase D = accumulation complete, markdown over; Phase E = uptrend begun.
+  // This fires when the skill confirms accumulation structure but the rare
+  // Spring+SOS event sequence hasn't printed yet — entry at LPS above range low.
+  if ((phase === 'D' || phase === 'E') && wyckoff.volume_analysis === 'accumulating') {
+    const bias: 'long' = 'long';
+    const entryLow  = range_low + (range_high - range_low) * 0.1;
+    const entryHigh = range_low + (range_high - range_low) * 0.25;
+    const stopLoss  = range_low - atr;
+
+    const rangeSize = range_high - range_low;
+    const tp1 = range_high;
+    const tp2 = range_high + rangeSize * 0.5;
+    const tp3 = fibonacci
+      ? (fibonacci.extensions['1.618'] ?? range_high + rangeSize)
+      : range_high + rangeSize;
+
+    const entryMid = (entryLow + entryHigh) / 2;
+    const risk = entryMid - stopLoss;
+    const rr = risk > 0 ? parseFloat(((tp1 - entryMid) / risk).toFixed(2)) : 0;
+
+    if (rr < 2.0) {
+      return { signal: null, skipped: true, skip_reason: `Wyckoff Phase ${phase} R:R ${rr} too low` };
+    }
+
+    let confidence = 45;
+    if (phase === 'E') confidence += 10;
+    if (wyckoff.cause_count > 30) confidence += 10;
+    if (structure.trend_htf === 'bullish') confidence += 10;
+    confidence = Math.min(80, confidence);
+
+    const signal: TradeSignal = {
+      symbol,
+      framework:    'Wyckoff',
+      bias,
+      setup_name:   `Wyckoff Phase ${phase} LPS — Markup Entry`,
+      entry_zone:   { high: entryHigh, low: entryLow },
+      stop_loss:    stopLoss,
+      take_profit_levels: [tp1, tp2, tp3],
+      risk_reward:  rr,
+      confidence,
+      invalidation: `Close below range low ${range_low.toFixed(4)} — accumulation structure failed`,
+      reasoning:    `Wyckoff Phase ${phase} accumulation confirmed via volume analysis. ` +
+                    `Range: ${range_low.toFixed(4)}–${range_high.toFixed(4)} (${wyckoff.cause_count} bars cause). ` +
+                    `LPS entry above range low targeting range high and beyond. Last event: ${last_event}.`,
+      confluence_factors: [
+        `Wyckoff Phase ${phase} — accumulation structure`,
+        `Volume: ${wyckoff.volume_analysis}`,
+        `Cause count: ${wyckoff.cause_count} bars`,
+        ...(structure.trend_htf === 'bullish' ? ['HTF trend bullish'] : []),
+      ],
+      generated_at: new Date().toISOString(),
+    };
+
+    return { signal, skipped: false };
+  }
+
   return {
     signal: null,
     skipped: true,

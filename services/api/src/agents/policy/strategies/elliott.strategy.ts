@@ -13,7 +13,7 @@ import { TradeSignal, ChartStrategyResult } from './strategy.types';
 
 const MIN_RR = 3.0;
 const MIN_CONFIDENCE = 50;
-const MIN_WAVE_CONFIDENCE = 0.60;
+const MIN_WAVE_CONFIDENCE = 0.45;
 
 export function runElliottStrategy(primitives: MarketPrimitives): ChartStrategyResult {
   const { elliott, indicators, structure, fibonacci } = primitives;

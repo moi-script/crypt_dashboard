@@ -11,7 +11,7 @@ import { isPriceInPRZ } from '@/agents/skills/harmonics.skill';
 import { TradeSignal, ChartStrategyResult } from './strategy.types';
 const MIN_RR = 2.0;
 const MIN_CONFIDENCE = 45;
-const MIN_COMPLETION_PCT = 85;
+const MIN_COMPLETION_PCT = 75;
 
 export function runHarmonicStrategy(primitives: MarketPrimitives): ChartStrategyResult {
   const { harmonics, indicators, structure, fibonacci } = primitives;
