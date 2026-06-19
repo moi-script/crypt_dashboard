@@ -8,6 +8,7 @@
  * POST /demo/seed
  */
 
+import axios from 'axios'
 import type { Response } from 'express'
 import type { AuthRequest as Request } from '../middleware/auth'
 import { AgentRunDoc }       from '@/models/agentRun.model'
@@ -24,6 +25,7 @@ const id  = (pfx: string, n: number) => `${pfx}-demo-${n}`
 const ago = (ms: number) => new Date(Date.now() - ms)
 const H   = 3_600_000
 const D   = 24 * H
+const r   = (price: number, pct: number) => Math.round(price * (1 + pct / 100))
 
 /** 384-dim random unit vector to satisfy the agentMemory embedding field */
 function fakeEmbedding(): number[] {
@@ -32,69 +34,87 @@ function fakeEmbedding(): number[] {
   return v.map(x => x / mag)
 }
 
-// ── Market snapshots (ballpark prices — sparkline fetches live candles) ───────
+/** Fetch live price from Binance; fall back to the provided default on error */
+async function livePrice(symbol: string, fallback: number): Promise<number> {
+  try {
+    const { data } = await axios.get(
+      `https://api.binance.com/api/v3/ticker/price?symbol=${symbol}`,
+      { timeout: 4000 },
+    )
+    const p = parseFloat(data.price)
+    return isFinite(p) && p > 0 ? p : fallback
+  } catch {
+    return fallback
+  }
+}
 
-const BTC_PRICE  = 104_850
-const ETH_PRICE  = 3_420
-const SOL_PRICE  = 182
-const AVAX_PRICE = 38.4
-const BNB_PRICE  = 680
+// ── Market snapshots — levels computed relative to live price ─────────────────
 
-function btcSnapshot(framework: string) {
+function btcSnapshot(framework: string, price: number) {
+  const p = price
   return {
     symbol:           'BTC',
     binanceSymbol:    'BTCUSDT',
     framework,
     snapshotAt:       new Date().toISOString(),
-    entryZone:        { low: 104_200, high: 104_800 },
-    stopLoss:         102_500,
-    takeProfitLevels: [107_200, 110_500],
+    entryZone:        { low: r(p, -0.3), high: r(p, 0) },
+    stopLoss:         r(p, -2.3),
+    takeProfitLevels: [r(p, 2.3), r(p, 5.4)],
     confidence:       74,
     overlays: {
       supportResistance: [
-        { price: 102_500, type: 'support',    strength: 'strong' },
-        { price: 104_000, type: 'support',    strength: 'medium' },
-        { price: 107_200, type: 'resistance', strength: 'strong' },
-        { price: 110_500, type: 'resistance', strength: 'medium' },
+        { price: r(p, -2.3), type: 'support',    strength: 'strong'  },
+        { price: r(p, -1.0), type: 'support',    strength: 'moderate' },
+        { price: r(p,  2.3), type: 'resistance', strength: 'strong'  },
+        { price: r(p,  5.4), type: 'resistance', strength: 'moderate' },
       ],
       trendlines: [
-        { direction: 'up', p1: { time: Date.now() - 14 * D, price: 94_000 }, p2: { time: Date.now() - 7 * D, price: 99_500 } },
+        {
+          direction: 'up',
+          p1: { time: Date.now() - 14 * D, price: r(p, -10) },
+          p2: { time: Date.now() - 4  * D, price: r(p,  -1) },
+        },
       ],
       wyckoffRange:    null,
       harmonicPattern: null,
       elliottPivots:   null,
       orderBlocks: [
-        { high: 104_800, low: 104_200, type: 'bullish', status: 'unmitigated' },
-        { high: 102_600, low: 101_900, type: 'bullish', status: 'unmitigated' },
+        { high: r(p,  0),   low: r(p, -0.3), type: 'bullish', status: 'unmitigated' },
+        { high: r(p, -1.8), low: r(p, -2.5), type: 'bullish', status: 'unmitigated' },
       ],
     },
   }
 }
 
-function ethSnapshot(framework: string) {
+function ethSnapshot(framework: string, price: number) {
+  const p = price
   return {
     symbol:           'ETH',
     binanceSymbol:    'ETHUSDT',
     framework,
     snapshotAt:       new Date().toISOString(),
-    entryZone:        { low: 3_350, high: 3_390 },
-    stopLoss:         3_240,
-    takeProfitLevels: [3_580, 3_720],
+    entryZone:        { low: r(p, -0.5), high: r(p, 0.3) },
+    stopLoss:         r(p, -3.0),
+    takeProfitLevels: [r(p, 3.2), r(p, 7.1)],
     confidence:       68,
     overlays: {
       supportResistance: [
-        { price: 3_240, type: 'support',    strength: 'strong'  },
-        { price: 3_580, type: 'resistance', strength: 'medium'  },
-        { price: 3_720, type: 'resistance', strength: 'strong'  },
+        { price: r(p, -3.0), type: 'support',    strength: 'strong'  },
+        { price: r(p,  3.2), type: 'resistance', strength: 'moderate' },
+        { price: r(p,  7.1), type: 'resistance', strength: 'strong'  },
       ],
       trendlines: [
-        { direction: 'up', p1: { time: Date.now() - 10 * D, price: 3_100 }, p2: { time: Date.now() - 3 * D, price: 3_320 } },
+        {
+          direction: 'up',
+          p1: { time: Date.now() - 10 * D, price: r(p, -9) },
+          p2: { time: Date.now() - 3  * D, price: r(p, -2) },
+        },
       ],
-      wyckoffRange:    { phase: 'C', high: 3_420, low: 3_200 },
+      wyckoffRange:    { phase: 'C', high: r(p, 0.5), low: r(p, -4) },
       harmonicPattern: null,
       elliottPivots:   null,
       orderBlocks: [
-        { high: 3_395, low: 3_350, type: 'bullish', status: 'unmitigated' },
+        { high: r(p, 0.3), low: r(p, -0.5), type: 'bullish', status: 'unmitigated' },
       ],
     },
   }
@@ -108,7 +128,16 @@ const obj  = <T>(doc: T): any  => doc as any
 // ── Main seed function ────────────────────────────────────────────────────────
 
 async function seedDemoData(userId: string): Promise<Record<string, number>> {
-  // ── 0. Clear existing demo data for this user ────────────────────────────
+  // ── 0. Fetch live prices so all levels land on the real candles ──────────
+  const [BTC_PRICE, ETH_PRICE, SOL_PRICE, AVAX_PRICE, BNB_PRICE] = await Promise.all([
+    livePrice('BTCUSDT',  65_000),
+    livePrice('ETHUSDT',  2_500),
+    livePrice('SOLUSDT',  150),
+    livePrice('AVAXUSDT', 25),
+    livePrice('BNBUSDT',  600),
+  ])
+
+  // ── 1. Clear existing demo data for this user ────────────────────────────
   await Promise.all([
     AgentRunDoc.deleteMany({ userId, runId: /^run-demo/ }),
     PositionDoc.deleteMany({ userId, positionId: /^pos-demo/ }),
@@ -210,16 +239,16 @@ async function seedDemoData(userId: string): Promise<Record<string, number>> {
       intent: {
         type: 'propose_trade', tokenIn: 'USDC', tokenOut: 'BTC',
         amountUsd: 500, bias: 'long', framework: 'SmartMoney',
-        stopLossPrice: 102_500, takeProfitPrice: 107_200,
-        entryZoneLow: 104_200, entryZoneHigh: 104_800,
+        stopLossPrice: r(BTC_PRICE, -2.3), takeProfitPrice: r(BTC_PRICE, 2.3),
+        entryZoneLow: r(BTC_PRICE, -0.3), entryZoneHigh: r(BTC_PRICE, 0),
       },
       reasoning:
-        'BTC order block at 104.2–104.8K unmitigated on 4H. ChoCh confirmed bullish at 103.9K. ' +
-        'HTF (1D) structure bullish above 200EMA at 98K. SmartMoney + Wyckoff Phase D agree → 2× confluence. ' +
+        `BTC order block at ${r(BTC_PRICE,-0.3).toLocaleString()}–${r(BTC_PRICE,0).toLocaleString()} unmitigated on 4H. ChoCh confirmed bullish. ` +
+        'HTF (1D) structure bullish above 200EMA. SmartMoney + Wyckoff Phase D agree → 2× confluence. ' +
         'News sentiment neutral (avg 0.12). R:R 1:3.5.',
       confidence: 74,
     },
-    chartSnapshot: btcSnapshot('SmartMoney'),
+    chartSnapshot: btcSnapshot('SmartMoney', BTC_PRICE),
   }
   await AgentRunDoc.collection.insertOne(pendingRun)
 
@@ -229,10 +258,10 @@ async function seedDemoData(userId: string): Promise<Record<string, number>> {
   await PositionDoc.create(obj({
     positionId: id('pos', 1), userId, mode: 'paper', status: 'open', isOpen: true,
     tokenIn: 'USDC', tokenOut: 'BTC', entryAmountUsd: 500,
-    entryPrice: BTC_PRICE - 300, entryFeesUsd: 0.15, entryAt: ago(6 * H),
+    entryPrice: r(BTC_PRICE, -0.3), entryFeesUsd: 0.15, entryAt: ago(6 * H),
     strategy: 'chartSignal', runId: id('run', 4),
-    stopLossPrice:   102_500,
-    takeProfitPrice: 107_200,
+    stopLossPrice:   r(BTC_PRICE, -2.3),
+    takeProfitPrice: r(BTC_PRICE,  2.3),
     framework: 'SmartMoney', confidence: 74,
   }))
 
@@ -242,36 +271,40 @@ async function seedDemoData(userId: string): Promise<Record<string, number>> {
     tokenIn: 'USDC', tokenOut: 'ETH', entryAmountUsd: 500,
     entryFeesUsd: 0, entryAt: ago(1 * H),
     strategy: 'chartSignal', runId: id('run', 2),
-    stopLossPrice:   3_240,
-    takeProfitPrice: 3_580,
-    entryZoneLow:  3_350, entryZoneHigh: 3_390,
+    stopLossPrice:   r(ETH_PRICE, -3.0),
+    takeProfitPrice: r(ETH_PRICE,  3.2),
+    entryZoneLow: r(ETH_PRICE, -0.5), entryZoneHigh: r(ETH_PRICE, 0.3),
     entryExpiresAt: new Date(Date.now() + 5 * H),
     framework: 'Wyckoff', confidence: 68,
   }))
 
   // 5c. SOL closed — TP hit (shows ✓ TP Hit badge + green border)
+  const solEntry = r(SOL_PRICE, -2)
+  const solTp    = r(SOL_PRICE,  6)
   await PositionDoc.create(obj({
     positionId: id('pos', 3), userId, mode: 'paper', status: 'closed', isOpen: false,
     tokenIn: 'USDC', tokenOut: 'SOL', entryAmountUsd: 500,
-    entryPrice: SOL_PRICE - 4, entryFeesUsd: 0.12, entryAt: ago(5 * D),
-    exitAt: ago(2 * D), exitPrice: 192,
-    realizedPnlUsd: 32.4,
+    entryPrice: solEntry, entryFeesUsd: 0.12, entryAt: ago(5 * D),
+    exitAt: ago(2 * D), exitPrice: solTp,
+    realizedPnlUsd: Math.round((solTp - solEntry) / solEntry * 500 * 10) / 10,
     strategy: 'chartSignal', runId: id('run', 1),
-    stopLossPrice:   171,
-    takeProfitPrice: 192,
+    stopLossPrice:   r(SOL_PRICE, -6),
+    takeProfitPrice: solTp,
     framework: 'SmartMoney', confidence: 74,
   }))
 
   // 5d. AVAX closed — SL hit (shows ⚡ SL Auto-closed badge + red border)
+  const avaxEntry = r(AVAX_PRICE, 1)
+  const avaxSl    = r(AVAX_PRICE, -5)
   await PositionDoc.create(obj({
     positionId: id('pos', 4), userId, mode: 'paper', status: 'closed', isOpen: false,
     tokenIn: 'USDC', tokenOut: 'AVAX', entryAmountUsd: 300,
-    entryPrice: AVAX_PRICE + 0.4, entryFeesUsd: 0.08, entryAt: ago(4 * D),
-    exitAt: ago(1 * D + 12 * H), exitPrice: 35.8,
-    realizedPnlUsd: -19.6,
+    entryPrice: avaxEntry, entryFeesUsd: 0.08, entryAt: ago(4 * D),
+    exitAt: ago(1 * D + 12 * H), exitPrice: avaxSl,
+    realizedPnlUsd: Math.round((avaxSl - avaxEntry) / avaxEntry * 300 * 10) / 10,
     strategy: 'chartSignal', runId: id('run', 3),
-    stopLossPrice:   35.8,
-    takeProfitPrice: 42.5,
+    stopLossPrice:   avaxSl,
+    takeProfitPrice: r(AVAX_PRICE, 8),
     framework: 'ElliottWave', confidence: 58,
   }))
 
@@ -319,7 +352,7 @@ async function seedDemoData(userId: string): Promise<Record<string, number>> {
           confluence_factors: ['OB reclaim', 'ChoCh', 'HTF bullish', 'Volume spike at sweep low'],
           generated_at: new Date().toISOString(),
         },
-        chartSnapshot: ethSnapshot('SmartMoney'),
+        chartSnapshot: ethSnapshot('SmartMoney', ETH_PRICE),
       },
       {
         framework: 'Wyckoff',
@@ -339,7 +372,7 @@ async function seedDemoData(userId: string): Promise<Record<string, number>> {
           confluence_factors: ['Phase D LPS', 'SoS candle', 'Cause count 45 boxes', 'Volume profile bullish'],
           generated_at: new Date().toISOString(),
         },
-        chartSnapshot: ethSnapshot('Wyckoff'),
+        chartSnapshot: ethSnapshot('Wyckoff', ETH_PRICE),
       },
       {
         framework: 'ElliottWave',
@@ -359,7 +392,7 @@ async function seedDemoData(userId: string): Promise<Record<string, number>> {
           confluence_factors: ['Wave 4 Fib support', '1.618 extension target', 'RSI bullish divergence'],
           generated_at: new Date().toISOString(),
         },
-        chartSnapshot: ethSnapshot('ElliottWave'),
+        chartSnapshot: ethSnapshot('ElliottWave', ETH_PRICE),
       },
       {
         framework: 'Harmonic',
