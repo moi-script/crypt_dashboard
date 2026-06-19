@@ -161,7 +161,10 @@ function RunsTab({ accentColor }: { accentColor: string }) {
   const [activeRunId, setActiveRunId] = useState<string | null>(null);
   const [selectedCoin,setSelectedCoin]= useState<string>("BTC");
   const [agentEnabled,setAgentEnabled]= useState<boolean | null>(null);
+  const [latestRun,   setLatestRun]   = useState<CoinAnalysisRun | null>(null);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  const displayRun = activeRun ?? latestRun;
 
   const stopPoll = () => { if (pollRef.current) { clearInterval(pollRef.current); pollRef.current = null; } };
   useEffect(() => () => stopPoll(), []);
@@ -177,11 +180,12 @@ function RunsTab({ accentColor }: { accentColor: string }) {
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const [r, s, a, cfg] = await Promise.all([
+      const [r, s, a, cfg, latest] = await Promise.all([
         apiClient.get<{ runs: AgentRun[]; total: number }>("/agent-runs?limit=20"),
         apiClient.get<AgentRunStats>("/agent-runs/stats"),
         fetchApprovals(),
         apiClient.get<{ config: AgentConfig }>("/agent-runs/config"),
+        coinAnalysisService.getLatest().catch(() => null),
       ]);
       setRuns(r.runs ?? []);
       setStats(s);
@@ -189,6 +193,7 @@ function RunsTab({ accentColor }: { accentColor: string }) {
       if (cfg.config.selectedCoin) setSelectedCoin(cfg.config.selectedCoin);
       else if (cfg.config.watchlist?.[0]) setSelectedCoin(cfg.config.watchlist[0]);
       setAgentEnabled(cfg.config.enabled);
+      if (latest) setLatestRun(latest);
     } catch { /* ignore */ } finally { setLoading(false); }
   }, []);
 
@@ -257,18 +262,18 @@ function RunsTab({ accentColor }: { accentColor: string }) {
       </div>
 
       {/* ── Trade proposals — only shown after this session triggers a run ── */}
-      {(triggering || activeRun) && (
+      {(triggering || displayRun) && (
         <div style={{ borderRadius: 12, overflow: "hidden", border: "1px solid rgba(255,255,255,0.08)", background: "rgb(4,10,18)" }}>
           <div style={{ padding: "10px 14px", borderBottom: "1px solid rgba(255,255,255,0.07)", display: "flex", alignItems: "center", gap: 8 }}>
             <span style={{ fontFamily: "var(--font-mono)", fontSize: 10, fontWeight: 700, color: "rgba(255,255,255,0.45)", textTransform: "uppercase", letterSpacing: "0.1em" }}>
               Trade Proposals
             </span>
-            {activeRun && (
-              <span style={{ fontFamily: "var(--font-mono)", fontSize: 10, color: activeRun.status === "pending_approval" ? "#a78bfa" : activeRun.status === "completed" || activeRun.status === "auto_executed" ? "#00e5a0" : accentColor }}>
-                {activeRun.symbol} · {activeRun.status.replace(/_/g, " ")}
+            {displayRun && (
+              <span style={{ fontFamily: "var(--font-mono)", fontSize: 10, color: displayRun.status === "pending_approval" ? "#a78bfa" : displayRun.status === "completed" || displayRun.status === "auto_executed" ? "#00e5a0" : accentColor }}>
+                {displayRun.symbol} · {displayRun.status.replace(/_/g, " ")}
               </span>
             )}
-            {triggering && !activeRun?.strategyCards.length && (
+            {triggering && !displayRun?.strategyCards.length && (
               <span style={{ fontFamily: "var(--font-mono)", fontSize: 10, color: accentColor }}>
                 Analysing {selectedCoin} across 4 strategies…
               </span>
@@ -277,7 +282,7 @@ function RunsTab({ accentColor }: { accentColor: string }) {
 
           <div style={{ padding: "12px 14px" }}>
             {/* Parallel strategy skeletons while running */}
-            {triggering && (!activeRun || activeRun.status === "running") && (
+            {triggering && (!displayRun || displayRun.status === "running") && (
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
                 {(["SmartMoney", "Wyckoff", "ElliottWave", "Harmonic"] as const).map((fw, i) => (
                   <div key={fw} style={{ borderRadius: 10, border: `1px solid ${FW_COLOR[fw]}22`, background: "rgb(6,14,22)", overflow: "hidden" }}>
@@ -298,21 +303,21 @@ function RunsTab({ accentColor }: { accentColor: string }) {
             )}
 
             {/* Pending approval banner */}
-            {activeRun && activeRun.status === "pending_approval" && !activeRun.autoMode && (
+            {displayRun && displayRun.status === "pending_approval" && !displayRun.autoMode && (
               <div style={{ marginBottom: 10, padding: "8px 12px", borderRadius: 8, background: "#a78bfa10", border: "1px solid #a78bfa30", fontFamily: "var(--font-mono)", fontSize: 10, color: "#a78bfa" }}>
                 ⚠ Proposals ready — approve or reject each strategy card below.
               </div>
             )}
 
             {/* 4 proposal cards */}
-            {activeRun && activeRun.strategyCards.length > 0 && (
+            {displayRun && displayRun.strategyCards.length > 0 && (
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
-                {activeRun.strategyCards.map(card => (
+                {displayRun.strategyCards.map(card => (
                   <ProposalCard
                     key={card.framework}
                     card={card}
-                    runId={activeRun.coinAnalysisRunId}
-                    autoMode={activeRun.autoMode}
+                    runId={displayRun.coinAnalysisRunId}
+                    autoMode={displayRun.autoMode}
                     accentColor={accentColor}
                     onAction={refreshRun}
                   />
@@ -321,11 +326,11 @@ function RunsTab({ accentColor }: { accentColor: string }) {
             )}
 
             {/* Footer meta */}
-            {activeRun && activeRun.strategyCards.length > 0 && (
+            {displayRun && displayRun.strategyCards.length > 0 && (
               <div style={{ marginTop: 10, display: "flex", gap: 12, fontFamily: "var(--font-mono)", fontSize: 9, color: "rgba(255,255,255,0.2)", flexWrap: "wrap" }}>
-                <span>Run: {activeRun.coinAnalysisRunId.slice(0, 12)}…</span>
-                <span>news: {activeRun.newsArticlesUsed.length} sources</span>
-                {activeRun.completedAt && <span>completed: {new Date(activeRun.completedAt).toLocaleTimeString()}</span>}
+                <span>Run: {displayRun.coinAnalysisRunId.slice(0, 12)}…</span>
+                <span>news: {displayRun.newsArticlesUsed.length} sources</span>
+                {displayRun.completedAt && <span>completed: {new Date(displayRun.completedAt).toLocaleTimeString()}</span>}
               </div>
             )}
           </div>
