@@ -147,35 +147,30 @@ function EmptyMsg({ msg }: { msg: string }) {
 // ── RUNS TAB ─────────────────────────────────────────────────────────────────
 
 const COIN_OPTIONS = ["BTC", "ETH", "SOL", "BNB", "AVAX", "ARB", "AAVE"] as const;
+type CoinOption = typeof COIN_OPTIONS[number];
+
+const SYMBOL_TO_COINGECKO: Record<CoinOption, string> = {
+  BTC: "bitcoin", ETH: "ethereum", SOL: "solana", BNB: "binancecoin",
+  AVAX: "avalanche-2", ARB: "arbitrum", AAVE: "aave",
+};
+const COINGECKO_TO_SYMBOL: Partial<Record<string, CoinOption>> = {
+  bitcoin: "BTC", ethereum: "ETH", solana: "SOL", binancecoin: "BNB",
+  "avalanche-2": "AVAX", arbitrum: "ARB", aave: "AAVE",
+};
 
 function RunsTab({ accentColor }: { accentColor: string }) {
   const [runs,        setRuns]        = useState<AgentRun[]>([]);
   const [stats,       setStats]       = useState<AgentRunStats | null>(null);
   const [loading,     setLoading]     = useState(true);
-  const [triggering,  setTriggering]  = useState(false);
   const [expanded,    setExpanded]    = useState<string | null>(null);
   const [approvals,   setApprovals]   = useState<ApprovalRun[]>([]);
   const [approving,   setApproving]   = useState<string | null>(null);
   // Proposals are null until the current session triggers a run
-  const [activeRun,   setActiveRun]   = useState<CoinAnalysisRun | null>(null);
-  const [activeRunId, setActiveRunId] = useState<string | null>(null);
   const [selectedCoin,setSelectedCoin]= useState<string>("BTC");
   const [agentEnabled,setAgentEnabled]= useState<boolean | null>(null);
   const [latestRun,   setLatestRun]   = useState<CoinAnalysisRun | null>(null);
-  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  const displayRun = activeRun ?? latestRun;
-
-  const stopPoll = () => { if (pollRef.current) { clearInterval(pollRef.current); pollRef.current = null; } };
-  useEffect(() => () => stopPoll(), []);
-
-  const pollRun = useCallback(async (runId: string) => {
-    try {
-      const data = await coinAnalysisService.getRun(runId);
-      setActiveRun(data);
-      if (data.status !== "running") { stopPoll(); setTriggering(false); }
-    } catch { stopPoll(); setTriggering(false); }
-  }, []);
+  const displayRun = latestRun;
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -190,8 +185,11 @@ function RunsTab({ accentColor }: { accentColor: string }) {
       setRuns(r.runs ?? []);
       setStats(s);
       setApprovals(a);
-      if (cfg.config.selectedCoin) setSelectedCoin(cfg.config.selectedCoin);
-      else if (cfg.config.watchlist?.[0]) setSelectedCoin(cfg.config.watchlist[0]);
+      const savedCoin =
+        cfg.config.selectedCoin ??
+        COINGECKO_TO_SYMBOL[cfg.config.watchlist?.[0] ?? ""] ??
+        "BTC";
+      setSelectedCoin((COIN_OPTIONS as readonly string[]).includes(savedCoin) ? savedCoin : "BTC");
       setAgentEnabled(cfg.config.enabled);
       if (latest) setLatestRun(latest);
     } catch { /* ignore */ } finally { setLoading(false); }
@@ -199,65 +197,35 @@ function RunsTab({ accentColor }: { accentColor: string }) {
 
   useEffect(() => { load(); }, [load]);
 
-  const trigger = async () => {
-    setTriggering(true);
-    setActiveRun(null);
-    setLatestRun(null);
-    stopPoll();
-    try {
-      // Save selected coin to config, then trigger the full coin analysis chain
-      await apiClient.put("/agent-runs/config", { selectedCoin });
-      const { coinAnalysisRunId } = await coinAnalysisService.trigger(selectedCoin);
-      setActiveRunId(coinAnalysisRunId);
-      pollRef.current = setInterval(() => pollRun(coinAnalysisRunId), 2_500);
-      load(); // refresh run history in background
-    } catch { setTriggering(false); }
-  };
+  // Keep agentEnabled in sync if user toggles it from the Config tab
+  useEffect(() => {
+    const id = setInterval(async () => {
+      try {
+        const cfg = await apiClient.get<{ config: AgentConfig }>("/agent-runs/config");
+        setAgentEnabled(cfg.config.enabled);
+      } catch { /* ignore */ }
+    }, 15_000);
+    return () => clearInterval(id);
+  }, []);
 
-  const refreshRun = useCallback(async () => {
-    if (activeRunId) {
-      const data = await coinAnalysisService.getRun(activeRunId).catch(() => null);
-      if (data) setActiveRun(data);
-    }
-  }, [activeRunId]);
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
 
-      {/* ── Coin selection + trigger ── */}
-      <div style={{ padding: "12px 14px", borderRadius: 12, background: "rgb(4,10,18)", border: "1px solid rgba(255,255,255,0.08)", display: "flex", flexDirection: "column", gap: 10 }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-          <span style={{ fontFamily: "var(--font-mono)", fontSize: 10, fontWeight: 700, color: "rgba(255,255,255,0.35)", textTransform: "uppercase", letterSpacing: "0.08em" }}>
-            Analyze
-          </span>
-          {/* Coin picker */}
-          <div style={{ display: "flex", gap: 2, background: "rgba(0,0,0,0.35)", borderRadius: 8, padding: 2 }}>
-            {COIN_OPTIONS.map(c => (
-              <button key={c} onClick={() => setSelectedCoin(c)} disabled={triggering}
-                style={{ padding: "4px 9px", borderRadius: 6, border: "none", cursor: "pointer", fontSize: 10, fontFamily: "var(--font-mono)", fontWeight: 700, transition: "all 0.15s",
-                  background: selectedCoin === c ? accentColor : "transparent",
-                  color: selectedCoin === c ? "rgb(2,6,9)" : "rgba(255,255,255,0.4)" }}>
-                {c}
-              </button>
-            ))}
-          </div>
-          {/* Trigger button */}
-          <button onClick={trigger} disabled={triggering}
-            style={{ display: "flex", alignItems: "center", gap: 6, padding: "6px 14px", borderRadius: 8, border: `1px solid ${accentColor}40`, background: triggering ? "transparent" : `${accentColor}15`, color: accentColor, cursor: triggering ? "default" : "pointer", fontFamily: "var(--font-mono)", fontSize: 11, fontWeight: 700, marginLeft: "auto" }}>
-            {triggering ? "⏳ Running…" : "⚡ Run Agent"}
-          </button>
+      {/* ── Loop status banner ── */}
+      {agentEnabled !== null && (
+        <div style={{ fontFamily: "var(--font-mono)", fontSize: 10, padding: "8px 12px", borderRadius: 10,
+          color:      agentEnabled ? "#00e5a0" : "#ffb020",
+          background: agentEnabled ? "#00e5a010" : "#ffb02010",
+          border:     `1px solid ${agentEnabled ? "#00e5a025" : "#ffb02025"}` }}>
+          {agentEnabled
+            ? `⬤ Agent loop active — auto-analysing ${selectedCoin} on schedule.`
+            : "⊘ Agent loop is halted — enable it in the Config tab to start auto-analysis."}
         </div>
-        {/* Agent status hint */}
-        {agentEnabled === false && (
-          <div style={{ fontFamily: "var(--font-mono)", fontSize: 10, color: "#ffb020", padding: "5px 8px", borderRadius: 6, background: "#ffb02010", border: "1px solid #ffb02025" }}>
-            Agent loop is halted — you can still trigger a manual analysis above.
-          </div>
-        )}
+      )}
 
-      </div>
-
-      {/* ── Trade proposals — only shown after this session triggers a run ── */}
-      {(triggering || displayRun) && (
+      {/* ── Trade proposals — shown when a run exists or is in progress ── */}
+      {displayRun && (
         <div style={{ borderRadius: 12, overflow: "hidden", border: "1px solid rgba(255,255,255,0.08)", background: "rgb(4,10,18)" }}>
           <div style={{ padding: "10px 14px", borderBottom: "1px solid rgba(255,255,255,0.07)", display: "flex", alignItems: "center", gap: 8 }}>
             <span style={{ fontFamily: "var(--font-mono)", fontSize: 10, fontWeight: 700, color: "rgba(255,255,255,0.45)", textTransform: "uppercase", letterSpacing: "0.1em" }}>
@@ -268,16 +236,16 @@ function RunsTab({ accentColor }: { accentColor: string }) {
                 {displayRun.symbol} · {displayRun.status.replace(/_/g, " ")}
               </span>
             )}
-            {triggering && !displayRun?.strategyCards.length && (
+            {displayRun.status === "running" && !displayRun.strategyCards?.length && (
               <span style={{ fontFamily: "var(--font-mono)", fontSize: 10, color: accentColor }}>
-                Analysing {selectedCoin} across 4 strategies…
+                Analysing {displayRun.symbol ?? selectedCoin} across 4 strategies…
               </span>
             )}
           </div>
 
           <div style={{ padding: "12px 14px" }}>
             {/* Parallel strategy skeletons while running */}
-            {triggering && (!displayRun || displayRun.status === "running") && (
+            {displayRun.status === "running" && !displayRun.strategyCards?.length && (
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
                 {(["SmartMoney", "Wyckoff", "ElliottWave", "Harmonic"] as const).map((fw, i) => (
                   <div key={fw} style={{ borderRadius: 10, border: `1px solid ${FW_COLOR[fw]}22`, background: "rgb(6,14,22)", overflow: "hidden" }}>
@@ -314,7 +282,7 @@ function RunsTab({ accentColor }: { accentColor: string }) {
                     runId={displayRun.coinAnalysisRunId}
                     autoMode={displayRun.autoMode}
                     accentColor={accentColor}
-                    onAction={activeRunId ? refreshRun : load}
+                    onAction={load}
                   />
                 ))}
               </div>
@@ -557,9 +525,18 @@ function ConfigTab({ accentColor }: { accentColor: string }) {
   const toggle = async () => {
     if (!config) return;
     setToggling(true);
+    const enabling = !config.enabled;
     try {
-      const res = await apiClient.put<{ ok: boolean; config: AgentConfig }>("/agent-runs/config", { enabled: !config.enabled });
+      const res = await apiClient.put<{ ok: boolean; config: AgentConfig }>("/agent-runs/config", { enabled: enabling });
       setConfig(res.config);
+      // Auto-trigger an immediate analysis run when the loop is first enabled
+      if (enabling) {
+        const coin =
+          config.selectedCoin ??
+          COINGECKO_TO_SYMBOL[config.watchlist?.[0] ?? ""] ??
+          "BTC";
+        coinAnalysisService.trigger(coin).catch(() => {});
+      }
     } catch { /* ignore */ } finally { setToggling(false); }
   };
 
@@ -578,7 +555,10 @@ function ConfigTab({ accentColor }: { accentColor: string }) {
   const saveCoin = async (coin: string) => {
     setSaving(true);
     try {
-      const res = await apiClient.put<{ ok: boolean; config: AgentConfig }>("/agent-runs/config", { selectedCoin: coin });
+      const res = await apiClient.put<{ ok: boolean; config: AgentConfig }>("/agent-runs/config", {
+        selectedCoin: coin,
+        watchlist: [SYMBOL_TO_COINGECKO[coin as CoinOption] ?? coin.toLowerCase()],
+      });
       setConfig(res.config);
     } catch { /* ignore */ } finally { setSaving(false); }
   };
@@ -666,7 +646,11 @@ function ConfigTab({ accentColor }: { accentColor: string }) {
         </p>
         <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
           {["BTC", "ETH", "SOL", "BNB", "AVAX", "ARB", "AAVE"].map(c => {
-            const selected = (config.selectedCoin ?? config.watchlist[0] ?? "BTC") === c;
+            const currentCoin =
+              config.selectedCoin ??
+              COINGECKO_TO_SYMBOL[config.watchlist?.[0] ?? ""] ??
+              "BTC";
+            const selected = currentCoin === c;
             return (
               <button key={c} onClick={() => saveCoin(c)} disabled={saving}
                 style={{ padding: "5px 12px", borderRadius: 7, border: "none", cursor: "pointer", fontFamily: "var(--font-mono)", fontSize: 11, fontWeight: 700, transition: "all 0.15s",
@@ -678,7 +662,7 @@ function ConfigTab({ accentColor }: { accentColor: string }) {
           })}
         </div>
         <p style={{ fontSize: 10, color: "rgba(255,255,255,0.2)", margin: "8px 0 0", fontFamily: "var(--font-mono)" }}>
-          Current: <span style={{ color: accentColor }}>{config.selectedCoin ?? config.watchlist[0] ?? "BTC"}</span>
+          Current: <span style={{ color: accentColor }}>{config.selectedCoin ?? COINGECKO_TO_SYMBOL[config.watchlist?.[0] ?? ""] ?? "BTC"}</span>
           {" · "}4 strategies run in parallel (SmartMoney, Wyckoff, ElliottWave, Harmonic)
         </p>
       </div>
