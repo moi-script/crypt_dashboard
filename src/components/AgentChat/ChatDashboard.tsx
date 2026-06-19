@@ -897,6 +897,25 @@ function ConfigTab({ accentColor }: { accentColor: string }) {
   );
 }
 
+// ── Build a ChartSnapshot from position fields for MiniChart ──────────────────
+
+function positionSnapshot(pos: Position) {
+  if (!pos.stopLossPrice || !pos.takeProfitPrice) return null;
+  const zoneAvg = ((pos.entryZoneLow ?? 0) + (pos.entryZoneHigh ?? 0)) / 2;
+  const mid = pos.entryPrice ?? (zoneAvg > 0 ? zoneAvg : pos.stopLossPrice * 1.02);
+  return {
+    symbol:           pos.tokenOut,
+    binanceSymbol:    `${pos.tokenOut}USDT`,
+    framework:        pos.framework ?? "chartSignal",
+    snapshotAt:       pos.entryAt,
+    entryZone:        { low: pos.entryZoneLow ?? mid * 0.997, high: pos.entryZoneHigh ?? mid },
+    stopLoss:         pos.stopLossPrice,
+    takeProfitLevels: [pos.takeProfitPrice],
+    confidence:       pos.confidence ?? 0,
+    overlays:         { supportResistance: [], trendlines: [] },
+  } as import("@/services/agent.service.frontend").ChartSnapshot;
+}
+
 // ── POSITIONS TAB ─────────────────────────────────────────────────────────────
 
 function PositionsTab({ accentColor }: { accentColor: string }) {
@@ -1011,6 +1030,21 @@ function PositionsTab({ accentColor }: { accentColor: string }) {
                   {pos.takeProfitPrice !== undefined && <span style={{ color: closeReason === "tp_hit" ? "#00e5a0" : "rgba(0,229,160,0.6)" }}>TP ${pos.takeProfitPrice.toFixed(2)}</span>}
                 </p>
               )}
+
+              {/* Chart — same interactive MiniChart as the approval cards */}
+              {(() => {
+                const snap = positionSnapshot(pos);
+                if (!snap) return null;
+                return (
+                  <div style={{ marginTop: 10 }}>
+                    <div style={{ fontSize: 9, fontFamily: "var(--font-mono)", color: "rgba(255,255,255,0.25)", marginBottom: 3, display: "flex", justifyContent: "space-between" }}>
+                      <span>{snap.binanceSymbol} · 4H</span>
+                      <span style={{ color: "rgba(255,255,255,0.15)" }}>click to expand</span>
+                    </div>
+                    <MiniChart snapshot={snap} />
+                  </div>
+                );
+              })()}
             </div>
           );
         })}
