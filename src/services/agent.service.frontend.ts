@@ -469,3 +469,7 @@ export const coinAnalysisService = {
   rejectCard: (runId: string, framework: StrategyFramework) =>
     apiClient.post<void>(`/coin-analysis/${runId}/cards/${framework}/reject`, {}),
 }
+
+export async function seedDemoData(): Promise<{ seeded: Record<string, number> }> {
+  return apiClient.post<{ seeded: Record<string, number> }>('/demo/seed', {})
+}

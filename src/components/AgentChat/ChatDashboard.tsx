@@ -12,6 +12,7 @@ import {
   approveRun as doApprove,
   rejectRun  as doReject,
   coinAnalysisService,
+  seedDemoData,
 } from "@/services/agent.service.frontend";
 import type { ApprovalRun, CoinAnalysisRun, StrategyCard, StrategyFramework } from "@/services/agent.service.frontend";
 
@@ -706,6 +707,16 @@ function ConfigTab({ accentColor }: { accentColor: string }) {
     } catch { /* ignore */ } finally { setSaving(false); }
   };
 
+  const [seeding,   setSeeding]   = useState(false);
+  const [seedDone,  setSeedDone]  = useState<Record<string, number> | null>(null);
+  const runSeed = async () => {
+    setSeeding(true); setSeedDone(null);
+    try {
+      const { seeded } = await seedDemoData();
+      setSeedDone(seeded);
+    } catch { /* ignore */ } finally { setSeeding(false); }
+  };
+
   if (loading) return <EmptyMsg msg="Loading…" />;
   if (!config) return <EmptyMsg msg="Could not load config." />;
 
@@ -864,6 +875,43 @@ function ConfigTab({ accentColor }: { accentColor: string }) {
             </span>
           ))}
         </div>
+      </div>
+
+      {/* Demo data seed */}
+      <div style={{ padding: "12px 14px", borderRadius: 10, background: "rgb(8,18,32)", border: "1px solid rgba(167,139,250,0.2)" }}>
+        <p style={{ fontSize: 10, color: "#a78bfa", letterSpacing: "0.08em", textTransform: "uppercase", margin: "0 0 6px", fontFamily: "var(--font-mono)", fontWeight: 700 }}>
+          Demo Mode
+        </p>
+        <p style={{ fontSize: 11, color: "rgba(255,255,255,0.35)", margin: "0 0 10px", fontFamily: "var(--font-mono)", lineHeight: 1.5 }}>
+          Seeds your account with realistic mock data — open/closed positions, pending approvals
+          with sparkline charts, 3× ETH confluence run, RAG memories, and yield opportunities.
+          Safe to re-run; previous demo data is cleared first.
+        </p>
+        <button
+          onClick={runSeed}
+          disabled={seeding}
+          style={{
+            width: "100%", padding: "9px 0", borderRadius: 8, border: "1px solid rgba(167,139,250,0.4)",
+            background: seeding ? "rgba(167,139,250,0.08)" : "rgba(167,139,250,0.12)",
+            color: seeding ? "rgba(255,255,255,0.3)" : "#a78bfa",
+            fontSize: 12, fontWeight: 700, cursor: seeding ? "not-allowed" : "pointer",
+            fontFamily: "var(--font-display,sans-serif)", transition: "all 0.15s",
+          }}
+        >
+          {seeding ? "Seeding…" : "⬡ Load Demo Data"}
+        </button>
+        {seedDone && (
+          <div style={{ marginTop: 8, padding: "8px 10px", borderRadius: 7, background: "rgba(0,229,160,0.06)", border: "1px solid rgba(0,229,160,0.2)" }}>
+            <p style={{ fontSize: 10, color: "#00e5a0", margin: 0, fontFamily: "var(--font-mono)", fontWeight: 700 }}>✓ Demo data loaded — switch tabs to explore</p>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: "2px 14px", marginTop: 5 }}>
+              {Object.entries(seedDone).map(([k, v]) => (
+                <span key={k} style={{ fontSize: 10, color: "rgba(255,255,255,0.35)", fontFamily: "var(--font-mono)" }}>
+                  {k}: <span style={{ color: "#00e5a0" }}>{v}</span>
+                </span>
+              ))}
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );

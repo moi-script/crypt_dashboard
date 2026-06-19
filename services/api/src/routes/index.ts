@@ -10,6 +10,7 @@ import agentRunRoutes      from './agentRun.routes'
 import positionRoutes      from './position.routes'
 import chartAnalysisRoutes from './chartAnalysis.routes'
 import coinAnalysisRoutes  from './coinAnalysis.routes'
+import demoRoutes          from './demo.routes'
 
 const router = Router()
 
@@ -26,5 +27,6 @@ router.use('/agent-runs',    agentRunRoutes)
 router.use('/positions',     positionRoutes)
 router.use('/chart',         chartAnalysisRoutes)
 router.use('/coin-analysis', coinAnalysisRoutes)
+router.use('/demo',         demoRoutes)
 
 export default router
