@@ -17,6 +17,8 @@ export interface SparklineProps {
   height?:    number;
 }
 
+const FOUR_H_SEC = 4 * 3600;
+
 function toSec(ms: number): UTCTimestamp {
   return Math.floor(ms / 1000) as UTCTimestamp;
 }
@@ -24,36 +26,39 @@ function toSec(ms: number): UTCTimestamp {
 export function PriceSparkline({
   snapshot,
   timeframe = "4h",
-  height = 180,
+  height = 220,
 }: SparklineProps) {
   const containerRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     if (!containerRef.current) return;
 
+    const FUTURE_BARS = 24; // blank bars on the right showing projection space
+
     const chart = createChart(containerRef.current, {
       height,
       layout: {
         background: { color: "rgb(8,18,32)" },
-        textColor:  "rgba(255,255,255,0.45)",
-        fontSize:   10,
+        textColor:  "rgba(255,255,255,0.5)",
+        fontSize:   11,
       },
       grid: {
-        vertLines: { color: "rgba(255,255,255,0.04)" },
+        vertLines: { color: "rgba(255,255,255,0.03)" },
         horzLines: { color: "rgba(255,255,255,0.04)" },
       },
       crosshair: { mode: 1 },
       timeScale: {
-        timeVisible:     true,
-        secondsVisible:  false,
-        borderColor:     "rgba(255,255,255,0.08)",
-        barSpacing:      4,
-        fixLeftEdge:     true,
-        fixRightEdge:    true,
+        timeVisible:    true,
+        secondsVisible: false,
+        borderColor:    "rgba(255,255,255,0.08)",
+        rightOffset:    FUTURE_BARS,  // leave blank future space on right
+        barSpacing:     7,
+        fixRightEdge:   false,
+        fixLeftEdge:    true,
       },
       rightPriceScale: {
-        borderColor: "rgba(255,255,255,0.08)",
-        scaleMargins: { top: 0.12, bottom: 0.12 },
+        borderColor:  "rgba(255,255,255,0.08)",
+        scaleMargins: { top: 0.1, bottom: 0.1 },
       },
       handleScroll: false,
       handleScale:  false,
@@ -61,7 +66,7 @@ export function PriceSparkline({
 
     let destroyed = false;
 
-    getOhlcv(snapshot.binanceSymbol, timeframe, 80)
+    getOhlcv(snapshot.binanceSymbol, timeframe, 50)
       .then(({ candles }) => {
         if (destroyed || !candles?.length) return;
 
@@ -82,6 +87,10 @@ export function PriceSparkline({
           close: c.close,
         }));
         candleSeries.setData(data);
+
+        const firstTime = data[0].time as number;
+        const lastTime  = data[data.length - 1].time as number;
+        const futureEnd = (lastTime + FUTURE_BARS * FOUR_H_SEC) as UTCTimestamp;
 
         // ── Entry zone ──────────────────────────────────────────────────────
         candleSeries.createPriceLine({
@@ -115,37 +124,48 @@ export function PriceSparkline({
         snapshot.overlays.supportResistance?.forEach(sr => {
           candleSeries.createPriceLine({
             price: sr.price,
-            color: sr.type === "support" ? "#00e5a060" : "#ff557260",
-            lineWidth: sr.strength === "strong" ? 2 : 1,
-            lineStyle: 0,
+            color: sr.type === "support" ? "#00e5a050" : "#ff557250",
+            lineWidth: 1, lineStyle: 0,
             axisLabelVisible: true,
             title: sr.type === "support" ? "S" : "R",
           });
         });
 
-        // ── Trendlines ──────────────────────────────────────────────────────
-        const firstTime = data[0].time;
-        const lastTime  = data[data.length - 1].time;
-
+        // ── Trendlines — extrapolated into future projection space ──────────
         snapshot.overlays.trendlines?.forEach(tl => {
-          const color = tl.direction === "up" ? "#ffb02090" : "#ff557260";
-          const t1 = toSec(tl.p1.time);
-          const t2 = toSec(tl.p2.time);
-          const tStart = Math.max(firstTime, Math.min(t1, t2)) as UTCTimestamp;
-          const tEnd   = Math.min(lastTime,  Math.max(t1, t2)) as UTCTimestamp;
-          const span   = t2 - t1 || 1;
-          const slope  = (tl.p2.price - tl.p1.price) / span;
+          const color = tl.direction === "up" ? "#ffb020bb" : "#ff5572bb";
+          const t1 = toSec(tl.p1.time) as number;
+          const t2 = toSec(tl.p2.time) as number;
+          const span  = t2 - t1 || 1;
+          const slope = (tl.p2.price - tl.p1.price) / span;
+
+          // Start: clamp to firstTime if anchor is before chart range
+          const tStart = Math.max(firstTime, t1) as UTCTimestamp;
           const pStart = tl.p1.price + slope * (tStart - t1);
-          const pEnd   = tl.p1.price + slope * (tEnd   - t1);
+
+          // End: always project into the future (beyond the last candle)
+          const tEnd = futureEnd;
+          const pEnd = tl.p1.price + slope * ((tEnd as number) - t1);
 
           const tlSeries: ISeriesApi<"Line"> = chart.addSeries(LineSeries, {
-            color, lineWidth: 2, lineStyle: 0,
-            lastValueVisible: false, priceLineVisible: false, crosshairMarkerVisible: false,
+            color,
+            lineWidth: 2,
+            lineStyle: 0,
+            lastValueVisible:       true,
+            priceLineVisible:       false,
+            crosshairMarkerVisible: false,
           });
           tlSeries.setData([
             { time: tStart, value: pStart },
             { time: tEnd,   value: pEnd   },
           ]);
+        });
+
+        // ── Order blocks (thin shaded bands) ───────────────────────────────
+        snapshot.overlays.orderBlocks?.forEach(ob => {
+          const color = ob.type === "bullish" ? "#00e5a055" : "#ff557255";
+          candleSeries.createPriceLine({ price: ob.high, color, lineWidth: 1, lineStyle: 2, axisLabelVisible: true, title: ob.type === "bullish" ? "OB+" : "OB-" });
+          candleSeries.createPriceLine({ price: ob.low,  color, lineWidth: 1, lineStyle: 2, axisLabelVisible: false, title: "" });
         });
 
         chart.timeScale().fitContent();
