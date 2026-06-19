@@ -538,7 +538,8 @@ function ConfigTab({ accentColor }: { accentColor: string }) {
   const [loading,     setLoading]     = useState(true);
   const [toggling,    setToggling]    = useState(false);
   const { user } = useAuth();
-  const [walletUsd, setWalletUsd] = useState<number | null>(null);
+  const [walletUsd,   setWalletUsd]   = useState<number | null>(null);
+  const [saving,      setSaving]      = useState(false);
 
   useEffect(() => {
     apiClient.get<{ config: AgentConfig; schedulerActive: boolean }>("/agent-runs/config")
@@ -572,6 +573,14 @@ function ConfigTab({ accentColor }: { accentColor: string }) {
       const res = await apiClient.put<{ ok: boolean; config: AgentConfig }>("/agent-runs/config", { requireManualApproval: !config.requireManualApproval });
       setConfig(res.config);
     } catch { /* ignore */ } finally { setSavingApproval(false); }
+  };
+
+  const saveCoin = async (coin: string) => {
+    setSaving(true);
+    try {
+      const res = await apiClient.put<{ ok: boolean; config: AgentConfig }>("/agent-runs/config", { selectedCoin: coin });
+      setConfig(res.config);
+    } catch { /* ignore */ } finally { setSaving(false); }
   };
 
   if (loading) return <EmptyMsg msg="Loading…" />;
@@ -615,9 +624,7 @@ function ConfigTab({ accentColor }: { accentColor: string }) {
       </div>
 
       {/* Auto-Trade toggle */}
-      {(() => {
-        const autoOn = !config.requireManualApproval;
-        return (
+      {(autoOn => (
           <div style={{ padding: "14px 14px", borderRadius: 10, background: "rgb(8,18,32)", border: `1px solid ${autoOn ? "#00e5a030" : "rgba(255,255,255,0.07)"}` }}>
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
               <div style={{ paddingRight: 12 }}>
@@ -638,8 +645,7 @@ function ConfigTab({ accentColor }: { accentColor: string }) {
               </button>
             </div>
           </div>
-        );
-      })()}
+      ))(!config.requireManualApproval)}
 
       {/* Config rows */}
       {[
@@ -654,40 +660,28 @@ function ConfigTab({ accentColor }: { accentColor: string }) {
       ))}
 
       {/* Analysis coin picker */}
-      {(() => {
-        const [saving, setSaving] = useState(false);
-        const saveCoin = async (coin: string) => {
-          setSaving(true);
-          try {
-            const res = await apiClient.put<{ ok: boolean; config: AgentConfig }>("/agent-runs/config", { selectedCoin: coin });
-            setConfig(res.config);
-          } catch { /* ignore */ } finally { setSaving(false); }
-        };
-        return (
-          <div style={{ padding: "12px 14px", borderRadius: 10, background: "rgb(8,18,32)", border: `1px solid ${accentColor}25` }}>
-            <p style={{ fontSize: 10, color: "rgba(255,255,255,0.3)", letterSpacing: "0.08em", textTransform: "uppercase", margin: "0 0 10px", fontFamily: "var(--font-mono)" }}>
-              Analysis Coin — agent loop focuses here
-            </p>
-            <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
-              {["BTC", "ETH", "SOL", "BNB", "AVAX", "ARB", "AAVE"].map(c => {
-                const selected = (config.selectedCoin ?? config.watchlist[0] ?? "BTC") === c;
-                return (
-                  <button key={c} onClick={() => saveCoin(c)} disabled={saving}
-                    style={{ padding: "5px 12px", borderRadius: 7, border: "none", cursor: "pointer", fontFamily: "var(--font-mono)", fontSize: 11, fontWeight: 700, transition: "all 0.15s",
-                      background: selected ? accentColor : "rgba(255,255,255,0.06)",
-                      color: selected ? "rgb(2,6,9)" : "rgba(255,255,255,0.45)" }}>
-                    {c}
-                  </button>
-                );
-              })}
-            </div>
-            <p style={{ fontSize: 10, color: "rgba(255,255,255,0.2)", margin: "8px 0 0", fontFamily: "var(--font-mono)" }}>
-              Current: <span style={{ color: accentColor }}>{config.selectedCoin ?? config.watchlist[0] ?? "BTC"}</span>
-              {" · "}4 strategies run in parallel (SmartMoney, Wyckoff, ElliottWave, Harmonic)
-            </p>
-          </div>
-        );
-      })()}
+      <div style={{ padding: "12px 14px", borderRadius: 10, background: "rgb(8,18,32)", border: `1px solid ${accentColor}25` }}>
+        <p style={{ fontSize: 10, color: "rgba(255,255,255,0.3)", letterSpacing: "0.08em", textTransform: "uppercase", margin: "0 0 10px", fontFamily: "var(--font-mono)" }}>
+          Analysis Coin — agent loop focuses here
+        </p>
+        <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
+          {["BTC", "ETH", "SOL", "BNB", "AVAX", "ARB", "AAVE"].map(c => {
+            const selected = (config.selectedCoin ?? config.watchlist[0] ?? "BTC") === c;
+            return (
+              <button key={c} onClick={() => saveCoin(c)} disabled={saving}
+                style={{ padding: "5px 12px", borderRadius: 7, border: "none", cursor: "pointer", fontFamily: "var(--font-mono)", fontSize: 11, fontWeight: 700, transition: "all 0.15s",
+                  background: selected ? accentColor : "rgba(255,255,255,0.06)",
+                  color: selected ? "rgb(2,6,9)" : "rgba(255,255,255,0.45)" }}>
+                {c}
+              </button>
+            );
+          })}
+        </div>
+        <p style={{ fontSize: 10, color: "rgba(255,255,255,0.2)", margin: "8px 0 0", fontFamily: "var(--font-mono)" }}>
+          Current: <span style={{ color: accentColor }}>{config.selectedCoin ?? config.watchlist[0] ?? "BTC"}</span>
+          {" · "}4 strategies run in parallel (SmartMoney, Wyckoff, ElliottWave, Harmonic)
+        </p>
+      </div>
 
       {/* Strategies */}
       <div style={{ padding: "12px 14px", borderRadius: 10, background: "rgb(8,18,32)", border: "1px solid rgba(255,255,255,0.07)" }}>
