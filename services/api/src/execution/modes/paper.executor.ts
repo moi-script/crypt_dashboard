@@ -42,8 +42,16 @@ export async function getLivePrice(symbol: string): Promise<number> {
 }
 
 function simulateSlippage(amountUsd: number, maxSlippageBps: number): number {
-  const baseSlippagePct = Math.min(maxSlippageBps / 10_000, (amountUsd / 1_000_000) * 0.01)
-  return baseSlippagePct
+  // Realistic slippage model:
+  // - Base spread cost: 0.05% (maker-taker average on liquid CEX)
+  // - Market impact: quadratic above $50k, linear above $10k
+  // - Hard cap at maxSlippageBps
+  const BASE_PCT        = 0.0005                                  // 0.05% base spread
+  const sizeImpactPct   = amountUsd < 10_000 ? 0
+    : amountUsd < 50_000 ? (amountUsd - 10_000) / 10_000 * 0.0002   // +0.02% per $10k above $10k
+    : 0.0008 + (amountUsd - 50_000) / 50_000 * 0.0005               // accelerating above $50k
+  const totalSlippage   = BASE_PCT + sizeImpactPct
+  return Math.min(totalSlippage, maxSlippageBps / 10_000)
 }
 
 // Carries the agent context so the trade recorder can attach metadata

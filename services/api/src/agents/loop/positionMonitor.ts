@@ -193,6 +193,17 @@ export async function runPositionMonitorSweep(): Promise<void> {
       const currentPrice = prices[position.tokenOut]
       if (!currentPrice) continue
 
+      // Zone-break invalidation: if price breaks materially below/above zone, thesis is dead
+      if (position.entryZoneLow !== undefined && position.entryZoneHigh !== undefined) {
+        const zoneBrokenDown = currentPrice < position.entryZoneLow * 0.97   // 3% below zone low
+        const zoneBrokenUp   = currentPrice > position.entryZoneHigh * 1.05  // 5% above zone high (chased)
+        if (zoneBrokenDown || zoneBrokenUp) {
+          await PositionDoc.updateOne({ positionId: position.positionId }, { $set: { status: 'cancelled', isOpen: false } })
+          console.log(`[PositionMonitor] Zone break: cancelled ${position.positionId} — price $${currentPrice.toFixed(4)} ${zoneBrokenDown ? 'broke 3% below zone low' : 'ran 5% above zone high'}`)
+          continue
+        }
+      }
+
       const inZone =
         position.entryZoneLow  !== undefined && position.entryZoneHigh !== undefined &&
         currentPrice >= position.entryZoneLow && currentPrice <= position.entryZoneHigh
@@ -206,7 +217,8 @@ export async function runPositionMonitorSweep(): Promise<void> {
 
   // ── Server-side trailing stop: ratchet SL up as price rises ─────────────
   for (const position of openPositions) {
-    const trailPct = (position as any).trailingStopPct as number | undefined
+    const runnerTrailPct = (position as any).runnerTrailPct as number | undefined
+    const trailPct = (position as any).trailingStopPct as number | undefined ?? runnerTrailPct
     if (!trailPct || !position.entryPrice) continue
     const currentPrice = prices[position.tokenOut]
     if (!currentPrice) continue
@@ -267,6 +279,8 @@ export async function runPositionMonitorSweep(): Promise<void> {
       const tp2          = (position as any).takeProfitPrice2 as number | undefined
       const tp1ScaledOut = (position as any).tp1ScaledOut as boolean | undefined
 
+      const runnerActive = (position as any).runnerActive as boolean | undefined
+
       // TP1 hit + TP2 exists + not yet scaled → do 50% exit, move SL to BE, switch to TP2
       if (hitTakeProfit && tp2 && !tp1ScaledOut && position.entryPrice) {
         const halfAmount = position.entryAmountUsd * 0.5
@@ -274,11 +288,40 @@ export async function runPositionMonitorSweep(): Promise<void> {
         await PositionDoc.updateOne({ positionId: position.positionId }, {
           $set: {
             entryAmountUsd:  halfAmount,
-            stopLossPrice:   position.entryPrice,  // move to breakeven
-            takeProfitPrice: tp2,                   // switch to TP2
+            stopLossPrice:   position.entryPrice,
+            takeProfitPrice: tp2,
             tp1ScaledOut:    true,
           },
         })
+
+      // TP2 hit after TP1 scale-out + no runner yet → exit 90%, keep 10% as runner with 5% trail
+      } else if (hitTakeProfit && tp1ScaledOut && !runnerActive && position.entryPrice) {
+        const runnerAmount   = position.entryAmountUsd * 0.10
+        const exitAmount     = position.entryAmountUsd * 0.90
+        const runnerTrailPct = 5
+        const runnerSL       = parseFloat((currentPrice * (1 - runnerTrailPct / 100)).toFixed(4))
+        console.log(`[PositionMonitor] TP2 hit — keeping 10% runner @ $${runnerAmount.toFixed(2)}, trail ${runnerTrailPct}% SL $${runnerSL}`)
+        // Simulate partial exit at current price (record PnL for the 90% slice)
+        const pnlPct    = position.entryPrice > 0 ? (currentPrice - position.entryPrice) / position.entryPrice : 0
+        const partialPnl = exitAmount * pnlPct
+        await PositionDoc.updateOne({ positionId: position.positionId }, {
+          $set: {
+            entryAmountUsd:  runnerAmount,
+            stopLossPrice:   runnerSL,
+            takeProfitPrice: undefined,   // let the runner ride with trailing stop only
+            runnerActive:    true,
+            runnerTrailPct:  runnerTrailPct,
+            highWaterMarkPrice: currentPrice,
+            realizedPnlUsd:  (position as any).realizedPnlUsd ? (position as any).realizedPnlUsd + partialPnl : partialPnl,
+          },
+          $unset: { takeProfitPrice: '' },
+        })
+
+      // Runner's trailing stop hit → close the runner
+      } else if (hitStopLoss && runnerActive) {
+        console.log(`[PositionMonitor] Runner stopped out: ${position.positionId} @ $${currentPrice}`)
+        await closePosition(position, currentPrice, 'stop_loss')
+
       } else {
         await closePosition(position, currentPrice, hitStopLoss ? 'stop_loss' : 'take_profit')
       }

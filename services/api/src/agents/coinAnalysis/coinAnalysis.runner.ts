@@ -47,23 +47,130 @@ const CORRELATED_GROUPS: Set<string>[] = [
 
 // ── Session / macro-event risk ────────────────────────────────────────────────
 
-function getSessionRisk(): { session: string; block: boolean; reason?: string } {
+function getNthWeekday(year: number, month: number, weekday: number, n: number): number {
+  // Returns the date of the nth occurrence of weekday (0=Sun) in a given month
+  const first = new Date(Date.UTC(year, month, 1))
+  const diff  = (weekday - first.getUTCDay() + 7) % 7
+  return 1 + diff + (n - 1) * 7
+}
+
+function getSessionRisk(): { session: string; block: boolean; confidenceDelta: number; reason?: string } {
   const now = new Date()
   const h   = now.getUTCHours()
   const m   = now.getUTCMinutes()
-  const day = now.getUTCDay()
+  const day = now.getUTCDay()   // 0=Sun
+  const dom = now.getUTCDate()
+  const yr  = now.getUTCFullYear()
+  const mon = now.getUTCMonth() // 0-indexed
 
   if (h >= 21) {
-    return { session: 'Dead Zone', block: true, reason: `Post-NY dead zone (${h}:${String(m).padStart(2, '0')} UTC) — skip new entries` }
+    return { session: 'Dead Zone', block: true, confidenceDelta: 0, reason: `Post-NY dead zone (${h}:${String(m).padStart(2, '0')} UTC) — skip new entries` }
   }
-  if (day === 5 && h >= 12 && (h < 14 || (h === 14 && m < 30))) {
-    return { session: 'NFP Window', block: true, reason: 'Friday 12:15–14:30 UTC NFP window — high slippage, skipping' }
+
+  // NFP: first Friday of month 12:30–14:30 UTC
+  if (day === 5 && dom <= 7 && h >= 12 && (h < 14 || (h === 14 && m < 30))) {
+    return { session: 'NFP Window', block: true, confidenceDelta: 0, reason: 'First-Friday 12:30–14:30 UTC NFP window — high slippage, skipping' }
   }
+
+  // CPI: 2nd Tuesday of month 12:30–13:30 UTC (US inflation print)
+  const cpiDate = getNthWeekday(yr, mon, 2, 2) // 2nd Tuesday
+  if (dom === cpiDate && day === 2 && h >= 12 && h < 14) {
+    return { session: 'CPI Window', block: true, confidenceDelta: 0, reason: `2nd-Tuesday CPI print window 12:30–14:00 UTC — extreme vol, skipping` }
+  }
+
+  // PPI: day after CPI date
+  if (dom === cpiDate + 1 && day === 3 && h >= 12 && h < 13) {
+    return { session: 'PPI Window', block: true, confidenceDelta: 0, reason: 'PPI print window (day after CPI) — skipping' }
+  }
+
+  // Jobless Claims: every Thursday 12:30–13:30 UTC
+  if (day === 4 && h === 12 && m >= 30) {
+    return { session: 'Jobless Claims', block: false, confidenceDelta: -10, reason: 'Thursday 12:30 UTC jobless claims — confidence -10' }
+  }
+
+  // FOMC: Wednesdays 18:00–20:00 UTC (rough window, real date varies)
   if (day === 3 && h >= 18 && h < 20) {
-    return { session: 'FOMC Window', block: false, reason: 'Wednesday FOMC window — confidence threshold raised +10' }
+    return { session: 'FOMC Window', block: false, confidenceDelta: -10, reason: 'Wednesday FOMC window — confidence threshold raised' }
   }
+
   const sessionName = h < 8 ? 'Asian' : h < 16 ? 'London' : 'New York'
-  return { session: sessionName, block: false }
+  return { session: sessionName, block: false, confidenceDelta: 0 }
+}
+
+// ── Market regime filter: trend + volatility ──────────────────────────────────
+
+function getMarketRegime(primitives: MarketPrimitives): {
+  regime: 'trending_bull' | 'trending_bear' | 'ranging' | 'unknown'
+  adx: number
+  htfTrend: string
+  confidenceDelta: number
+  warning?: string
+} {
+  const adx      = primitives.indicators?.adx ?? 0
+  const htfTrend = primitives.structure?.trend_htf ?? 'neutral'
+  const atr      = primitives.indicators?.atr_14 ?? 0
+  const bb       = primitives.indicators?.bb
+
+  // ADX-based regime
+  const isRanging  = adx > 0 && adx < 22
+  const isTrending = adx >= 25
+
+  // Bollinger squeeze also signals low-volatility range
+  const bbSqueeze  = bb?.squeeze ?? false
+
+  const regime = isRanging || bbSqueeze
+    ? 'ranging'
+    : htfTrend === 'bullish' ? 'trending_bull'
+    : htfTrend === 'bearish' ? 'trending_bear'
+    : 'unknown'
+
+  // In a ranging market, breakout signals have low hit rate — reduce confidence
+  const confidenceDelta = isRanging ? -15 : bbSqueeze ? -10 : htfTrend === 'neutral' ? -5 : 0
+
+  const warning = isRanging
+    ? `Market ranging (ADX ${adx.toFixed(0)}) — breakout signals unreliable, confidence -15`
+    : bbSqueeze
+    ? `Bollinger squeeze active (ATR ${atr.toFixed(0)}) — low volatility, confidence -10`
+    : undefined
+
+  return { regime, adx, htfTrend, confidenceDelta, warning }
+}
+
+// ── Funding rate — extreme positive funding crowds longs ──────────────────────
+
+async function fetchFundingRate(symbol: string): Promise<number | null> {
+  try {
+    const r = await fetch(`https://fapi.binance.com/fapi/v1/premiumIndex?symbol=${symbol}USDT`)
+    if (!r.ok) return null
+    const d = await r.json() as { lastFundingRate?: string }
+    return d.lastFundingRate ? parseFloat(d.lastFundingRate) : null
+  } catch { return null }
+}
+
+// ── Equity curve halt: stop trading after 10% drawdown from peak ──────────────
+
+async function checkEquityCurveHalt(userId: string, config: AgentConfig): Promise<{ halt: boolean; reason?: string; drawdownPct: number }> {
+  const allClosed = await PositionDoc.find({ userId, mode: config.mode, status: 'closed' })
+    .sort({ exitAt: 1 }).lean()
+  if (allClosed.length < 5) return { halt: false, drawdownPct: 0 }
+
+  const INITIAL_CAPITAL = 10_000
+  let balance = INITIAL_CAPITAL
+  let peak    = INITIAL_CAPITAL
+  for (const p of allClosed) {
+    balance += p.realizedPnlUsd ?? 0
+    if (balance > peak) peak = balance
+  }
+
+  const drawdownPct = peak > 0 ? (peak - balance) / peak * 100 : 0
+  if (drawdownPct >= 10) {
+    return {
+      halt:         true,
+      reason:       `Circuit breaker: ${drawdownPct.toFixed(1)}% drawdown from $${peak.toFixed(0)} peak — halting all new entries until manual reset`,
+      drawdownPct,
+    }
+  }
+  return { halt: false, drawdownPct }
 }
 
 // ── 24h Binance spot volume ───────────────────────────────────────────────────
@@ -214,14 +321,32 @@ async function autoExecuteBest(
   walletState:       Awaited<ReturnType<typeof loadWalletState>>,
   memoryContext:     string | undefined,
   cardsSummary:      string,
+  primitives:        MarketPrimitives,
 ): Promise<CoinAnalysisRunStatus> {
+  const skipAll = (reason: string) => {
+    for (const card of cards) { card.approvalStatus = 'skipped'; if (card.signal) card.skippedReason = reason }
+  }
+
+  // ── Equity curve circuit breaker ─────────────────────────────────────────
+  const equityCheck = await checkEquityCurveHalt(userId, config)
+  if (equityCheck.halt) {
+    skipAll(`[Circuit breaker] ${equityCheck.reason}`)
+    return 'completed'
+  }
+
   // ── Session / macro-event gate ────────────────────────────────────────────
   const sessionRisk = getSessionRisk()
   if (sessionRisk.block) {
-    for (const card of cards) {
-      card.approvalStatus = 'skipped'
-      if (card.signal) card.skippedReason = `Session blocked [${sessionRisk.session}]: ${sessionRisk.reason}`
-    }
+    skipAll(`Session blocked [${sessionRisk.session}]: ${sessionRisk.reason}`)
+    return 'completed'
+  }
+
+  // ── Market regime filter ──────────────────────────────────────────────────
+  const regime = getMarketRegime(primitives)
+  // Block counter-trend longs in bearish HTF regime (only if confident in regime)
+  const anyLong = cards.some(c => c.signal?.bias === 'long')
+  if (anyLong && regime.htfTrend === 'bearish' && regime.adx >= 25) {
+    skipAll(`[Regime] Counter-trend long blocked — HTF trend bearish with ADX ${regime.adx.toFixed(0)} (strong downtrend)`)
     return 'completed'
   }
 
@@ -252,21 +377,42 @@ async function autoExecuteBest(
     }
   }
 
-  // ── Confidence threshold — raise during FOMC window ──────────────────────
-  const confidenceThreshold = config.minSignalConfidence + (sessionRisk.session === 'FOMC Window' ? 10 : 0)
+  // ── Funding rate filter: crowded longs reduce long confidence ────────────
+  const fundingRate = await fetchFundingRate(symbol)
+  let fundingDelta = 0
+  let fundingNote  = ''
+  if (fundingRate !== null) {
+    if (fundingRate > 0.001) {          // > 0.1% per 8h = >108% annualized: longs are crowded
+      fundingDelta = -20
+      fundingNote  = ` [⚠ funding +${(fundingRate * 100).toFixed(3)}% — crowded longs, conf -20]`
+    } else if (fundingRate < -0.0005) { // very negative: shorts crowded, potential long squeeze
+      fundingDelta = +5
+      fundingNote  = ` [funding ${(fundingRate * 100).toFixed(3)}% — short squeeze risk, conf +5]`
+    }
+  }
+
+  // ── Confidence threshold (session delta + regime delta applied to qualifying) ──
+  const baseThreshold = config.minSignalConfidence
+  const sessionDelta  = sessionRisk.confidenceDelta  // negative = harder to pass
+  const confidenceThreshold = baseThreshold - sessionDelta  // e.g. base 65, delta -10 → need 75
 
   const qualifying = cards.filter(c =>
     c.signal !== null &&
     (c.signal.bias === 'long' || config.allowShorts) &&
-    (c.signal.confidence + c.newsImpact.confidenceDelta) >= confidenceThreshold,
+    (c.signal.confidence + c.newsImpact.confidenceDelta + regime.confidenceDelta + fundingDelta) >= confidenceThreshold,
   )
 
   if (!qualifying.length) {
     for (const card of cards) {
       card.approvalStatus = 'skipped'
       if (card.signal && !card.skippedReason) {
-        const adj = card.signal.confidence + card.newsImpact.confidenceDelta
-        card.skippedReason = `Confidence ${adj} below threshold ${confidenceThreshold}${sessionRisk.session === 'FOMC Window' ? ' (+10 FOMC)' : ''}`
+        const adj = card.signal.confidence + card.newsImpact.confidenceDelta + regime.confidenceDelta + fundingDelta
+        const modifiers = [
+          sessionRisk.confidenceDelta !== 0 ? `${sessionRisk.session} ${sessionRisk.confidenceDelta}` : '',
+          regime.confidenceDelta !== 0      ? `${regime.regime} ${regime.confidenceDelta}` : '',
+          fundingDelta !== 0                ? `funding ${fundingDelta}` : '',
+        ].filter(Boolean).join(', ')
+        card.skippedReason = `Adj. confidence ${adj} below ${confidenceThreshold}${modifiers ? ` (${modifiers})` : ''}`
       }
     }
     return 'completed'
@@ -360,6 +506,8 @@ async function autoExecuteBest(
   const finalTradeAmount = tradeAmount * drawdownSizeMultiplier
   const drawdownNote = lossStreak >= 2 ? ` [⚠ ${lossStreak}-loss streak → ${drawdownSizeMultiplier * 100}% size]` : ''
 
+  const regimeNote = regime.warning ? ` [${regime.warning}]` : ` [regime: ${regime.regime} ADX ${regime.adx.toFixed(0)}]`
+
   const intent: TradeIntent = {
     type:             'propose_trade',
     tokenIn:          'USDC',
@@ -369,7 +517,7 @@ async function autoExecuteBest(
     rationale:        best.signal!.reasoning +
                       (agreeingCount >= 2 ? ` [${agreeingCount} frameworks confluent → ${confluenceMultiplier.toFixed(2)}× size]` : '') +
                       ` [risk-sized: 1% of $${(walletState.totalValueUsd ?? 0).toFixed(0)} / ${(slDistance * 100).toFixed(1)}% SL = $${finalTradeAmount.toFixed(0)}]` +
-                      volumeTag + drawdownNote,
+                      volumeTag + drawdownNote + regimeNote + fundingNote,
     stopLossPrice:    best.signal!.stop_loss,
     takeProfitPrice:  best.signal!.take_profit_levels[0],
     takeProfitPrice2: best.signal!.take_profit_levels[1],
@@ -449,7 +597,7 @@ export async function runCoinAnalysis(
     let finalStatus: CoinAnalysisRunStatus
     if (autoMode) {
       finalStatus = await autoExecuteBest(
-        userId, coinAnalysisRunId, symbol.toUpperCase(), cards, config, walletState, memoryContext, cardsSummary,
+        userId, coinAnalysisRunId, symbol.toUpperCase(), cards, config, walletState, memoryContext, cardsSummary, primitives,
       )
     } else {
       finalStatus = 'pending_approval'

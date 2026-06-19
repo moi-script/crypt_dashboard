@@ -43,6 +43,8 @@ export interface IPosition {
   takeProfitPrice2?:   number   // TP2 — final exit after TP1 50% scale-out
   tp1ScaledOut?:       boolean  // true once TP1 partial exit has fired
   maxHoldHours?:       number   // auto-exit if position exceeds this age without reaching TP1
+  runnerActive?:       boolean  // true when a 10% runner remains after TP2 hit
+  runnerTrailPct?:     number   // trailing stop % for the runner slice
 }
 
 const PositionSchema = new Schema<IPosition>({
@@ -78,6 +80,8 @@ const PositionSchema = new Schema<IPosition>({
   takeProfitPrice2:    Number,
   tp1ScaledOut:        { type: Boolean, default: false },
   maxHoldHours:        Number,
+  runnerActive:        { type: Boolean, default: false },
+  runnerTrailPct:      Number,
 }, { timestamps: true })
 
 PositionSchema.index({ isOpen: 1, mode: 1 })
