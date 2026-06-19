@@ -199,7 +199,11 @@ async function seedDemoData(userId: string): Promise<Record<string, number>> {
   await AgentRunDoc.insertMany(ins(completedRuns), { ordered: false })
 
   // ── 4. Pending approval agent run (shows sparkline + approve/reject) ─────
-  await AgentRunDoc.create(obj({
+  // Use raw collection insert to avoid Mongoose's `type` key ambiguity in
+  // ChartOverlaySchema (supportResistance/orderBlocks arrays have a `type` field
+  // which Mongoose misinterprets as the schema type descriptor when using create()).
+  // The real agent avoids this the same way — it uses updateOne+$set.
+  const pendingRun = {
     runId: id('run', 5), userId, strategy: 'chartSignal', mode: 'paper',
     startedAt: ago(20 * 60_000), status: 'pending_approval',
     decision: {
@@ -216,7 +220,8 @@ async function seedDemoData(userId: string): Promise<Record<string, number>> {
       confidence: 74,
     },
     chartSnapshot: btcSnapshot('SmartMoney'),
-  }))
+  }
+  await AgentRunDoc.collection.insertOne(pendingRun)
 
   // ── 5. Positions ─────────────────────────────────────────────────────────
 
@@ -283,7 +288,9 @@ async function seedDemoData(userId: string): Promise<Record<string, number>> {
     { title: 'ETH accumulation by wallets >100 ETH up 12% this week', sentiment: 0.42 },
   ]}
 
-  await CoinAnalysisRunDoc.create(obj({
+  // Same raw-insert workaround — chartSnapshot inside strategyCards has the same
+  // Mongoose type-key ambiguity for overlays.supportResistance / orderBlocks.
+  await CoinAnalysisRunDoc.collection.insertOne({
     coinAnalysisRunId: caRunId, userId, symbol: 'ETH',
     triggeredBy: 'on_demand', status: 'pending_approval',
     startedAt: ago(25 * 60_000), completedAt: ago(15 * 60_000),
@@ -364,7 +371,7 @@ async function seedDemoData(userId: string): Promise<Record<string, number>> {
         chartSnapshot: null,
       },
     ],
-  }))
+  })
 
   // ── 7. Agent memories (RAG) ───────────────────────────────────────────────
   const memories = [
