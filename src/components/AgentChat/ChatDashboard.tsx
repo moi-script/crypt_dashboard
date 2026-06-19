@@ -378,6 +378,13 @@ function RunsTab({ accentColor }: { accentColor: string }) {
             const intent   = ap.decision?.intent;
             const isActing = approving === ap.runId;
 
+            // Stale signal warning
+            const signalAgeMs = Date.now() - new Date(ap.startedAt).getTime();
+            const signalAgeH  = signalAgeMs / 3_600_000;
+            const isStale     = signalAgeH > 2;
+            const isDanger    = signalAgeH > 6;
+            const ageLabel    = signalAgeH >= 1 ? `${signalAgeH.toFixed(0)}h` : `${Math.round(signalAgeMs / 60_000)}m`;
+
             // R:R ratio from snapshot levels
             const rrApproval = ap.chartSnapshot ? (() => {
               const entry  = (ap.chartSnapshot.entryZone.low + ap.chartSnapshot.entryZone.high) / 2;
@@ -462,6 +469,15 @@ function RunsTab({ accentColor }: { accentColor: string }) {
                       <span style={{ color: "rgba(255,255,255,0.2)" }}>click to expand</span>
                     </div>
                     <MiniChart snapshot={ap.chartSnapshot} defaultTimeframe="1d" />
+                  </div>
+                )}
+
+                {/* Stale signal warning */}
+                {isStale && (
+                  <div style={{ margin: "0 12px 8px", padding: "6px 10px", borderRadius: 7, background: isDanger ? "#ff557210" : "#ffb02010", border: `1px solid ${isDanger ? "#ff557230" : "#ffb02030"}` }}>
+                    <span style={{ fontSize: 10, fontFamily: "var(--font-mono)", color: isDanger ? "#ff5572" : "#ffb020" }}>
+                      ⚠ Signal {ageLabel} old{isDanger ? " — entry zone likely invalidated, verify price before approving" : " — price may have moved from entry zone"}
+                    </span>
                   </div>
                 )}
 
@@ -1041,6 +1057,56 @@ function PositionsTab({ accentColor }: { accentColor: string }) {
     return () => clearInterval(id);
   }, [positions]);
 
+  // Portfolio heat — total open notional + at-risk $ from SL distance
+  const portfolioHeat = (() => {
+    const open = positions.filter(p => p.isOpen);
+    let totalNotional = 0, totalAtRisk = 0;
+    for (const p of open) {
+      totalNotional += p.entryAmountUsd;
+      if (p.stopLossPrice && p.entryPrice && p.entryPrice > p.stopLossPrice) {
+        totalAtRisk += p.entryAmountUsd * ((p.entryPrice - p.stopLossPrice) / p.entryPrice);
+      }
+    }
+    return { totalNotional, totalAtRisk, posCount: open.length };
+  })();
+
+  // Advanced stats: E(V), Profit Factor, Sharpe
+  const advancedStats = (() => {
+    const closed = positions.filter(p => p.status === "closed" && p.realizedPnlUsd !== undefined);
+    if (!closed.length) return null;
+    const wins   = closed.filter(p => (p.realizedPnlUsd ?? 0) > 0);
+    const losses = closed.filter(p => (p.realizedPnlUsd ?? 0) < 0);
+    const grossWin  = wins.reduce((s, p)  => s + (p.realizedPnlUsd ?? 0), 0);
+    const grossLoss = losses.reduce((s, p) => s + (p.realizedPnlUsd ?? 0), 0);
+    const avgWin   = wins.length   > 0 ? grossWin  / wins.length  : 0;
+    const avgLoss  = losses.length > 0 ? grossLoss / losses.length : 0;
+    const winRate  = closed.length > 0 ? wins.length / closed.length : 0;
+    const ev       = winRate * avgWin + (1 - winRate) * avgLoss;
+    const pf       = grossLoss < 0 ? grossWin / Math.abs(grossLoss) : null;
+    // Simple Sharpe: mean PnL / std dev of PnL per trade
+    const pnls   = closed.map(p => p.realizedPnlUsd ?? 0);
+    const mean   = pnls.reduce((a, b) => a + b, 0) / pnls.length;
+    const variance = pnls.reduce((a, b) => a + (b - mean) ** 2, 0) / pnls.length;
+    const sharpe = variance > 0 ? mean / Math.sqrt(variance) : null;
+    return { ev, pf, sharpe };
+  })();
+
+  // Confidence calibration: group closed positions by confidence bucket → win rate
+  const confCalibration = (() => {
+    const closed = positions.filter(p => p.status === "closed" && p.confidence !== undefined);
+    if (closed.length < 3) return null;
+    const buckets: Record<string, {wins: number; total: number}> = { "50-64": {wins:0,total:0}, "65-74": {wins:0,total:0}, "75-84": {wins:0,total:0}, "85+": {wins:0,total:0} };
+    for (const p of closed) {
+      const c = p.confidence!;
+      const key = c >= 85 ? "85+" : c >= 75 ? "75-84" : c >= 65 ? "65-74" : "50-64";
+      buckets[key].total++;
+      if ((p.realizedPnlUsd ?? 0) > 0) buckets[key].wins++;
+    }
+    return Object.entries(buckets).filter(([, v]) => v.total > 0).map(([range, v]) => ({
+      range, winRate: Math.round(v.wins / v.total * 100), total: v.total,
+    }));
+  })();
+
   // Strategy performance breakdown by framework
   const strategyPerf = (() => {
     const closed = positions.filter(p => p.status === "closed" && p.framework);
@@ -1123,6 +1189,42 @@ function PositionsTab({ accentColor }: { accentColor: string }) {
               </div>
             ))}
           </div>
+          {/* Portfolio heat — open exposure */}
+          {portfolioHeat.posCount > 0 && (
+            <div style={{ padding: "10px 14px", borderRadius: 10, background: "rgb(8,18,32)", border: `1px solid ${portfolioHeat.totalAtRisk > 50 ? "rgba(255,85,114,0.2)" : "rgba(255,176,32,0.15)"}` }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
+                <span style={{ fontSize: 9, color: "rgba(255,255,255,0.3)", textTransform: "uppercase", letterSpacing: "0.08em", fontFamily: "var(--font-mono)" }}>Portfolio Heat · {portfolioHeat.posCount} Open</span>
+                <span style={{ fontSize: 11, fontFamily: "var(--font-mono)", fontWeight: 700, color: portfolioHeat.totalAtRisk > 50 ? "#ff5572" : "#ffb020" }}>
+                  ${portfolioHeat.totalAtRisk.toFixed(2)} at risk
+                </span>
+              </div>
+              <div style={{ display: "flex", gap: 14 }}>
+                <span style={{ fontSize: 10, fontFamily: "var(--font-mono)", color: "rgba(255,255,255,0.35)" }}>
+                  Notional <span style={{ color: "rgba(255,255,255,0.65)" }}>${portfolioHeat.totalNotional.toFixed(2)}</span>
+                </span>
+                <span style={{ fontSize: 10, fontFamily: "var(--font-mono)", color: "rgba(255,255,255,0.35)" }}>
+                  Max simultaneous loss <span style={{ color: "#ff5572" }}>-${portfolioHeat.totalAtRisk.toFixed(2)}</span>
+                </span>
+              </div>
+            </div>
+          )}
+
+          {/* Advanced stats: E(V), Profit Factor, Sharpe */}
+          {advancedStats && (
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 7 }}>
+              {[
+                { label: "Exp. Value / Trade", val: `${advancedStats.ev >= 0 ? "+" : ""}$${advancedStats.ev.toFixed(2)}`, color: advancedStats.ev > 0 ? "#00e5a0" : "#ff5572" },
+                { label: "Profit Factor",       val: advancedStats.pf !== null ? advancedStats.pf.toFixed(2) + "×" : "—",  color: (advancedStats.pf ?? 0) >= 1.5 ? "#00e5a0" : (advancedStats.pf ?? 0) >= 1 ? "#ffb020" : "#ff5572" },
+                { label: "Sharpe (per trade)",  val: advancedStats.sharpe !== null ? advancedStats.sharpe.toFixed(2) : "—", color: (advancedStats.sharpe ?? 0) > 0.5 ? "#00e5a0" : (advancedStats.sharpe ?? 0) > 0 ? "#ffb020" : "#ff5572" },
+              ].map(s => (
+                <div key={s.label} style={{ padding: "8px 6px", borderRadius: 10, background: "rgb(8,18,32)", border: "1px solid rgba(255,255,255,0.06)", textAlign: "center" }}>
+                  <p style={{ fontSize: 14, fontWeight: 700, color: s.color, margin: "0 0 2px", fontFamily: "var(--font-mono)" }}>{s.val}</p>
+                  <p style={{ fontSize: 9, color: "rgba(255,255,255,0.22)", margin: 0, textTransform: "uppercase", letterSpacing: "0.04em" }}>{s.label}</p>
+                </div>
+              ))}
+            </div>
+          )}
+
           {/* Risk stats row — drawdown, worst loss, loss streak */}
           {positions.some(p => p.status === "closed") && (
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 7 }}>
@@ -1156,6 +1258,24 @@ function PositionsTab({ accentColor }: { accentColor: string }) {
                   </span>
                 </div>
               ))}
+            </div>
+          )}
+
+          {/* Confidence calibration: are high-confidence signals actually more accurate? */}
+          {confCalibration && confCalibration.length >= 2 && (
+            <div style={{ borderRadius: 10, background: "rgb(8,18,32)", border: "1px solid rgba(255,255,255,0.06)", padding: "10px 12px" }}>
+              <p style={{ fontSize: 9, color: "rgba(255,255,255,0.25)", margin: "0 0 8px", textTransform: "uppercase", letterSpacing: "0.08em" }}>Confidence Calibration</p>
+              {confCalibration.map(b => (
+                <div key={b.range} style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 5 }}>
+                  <span style={{ fontSize: 10, fontFamily: "var(--font-mono)", color: "rgba(255,255,255,0.4)", width: 46 }}>{b.range}%</span>
+                  <div style={{ flex: 1, height: 6, borderRadius: 3, background: "rgba(255,255,255,0.06)", overflow: "hidden" }}>
+                    <div style={{ height: "100%", width: `${b.winRate}%`, background: b.winRate >= 60 ? "#00e5a0" : b.winRate >= 40 ? "#ffb020" : "#ff5572", borderRadius: 3 }} />
+                  </div>
+                  <span style={{ fontSize: 10, fontFamily: "var(--font-mono)", color: b.winRate >= 60 ? "#00e5a0" : b.winRate >= 40 ? "#ffb020" : "#ff5572", width: 48 }}>{b.winRate}% WR</span>
+                  <span style={{ fontSize: 9, fontFamily: "var(--font-mono)", color: "rgba(255,255,255,0.2)", width: 28 }}>n={b.total}</span>
+                </div>
+              ))}
+              <p style={{ fontSize: 9, color: "rgba(255,255,255,0.15)", margin: "6px 0 0", fontFamily: "var(--font-mono)" }}>If high-conf ≠ high WR, the confidence score is uncalibrated</p>
             </div>
           )}
         </>

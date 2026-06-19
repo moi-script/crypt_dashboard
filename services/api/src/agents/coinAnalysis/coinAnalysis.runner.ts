@@ -351,22 +351,32 @@ async function autoExecuteBest(
     ? ` [vol $${(vol24h / 1e6).toFixed(0)}M${vol24h < 30_000_000 ? ' ⚠ low-vol' : ''}]`
     : ''
 
+  // ── Drawdown-based size reduction: cut size after consecutive losses ─────────
+  const recentClosed = await PositionDoc.find({ userId, mode: config.mode, status: 'closed' })
+    .sort({ exitAt: -1 }).limit(5).lean()
+  let lossStreak = 0
+  for (const p of recentClosed) { if ((p.realizedPnlUsd ?? 0) < 0) lossStreak++; else break }
+  const drawdownSizeMultiplier = lossStreak >= 3 ? 0.5 : lossStreak >= 2 ? 0.75 : 1.0
+  const finalTradeAmount = tradeAmount * drawdownSizeMultiplier
+  const drawdownNote = lossStreak >= 2 ? ` [⚠ ${lossStreak}-loss streak → ${drawdownSizeMultiplier * 100}% size]` : ''
+
   const intent: TradeIntent = {
-    type:            'propose_trade',
-    tokenIn:         'USDC',
-    tokenOut:        symbol,
-    amountUsd:       tradeAmount,
-    maxSlippageBps:  50,
-    rationale:       best.signal!.reasoning +
-                     (agreeingCount >= 2 ? ` [${agreeingCount} frameworks confluent → ${confluenceMultiplier.toFixed(2)}× size]` : '') +
-                     ` [risk-sized: 1% of $${(walletState.totalValueUsd ?? 0).toFixed(0)} / ${(slDistance * 100).toFixed(1)}% SL = $${tradeAmount.toFixed(0)}]` +
-                     volumeTag,
-    stopLossPrice:   best.signal!.stop_loss,
-    takeProfitPrice: best.signal!.take_profit_levels[0],
-    entryZoneLow:    best.signal!.entry_zone.low,
-    entryZoneHigh:   best.signal!.entry_zone.high,
-    framework:       best.framework,
-  }
+    type:             'propose_trade',
+    tokenIn:          'USDC',
+    tokenOut:         symbol,
+    amountUsd:        finalTradeAmount,
+    maxSlippageBps:   50,
+    rationale:        best.signal!.reasoning +
+                      (agreeingCount >= 2 ? ` [${agreeingCount} frameworks confluent → ${confluenceMultiplier.toFixed(2)}× size]` : '') +
+                      ` [risk-sized: 1% of $${(walletState.totalValueUsd ?? 0).toFixed(0)} / ${(slDistance * 100).toFixed(1)}% SL = $${finalTradeAmount.toFixed(0)}]` +
+                      volumeTag + drawdownNote,
+    stopLossPrice:    best.signal!.stop_loss,
+    takeProfitPrice:  best.signal!.take_profit_levels[0],
+    takeProfitPrice2: best.signal!.take_profit_levels[1],
+    entryZoneLow:     best.signal!.entry_zone.low,
+    entryZoneHigh:    best.signal!.entry_zone.high,
+    framework:        best.framework,
+  } as TradeIntent & { takeProfitPrice2?: number }
 
   await executeIntent(intent, walletState, {
     userId, config, runId: coinAnalysisRunId, strategy: 'chartSignal',
@@ -490,19 +500,27 @@ export async function approveCard(
   const riskBasedSize = slDistance > 0 ? ((walletState.totalValueUsd ?? 0) * 0.01) / slDistance : config.maxTradeUsd
   const tradeAmount  = Math.min(riskBasedSize, config.maxTradeUsd)
 
+  const recentClosed2 = await PositionDoc.find({ userId, mode: config.mode, status: 'closed' })
+    .sort({ exitAt: -1 }).limit(5).lean()
+  let lossStreak2 = 0
+  for (const p of recentClosed2) { if ((p.realizedPnlUsd ?? 0) < 0) lossStreak2++; else break }
+  const ddMult = lossStreak2 >= 3 ? 0.5 : lossStreak2 >= 2 ? 0.75 : 1.0
+  const finalAmount = tradeAmount * ddMult
+
   const intent: TradeIntent = {
-    type:            'propose_trade',
-    tokenIn:         'USDC',
-    tokenOut:        run.symbol,
-    amountUsd:       tradeAmount,
-    maxSlippageBps:  50,
-    rationale:       card.signal.reasoning + ` [manual approve · risk-sized: 1% of $${(walletState.totalValueUsd ?? 0).toFixed(0)} / ${(slDistance * 100).toFixed(1)}% SL = $${tradeAmount.toFixed(0)}]`,
-    stopLossPrice:   card.signal.stop_loss,
-    takeProfitPrice: card.signal.take_profit_levels[0],
-    entryZoneLow:    card.signal.entry_zone.low,
-    entryZoneHigh:   card.signal.entry_zone.high,
-    framework:       card.framework,
-  }
+    type:             'propose_trade',
+    tokenIn:          'USDC',
+    tokenOut:         run.symbol,
+    amountUsd:        finalAmount,
+    maxSlippageBps:   50,
+    rationale:        card.signal.reasoning + ` [manual approve · risk-sized: 1% of $${(walletState.totalValueUsd ?? 0).toFixed(0)} / ${(slDistance * 100).toFixed(1)}% SL = $${finalAmount.toFixed(0)}]` + (lossStreak2 >= 2 ? ` [⚠ ${lossStreak2}-loss streak → ${ddMult * 100}% size]` : ''),
+    stopLossPrice:    card.signal.stop_loss,
+    takeProfitPrice:  card.signal.take_profit_levels[0],
+    takeProfitPrice2: card.signal.take_profit_levels[1],
+    entryZoneLow:     card.signal.entry_zone.low,
+    entryZoneHigh:    card.signal.entry_zone.high,
+    framework:        card.framework,
+  } as TradeIntent & { takeProfitPrice2?: number }
 
   const gateway = await executeIntent(intent, walletState, {
     userId, config, runId: coinAnalysisRunId, strategy: 'chartSignal',

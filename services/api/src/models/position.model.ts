@@ -40,6 +40,9 @@ export interface IPosition {
   confidence?:         number   // 0-100, from the originating signal
   trailingStopPct?:    number   // % below high-water-mark; server-side monitor updates SL
   highWaterMarkPrice?: number   // highest price reached since open (trailing stop reference)
+  takeProfitPrice2?:   number   // TP2 — final exit after TP1 50% scale-out
+  tp1ScaledOut?:       boolean  // true once TP1 partial exit has fired
+  maxHoldHours?:       number   // auto-exit if position exceeds this age without reaching TP1
 }
 
 const PositionSchema = new Schema<IPosition>({
@@ -72,6 +75,9 @@ const PositionSchema = new Schema<IPosition>({
   confidence:          Number,
   trailingStopPct:     Number,
   highWaterMarkPrice:  Number,
+  takeProfitPrice2:    Number,
+  tp1ScaledOut:        { type: Boolean, default: false },
+  maxHoldHours:        Number,
 }, { timestamps: true })
 
 PositionSchema.index({ isOpen: 1, mode: 1 })

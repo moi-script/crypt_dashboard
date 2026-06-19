@@ -165,7 +165,6 @@ export async function runPositionMonitorSweep(): Promise<void> {
   const openPositions = await PositionDoc.find({
     status: 'open',
     mode: 'paper',
-    $or: [{ stopLossPrice: { $exists: true } }, { takeProfitPrice: { $exists: true } }],
   }).lean()
 
   const pendingPositions = await PositionDoc.find({
@@ -229,7 +228,33 @@ export async function runPositionMonitorSweep(): Promise<void> {
     }
   }
 
-  // ── Open positions: stop-loss / take-profit ───────────────────────────────
+  // ── Time-based exit: close dead positions that haven't moved toward TP ──────
+  for (const position of openPositions) {
+    const maxHoldHours = (position as any).maxHoldHours as number | undefined
+    if (!maxHoldHours || !position.entryPrice || !position.entryAt) continue
+    const ageHours = (now - new Date(position.entryAt).getTime()) / 3_600_000
+    if (ageHours < maxHoldHours) continue
+
+    const currentPrice = prices[position.tokenOut]
+    if (!currentPrice) continue
+
+    // Only time-exit if price hasn't moved meaningfully toward TP1 (< 25% of the way)
+    const tp = position.takeProfitPrice
+    if (tp && position.entryPrice) {
+      const totalMove  = tp - position.entryPrice
+      const actualMove = currentPrice - position.entryPrice
+      if (totalMove > 0 && actualMove / totalMove >= 0.25) continue // trade is progressing, let it run
+    }
+
+    try {
+      console.log(`[PositionMonitor] Time exit: ${position.positionId} open ${ageHours.toFixed(1)}h > ${maxHoldHours}h limit`)
+      await closePosition(position, currentPrice, 'stop_loss')
+    } catch (err: any) {
+      console.warn(`[PositionMonitor] Error on time exit ${position.positionId}:`, err.message)
+    }
+  }
+
+  // ── Open positions: stop-loss / TP1 scale-out / full TP ──────────────────
   for (const position of openPositions) {
     const currentPrice = prices[position.tokenOut]
     if (!currentPrice) continue
@@ -239,7 +264,24 @@ export async function runPositionMonitorSweep(): Promise<void> {
     if (!hitStopLoss && !hitTakeProfit) continue
 
     try {
-      await closePosition(position, currentPrice, hitStopLoss ? 'stop_loss' : 'take_profit')
+      const tp2          = (position as any).takeProfitPrice2 as number | undefined
+      const tp1ScaledOut = (position as any).tp1ScaledOut as boolean | undefined
+
+      // TP1 hit + TP2 exists + not yet scaled → do 50% exit, move SL to BE, switch to TP2
+      if (hitTakeProfit && tp2 && !tp1ScaledOut && position.entryPrice) {
+        const halfAmount = position.entryAmountUsd * 0.5
+        console.log(`[PositionMonitor] TP1 scale-out: ${position.positionId} — exit 50% @ $${currentPrice}, move SL → BE, set TP = $${tp2}`)
+        await PositionDoc.updateOne({ positionId: position.positionId }, {
+          $set: {
+            entryAmountUsd:  halfAmount,
+            stopLossPrice:   position.entryPrice,  // move to breakeven
+            takeProfitPrice: tp2,                   // switch to TP2
+            tp1ScaledOut:    true,
+          },
+        })
+      } else {
+        await closePosition(position, currentPrice, hitStopLoss ? 'stop_loss' : 'take_profit')
+      }
     } catch (err: any) {
       console.warn(`[PositionMonitor] Error processing position ${position.positionId}:`, err.message)
     }
