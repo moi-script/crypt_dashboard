@@ -202,6 +202,7 @@ function RunsTab({ accentColor }: { accentColor: string }) {
   const trigger = async () => {
     setTriggering(true);
     setActiveRun(null);
+    setLatestRun(null);
     stopPoll();
     try {
       // Save selected coin to config, then trigger the full coin analysis chain
@@ -313,7 +314,7 @@ function RunsTab({ accentColor }: { accentColor: string }) {
                     runId={displayRun.coinAnalysisRunId}
                     autoMode={displayRun.autoMode}
                     accentColor={accentColor}
-                    onAction={refreshRun}
+                    onAction={activeRunId ? refreshRun : load}
                   />
                 ))}
               </div>
