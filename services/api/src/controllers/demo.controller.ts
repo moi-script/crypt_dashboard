@@ -21,7 +21,7 @@ import { AgentConfigDoc }        from '@/models/agentConfig.model'
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
-const id  = (pfx: string, n: number) => `${pfx}-demo-${n}`
+const mkId = (userId: string) => (pfx: string, n: number) => `${pfx}-demo-${userId.slice(-8)}-${n}`
 const ago = (ms: number) => new Date(Date.now() - ms)
 const H   = 3_600_000
 const D   = 24 * H
@@ -137,14 +137,22 @@ async function seedDemoData(userId: string): Promise<Record<string, number>> {
     livePrice('BNBUSDT',  600),
   ])
 
+  const id = mkId(userId)
+  const sfx = userId.slice(-8)
+
   // ── 1. Clear existing demo data for this user ────────────────────────────
+  const demoRunRx = new RegExp(`^run-demo-${sfx}-`)
+  const demoPosRx = new RegExp(`^pos-demo-${sfx}-`)
+  const demoOrdRx = new RegExp(`^ord-demo-${sfx}-`)
+  const demoCaRx  = new RegExp(`^ca-demo-${sfx}-`)
+  const demoOppRx = new RegExp(`^opp-demo-${sfx}-`)
   await Promise.all([
-    AgentRunDoc.deleteMany({ userId, runId: /^run-demo/ }),
-    PositionDoc.deleteMany({ userId, positionId: /^pos-demo/ }),
-    OrderDoc.deleteMany({ userId, orderId: /^ord-demo/ }),
-    CoinAnalysisRunDoc.deleteMany({ userId, coinAnalysisRunId: /^ca-demo/ }),
-    AgentMemoryDoc.deleteMany({ agentId: userId, runId: /^run-demo/ }),
-    OpportunityDoc.deleteMany({ userId, opportunityId: /^opp-demo/ }),
+    AgentRunDoc.deleteMany({ userId, runId: demoRunRx }),
+    PositionDoc.deleteMany({ userId, positionId: demoPosRx }),
+    OrderDoc.deleteMany({ userId, orderId: demoOrdRx }),
+    CoinAnalysisRunDoc.deleteMany({ userId, coinAnalysisRunId: demoCaRx }),
+    AgentMemoryDoc.deleteMany({ agentId: userId, runId: demoRunRx }),
+    OpportunityDoc.deleteMany({ userId, opportunityId: demoOppRx }),
   ])
 
   // ── 1. Paper wallet: $10 000 USDC + small BTC/ETH bag ───────────────────
