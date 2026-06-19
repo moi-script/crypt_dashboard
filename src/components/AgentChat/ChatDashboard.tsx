@@ -447,52 +447,139 @@ function RunsTab({ accentColor }: { accentColor: string }) {
       <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
         {runs.map(run => {
           const isOpen = expanded === run.runId;
+          const dur = run.completedAt
+            ? Math.round((new Date(run.completedAt).getTime() - new Date(run.startedAt).getTime()) / 1000)
+            : null;
+          const conf = run.decision?.confidence;
+          const execOk = run.executionResult?.status === "filled";
+          const pnl = run.executionResult?.simulatedPnlUsd;
+
           return (
             <div key={run.runId} style={{
-              borderRadius: 10, overflow: "hidden",
-              border: `1px solid ${isOpen ? accentColor + "30" : "rgba(255,255,255,0.07)"}`,
-              background: isOpen ? `${accentColor}06` : "rgb(8,18,32)",
+              borderRadius: 12, overflow: "hidden",
+              border: `1px solid ${isOpen ? accentColor + "35" : "rgba(255,255,255,0.07)"}`,
+              background: isOpen ? `${accentColor}06` : "rgb(6,14,22)",
+              transition: "border-color 0.15s",
             }}>
+              {/* ── Collapsed header ── */}
               <button
                 onClick={() => setExpanded(isOpen ? null : run.runId)}
-                style={{ width: "100%", padding: "11px 12px", background: "transparent", border: "none", cursor: "pointer", textAlign: "left", display: "flex", alignItems: "center", gap: 7 }}
+                style={{ width: "100%", padding: "12px 14px", background: "transparent", border: "none", cursor: "pointer", textAlign: "left" }}
               >
-                <StatusBadge status={run.status} />
-                {run.decision && <IntentBadge type={run.decision.intent.type} />}
-                <span style={{ flex: 1, minWidth: 0, fontSize: 11, color: "rgba(255,255,255,0.3)", fontFamily: "var(--font-mono)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                  {run.runId}
-                </span>
-                <span style={{ fontSize: 11, color: "rgba(255,255,255,0.25)", flexShrink: 0, fontFamily: "var(--font-mono)" }}>
-                  {new Date(run.startedAt).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" })}
-                </span>
+                {/* Row 1: badges + time + chevron */}
+                <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 6 }}>
+                  <StatusBadge status={run.status} />
+                  {run.decision && <IntentBadge type={run.decision.intent.type} />}
+                  <span style={{ marginLeft: "auto", fontSize: 10, color: "rgba(255,255,255,0.25)", fontFamily: "var(--font-mono)", flexShrink: 0 }}>
+                    {new Date(run.startedAt).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" })}
+                    {dur !== null && <span style={{ color: "rgba(255,255,255,0.15)" }}> · {dur}s</span>}
+                  </span>
+                  <span style={{ fontSize: 10, color: isOpen ? accentColor : "rgba(255,255,255,0.2)", transition: "color 0.15s", flexShrink: 0 }}>
+                    {isOpen ? "▴" : "▾"}
+                  </span>
+                </div>
+                {/* Row 2: strategy · confidence · reasoning preview */}
+                <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                  <span style={{ fontSize: 10, fontFamily: "var(--font-mono)", color: "rgba(255,255,255,0.3)", background: "rgba(255,255,255,0.05)", padding: "2px 7px", borderRadius: 4 }}>
+                    {run.strategy}
+                  </span>
+                  {conf !== undefined && (
+                    <span style={{ fontSize: 10, fontFamily: "var(--font-mono)", color: conf >= 70 ? "#00e5a0" : conf >= 40 ? "#ffb020" : "#ff5572", background: "rgba(255,255,255,0.04)", padding: "2px 7px", borderRadius: 4, border: "1px solid rgba(255,255,255,0.06)" }}>
+                      {conf}% conf
+                    </span>
+                  )}
+                  {run.executionResult && (
+                    <span style={{ fontSize: 10, fontFamily: "var(--font-mono)", color: execOk ? "#00e5a0" : "#ff5572" }}>
+                      {execOk ? "✓ filled" : "✗ " + run.executionResult.status}
+                      {pnl !== undefined && <span style={{ color: pnl >= 0 ? "#00e5a0" : "#ff5572" }}> · ${pnl >= 0 ? "+" : ""}{pnl.toFixed(2)}</span>}
+                    </span>
+                  )}
+                  {!isOpen && run.decision?.reasoning && (
+                    <span style={{ fontSize: 11, color: "rgba(255,255,255,0.25)", fontFamily: "var(--font-display,sans-serif)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: 180 }}>
+                      {run.decision.reasoning.slice(0, 80)}{run.decision.reasoning.length > 80 ? "…" : ""}
+                    </span>
+                  )}
+                </div>
               </button>
 
-              {isOpen && run.decision && (
-                <div style={{ padding: "0 12px 12px", borderTop: "1px solid rgba(255,255,255,0.05)" }}>
-                  <p style={{ fontFamily: "var(--font-display,sans-serif)", fontSize: 13, lineHeight: 1.65, color: "rgba(255,255,255,0.5)", margin: "10px 0 8px" }}>
-                    {run.decision.reasoning?.slice(0, 200)}{(run.decision.reasoning?.length ?? 0) > 200 ? "…" : ""}
-                  </p>
-                  <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
-                    {run.decision.toolCallTrace.map((t, i) => (
-                      <span key={i} style={{ fontSize: 11, color: accentColor, background: `${accentColor}10`, border: `1px solid ${accentColor}20`, padding: "2px 6px", borderRadius: 5 }}>
-                        {t}
-                      </span>
-                    ))}
-                  </div>
-                  {run.executionResult && (
-                    <div style={{ marginTop: 10, padding: "8px 10px", borderRadius: 8, background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.06)" }}>
-                      <p style={{ fontSize: 12, color: run.executionResult.status === "filled" ? "#00e5a0" : "#ff5572", margin: 0, fontFamily: "var(--font-mono)" }}>
-                        {run.executionResult.status}
-                        {run.executionResult.simulatedPnlUsd !== undefined && ` · PnL $${run.executionResult.simulatedPnlUsd.toFixed(2)}`}
+              {/* ── Expanded detail ── */}
+              {isOpen && (
+                <div style={{ borderTop: "1px solid rgba(255,255,255,0.06)" }}>
+
+                  {/* Reasoning */}
+                  {run.decision?.reasoning && (
+                    <div style={{ padding: "12px 14px", borderBottom: "1px solid rgba(255,255,255,0.05)" }}>
+                      <p style={{ fontSize: 10, fontFamily: "var(--font-mono)", color: "rgba(255,255,255,0.25)", textTransform: "uppercase", letterSpacing: "0.08em", margin: "0 0 8px" }}>Reasoning</p>
+                      <p style={{ fontSize: 12, fontFamily: "var(--font-display,sans-serif)", lineHeight: 1.7, color: "rgba(255,255,255,0.55)", margin: 0 }}>
+                        {run.decision.reasoning}
                       </p>
+                      {run.decision.intent.rationale && (
+                        <p style={{ fontSize: 11, fontFamily: "var(--font-display,sans-serif)", lineHeight: 1.6, color: "rgba(255,255,255,0.35)", margin: "8px 0 0", fontStyle: "italic" }}>
+                          {run.decision.intent.rationale}
+                        </p>
+                      )}
                     </div>
                   )}
+
+                  {/* Tool call timeline */}
+                  {run.decision?.toolCallTrace && run.decision.toolCallTrace.length > 0 && (
+                    <div style={{ padding: "12px 14px", borderBottom: "1px solid rgba(255,255,255,0.05)" }}>
+                      <p style={{ fontSize: 10, fontFamily: "var(--font-mono)", color: "rgba(255,255,255,0.25)", textTransform: "uppercase", letterSpacing: "0.08em", margin: "0 0 10px" }}>
+                        Tool Calls · {run.decision.toolCallTrace.length}
+                      </p>
+                      <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                        {run.decision.toolCallTrace.map((t, i) => (
+                          <div key={i} style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                            <span style={{ fontSize: 9, fontFamily: "var(--font-mono)", color: "rgba(255,255,255,0.2)", width: 16, textAlign: "right", flexShrink: 0 }}>
+                              {i + 1}
+                            </span>
+                            <div style={{ width: 1, alignSelf: "stretch", background: i < run.decision!.toolCallTrace.length - 1 ? "rgba(255,255,255,0.08)" : "transparent" }} />
+                            <span style={{ fontSize: 11, fontFamily: "var(--font-mono)", color: accentColor, background: `${accentColor}0d`, border: `1px solid ${accentColor}20`, padding: "3px 9px", borderRadius: 5 }}>
+                              {t}
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Execution result */}
+                  {run.executionResult && (
+                    <div style={{ padding: "12px 14px", borderBottom: "1px solid rgba(255,255,255,0.05)" }}>
+                      <p style={{ fontSize: 10, fontFamily: "var(--font-mono)", color: "rgba(255,255,255,0.25)", textTransform: "uppercase", letterSpacing: "0.08em", margin: "0 0 8px" }}>Execution</p>
+                      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6 }}>
+                        {[
+                          { label: "Status",  val: run.executionResult.status,     color: execOk ? "#00e5a0" : "#ff5572" },
+                          { label: "PnL",     val: pnl !== undefined ? `${pnl >= 0 ? "+" : ""}$${pnl.toFixed(2)}` : "—", color: pnl !== undefined ? (pnl >= 0 ? "#00e5a0" : "#ff5572") : "rgba(255,255,255,0.4)" },
+                          { label: "Filled",  val: run.executionResult.filledAmountUsd !== undefined ? `$${run.executionResult.filledAmountUsd.toFixed(2)}` : "—", color: "rgba(255,255,255,0.6)" },
+                          { label: "At",      val: run.executionResult.executedAt ? new Date(run.executionResult.executedAt).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit", second: "2-digit" }) : "—", color: "rgba(255,255,255,0.4)" },
+                        ].map(cell => (
+                          <div key={cell.label} style={{ padding: "7px 10px", borderRadius: 7, background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.06)" }}>
+                            <p style={{ fontSize: 9, fontFamily: "var(--font-mono)", color: "rgba(255,255,255,0.25)", textTransform: "uppercase", letterSpacing: "0.06em", margin: "0 0 3px" }}>{cell.label}</p>
+                            <p style={{ fontSize: 12, fontFamily: "var(--font-mono)", fontWeight: 700, color: cell.color, margin: 0 }}>{cell.val}</p>
+                          </div>
+                        ))}
+                      </div>
+                      {run.executionResult.riskRejectionReason && (
+                        <p style={{ fontSize: 11, fontFamily: "var(--font-mono)", color: "#ff5572", margin: "8px 0 0", padding: "6px 10px", borderRadius: 6, background: "#ff55720a", border: "1px solid #ff557220" }}>
+                          ⚠ {run.executionResult.riskRejectionReason}
+                        </p>
+                      )}
+                    </div>
+                  )}
+
+                  {/* Meta footer */}
+                  <div style={{ padding: "8px 14px", display: "flex", gap: 12, flexWrap: "wrap" }}>
+                    <span style={{ fontSize: 9, fontFamily: "var(--font-mono)", color: "rgba(255,255,255,0.18)" }}>id: {run.runId}</span>
+                    <span style={{ fontSize: 9, fontFamily: "var(--font-mono)", color: "rgba(255,255,255,0.18)" }}>mode: {run.mode}</span>
+                    {dur !== null && <span style={{ fontSize: 9, fontFamily: "var(--font-mono)", color: "rgba(255,255,255,0.18)" }}>duration: {dur}s</span>}
+                  </div>
                 </div>
               )}
             </div>
           );
         })}
-        {!loading && runs.length === 0 && <EmptyMsg msg="No runs yet — trigger a tick to start." />}
+        {!loading && runs.length === 0 && <EmptyMsg msg="No runs yet — enable the agent loop in Config." />}
       </div>
     </div>
   );
