@@ -5,7 +5,8 @@ import { apiClient } from "@/services/api.client";
 import { useAuth } from "@/controllers/useAuth";
 import { PaperWalletDashboard } from "../PaperWalletDashboard";
 import type { ChatMessage } from "./hooks/useChatEngine";
-import { MiniChart }     from "@/components/AgentChart/MiniChart";
+import { MiniChart }        from "@/components/AgentChart/MiniChart";
+import { PriceSparkline }  from "@/components/AgentChart/PriceSparkline";
 import {
   listApprovals as fetchApprovals,
   approveRun as doApprove,
@@ -417,11 +418,35 @@ function RunsTab({ accentColor }: { accentColor: string }) {
                   </div>
                 )}
 
-                {/* Mini chart (if snapshot available) */}
+                {/* Sparkline chart — price line + regression trendline */}
                 {ap.chartSnapshot && (
-                  <div style={{ padding: "0 12px 10px" }}>
-                    <MiniChart snapshot={ap.chartSnapshot} />
-                  </div>
+                  <>
+                    {/* Legend */}
+                    <div style={{ padding: "0 12px 3px", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                      <span style={{ fontSize: 9, fontFamily: "var(--font-mono)", color: "rgba(255,255,255,0.18)", letterSpacing: "0.05em" }}>
+                        {ap.chartSnapshot.binanceSymbol} · 4H · 60 bars
+                      </span>
+                      <div style={{ display: "flex", gap: 7 }}>
+                        <span style={{ fontSize: 9, fontFamily: "var(--font-mono)", color: "#00e5a0" }}>── Price</span>
+                        <span style={{ fontSize: 9, fontFamily: "var(--font-mono)", color: "#a78bfa" }}>── Trend</span>
+                        <span style={{ fontSize: 9, fontFamily: "var(--font-mono)", color: "#ff5572cc" }}>╌ SL</span>
+                        {ap.chartSnapshot.takeProfitLevels[0] && (
+                          <span style={{ fontSize: 9, fontFamily: "var(--font-mono)", color: "#00e5a0aa" }}>╌ TP</span>
+                        )}
+                      </div>
+                    </div>
+                    {/* Chart */}
+                    <div style={{ padding: "0 12px 10px" }}>
+                      <div style={{ borderRadius: 8, overflow: "hidden", border: "1px solid rgba(255,255,255,0.05)", background: "rgba(255,255,255,0.015)" }}>
+                        <PriceSparkline
+                          binanceSymbol={ap.chartSnapshot.binanceSymbol}
+                          stopLoss={ap.chartSnapshot.stopLoss}
+                          takeProfitLevels={ap.chartSnapshot.takeProfitLevels}
+                          entryZone={ap.chartSnapshot.entryZone}
+                        />
+                      </div>
+                    </div>
+                  </>
                 )}
 
                 {/* Approve / Reject buttons */}
