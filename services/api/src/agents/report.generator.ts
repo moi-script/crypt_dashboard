@@ -19,13 +19,15 @@ import OpenAI from 'openai'
 const OPENROUTER_MODEL = 'deepseek-v4-flash'   // routes to a free model automatically
 
 
-const apiKey = process.env.DEEPSEEK_API_KEY
-if (!apiKey) throw new Error('OPENROUTER_API_KEY not set')
-
-const deepseek = new OpenAI({
-  baseURL: 'https://api.deepseek.com',
-  apiKey: process.env.DEEPSEEK_API_KEY ?? '',
-})
+let _deepseek: OpenAI | null = null
+function getClient(): OpenAI {
+  if (!_deepseek) {
+    const apiKey = process.env.DEEPSEEK_API_KEY
+    if (!apiKey) throw new Error('DEEPSEEK_API_KEY is not set')
+    _deepseek = new OpenAI({ baseURL: 'https://api.deepseek.com', apiKey })
+  }
+  return _deepseek
+}
 
 
 
@@ -139,7 +141,7 @@ Rules:
 
   try {
 
-    const completion = await deepseek.chat.completions.create({
+    const completion = await getClient().chat.completions.create({
       model: OPENROUTER_MODEL,
       max_tokens: 1200,
       messages: [{ role: 'user', content: prompt }],

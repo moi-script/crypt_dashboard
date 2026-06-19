@@ -1,22 +1,7 @@
 services:
 
   # ── Infrastructure ───────────────────────────────────────────────────────────
-
-  mongo:
-    image: mongo:7
-    restart: unless-stopped
-    volumes:
-      - mongo_data:/data/db
-    environment:
-      MONGO_INITDB_DATABASE: crypto
-    healthcheck:
-      test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping').ok"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-      start_period: 20s
-    networks:
-      - internal
+  # mongo service removed — using MongoDB Atlas (set MONGO_URL in .env.local)
 
   redis:
     image: redis:7-alpine
@@ -36,20 +21,21 @@ services:
 
   api:
     build:
-      context: ./api
+      context: ./services/api
       dockerfile: Dockerfile
     restart: unless-stopped
     ports:
       - "4000:4000"
     environment:
-      MONGO_URL:   mongodb://mongo:27017/crypto
-      REDIS_URL:   redis://redis:6379
-      JWT_SECRET:  ${JWT_SECRET:?JWT_SECRET is required}
-      WEB_URL:     ${WEB_URL:-http://localhost:3000}
-      NODE_ENV:    ${NODE_ENV:-development}
+      MONGO_URL:          ${MONGO_URL:?MONGO_URL is required}
+      REDIS_URL:          redis://redis:6379
+      JWT_SECRET:         ${JWT_SECRET:?JWT_SECRET is required}
+      WEB_URL:            ${WEB_URL:-http://localhost:3000}
+      NODE_ENV:           ${NODE_ENV:-development}
+      DEEPSEEK_API_KEY:   ${DEEPSEEK_API_KEY:-}
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
+      COINGECKO_API_KEY:  ${COINGECKO_API_KEY:-}
     depends_on:
-      mongo:
-        condition: service_healthy
       redis:
         condition: service_healthy
     networks:
@@ -58,18 +44,16 @@ services:
 
   data:
     build:
-      context: ./data
+      context: ./services/data
       dockerfile: Dockerfile
     restart: unless-stopped
     ports:
       - "8001:8001"
     environment:
-      MONGO_URL:          mongodb://mongo:27017/crypto
+      MONGO_URL:          ${MONGO_URL:?MONGO_URL is required}
       REDIS_URL:          redis://redis:6379
       COINGECKO_API_KEY:  ${COINGECKO_API_KEY:-}
     depends_on:
-      mongo:
-        condition: service_healthy
       redis:
         condition: service_healthy
     networks:
@@ -78,17 +62,15 @@ services:
 
   worker:
     build:
-      context: ./data
+      context: ./services/data
       dockerfile: Dockerfile
     restart: unless-stopped
     command: celery -A app.workers.celery_app worker --loglevel=info --concurrency=2
     environment:
-      MONGO_URL:          mongodb://mongo:27017/crypto
+      MONGO_URL:          ${MONGO_URL:?MONGO_URL is required}
       REDIS_URL:          redis://redis:6379
       COINGECKO_API_KEY:  ${COINGECKO_API_KEY:-}
     depends_on:
-      mongo:
-        condition: service_healthy
       redis:
         condition: service_healthy
     networks:
@@ -96,7 +78,7 @@ services:
 
   beat:
     build:
-      context: ./data
+      context: ./services/data
       dockerfile: Dockerfile
     restart: unless-stopped
     command: >
@@ -105,7 +87,7 @@ services:
         --scheduler celery.beat.PersistentScheduler
         --schedule /tmp/celerybeat-schedule
     environment:
-      MONGO_URL:          mongodb://mongo:27017/crypto
+      MONGO_URL:          ${MONGO_URL:?MONGO_URL is required}
       REDIS_URL:          redis://redis:6379
       COINGECKO_API_KEY:  ${COINGECKO_API_KEY:-}
     depends_on:
@@ -116,7 +98,6 @@ services:
 # ── Volumes & networks ─────────────────────────────────────────────────────────
 
 volumes:
-  mongo_data:
   redis_data:
 
 networks:

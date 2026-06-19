@@ -26,13 +26,15 @@ import OpenAI from 'openai'
 const cg = new CoinGeckoService()
 const sessionCache = new Map<string, AgentChatSession>()
 
-const apiKey = process.env.DEEPSEEK_API_KEY
-if (!apiKey) throw new Error('DEEPSEEK_API_KEY not set')
-
-const deepseek = new OpenAI({
-  baseURL: 'https://api.deepseek.com',
-  apiKey:  process.env.DEEPSEEK_API_KEY ?? '',
-})
+let _deepseek: OpenAI | null = null
+function getClient(): OpenAI {
+  if (!_deepseek) {
+    const apiKey = process.env.DEEPSEEK_API_KEY
+    if (!apiKey) throw new Error('DEEPSEEK_API_KEY is not set')
+    _deepseek = new OpenAI({ baseURL: 'https://api.deepseek.com', apiKey })
+  }
+  return _deepseek
+}
 
 // ── Session helpers ───────────────────────────────────────────────────────────
 
@@ -364,8 +366,8 @@ export class AgentService {
     let suggestAlert    = false
 
     try {
-      const completion = await deepseek.chat.completions.create({
-        model:       'deepseek-v4-flash',
+      const completion = await getClient().chat.completions.create({
+        model:       'deepseek-chat',
         max_tokens:  800,   // bumped from 600 to allow richer responses
         temperature: 0.7,
         messages: [

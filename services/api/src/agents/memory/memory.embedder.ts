@@ -1,10 +1,12 @@
-import { pipeline, type FeatureExtractionPipeline } from '@huggingface/transformers'
 import { MEMORY_CONFIG } from './memory.config'
 
-let _pipeline: FeatureExtractionPipeline | null = null
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+let _pipeline: any = null
 
-async function getPipeline(): Promise<FeatureExtractionPipeline> {
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+async function getPipeline(): Promise<any> {
   if (_pipeline) return _pipeline
+  const { pipeline } = await import('@huggingface/transformers')
   _pipeline = await pipeline('feature-extraction', MEMORY_CONFIG.embeddingModel, { device: 'cpu' })
   return _pipeline
 }

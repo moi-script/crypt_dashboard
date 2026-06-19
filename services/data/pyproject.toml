@@ -14,7 +14,7 @@ dependencies = [
     "uvicorn[standard]>=0.29,<1",
 
     # ── Database ──────────────────────────────────────────────────────────────
-    "beanie>=1.20,<3",          # ODM; TimeSeriesConfig needs >=1.20
+    "beanie>=1.20,<2",          # ODM; 2.x breaks with motor 3.7 (append_metadata)
     "motor>=3.4,<4",            # async MongoDB driver (beanie dependency)
     "pymongo>=4.7,<5",          # sync driver used for IndexModel / errors
 

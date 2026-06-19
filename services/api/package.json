@@ -6,8 +6,9 @@
   "scripts": {
     "dev": "ts-node -r tsconfig-paths/register src/app.ts",
     "build": "tsc",
-    "start": "node dist/app.js",
-    "test": "jest"
+    "start": "node -r tsconfig-paths/register dist/app.js",
+    "test": "jest",
+    "setup:vector-index": "ts-node -r tsconfig-paths/register src/scripts/createVectorIndex.ts"
   },
   "keywords": [],
   "author": "",
@@ -47,6 +48,7 @@
     "winston": "^3.19.0",
     "ws": "^8.21.0",
     "xss-clean": "^0.1.4",
+    "tsconfig-paths": "^4.2.0",
     "zod": "^4.4.3"
   },
   "devDependencies": {
@@ -65,7 +67,6 @@
     "mongodb-memory-server": "^11.2.0",
     "supertest": "^7.2.2",
     "ts-jest": "^29.4.11",
-    "ts-node": "^10.9.2",
-    "tsconfig-paths": "^4.2.0"
+    "ts-node": "^10.9.2"
   }
 }

@@ -46,10 +46,15 @@ export function selectSkillsForRegime(regime: MarketRegime): string[] {
 
 const MAX_READ_ITERATIONS = 5
 
-const deepseek = new OpenAI({
-  baseURL: 'https://api.deepseek.com',
-  apiKey:  process.env.DEEPSEEK_API_KEY ?? '',
-})
+let _deepseek: OpenAI | null = null
+function getClient(): OpenAI {
+  if (!_deepseek) {
+    const apiKey = process.env.DEEPSEEK_API_KEY
+    if (!apiKey) throw new Error('DEEPSEEK_API_KEY is not set')
+    _deepseek = new OpenAI({ baseURL: 'https://api.deepseek.com', apiKey })
+  }
+  return _deepseek
+}
 
 // ── Message types (OpenAI-compatible) ─────────────────────────────────────────
 
@@ -103,7 +108,7 @@ export async function runPolicyEngine(
 
   // ── Tool-call loop ──────────────────────────────────────────────────────────
   for (let iteration = 0; iteration < MAX_READ_ITERATIONS + 1; iteration++) {
-    const completion = await deepseek.chat.completions.create({
+    const completion = await getClient().chat.completions.create({
       model:       'deepseek-chat',
       max_tokens:  1200,
       temperature: 0.3,

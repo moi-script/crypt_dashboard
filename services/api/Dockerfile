@@ -21,7 +21,8 @@ COPY package*.json ./
 RUN npm ci --omit=dev --ignore-scripts && npm cache clean --force
 
 COPY --from=build /app/dist ./dist
+COPY tsconfig*.json ./
 
 EXPOSE 4000
 
-CMD ["node", "dist/app.js"]
+CMD ["node", "-r", "tsconfig-paths/register", "dist/app.js"]

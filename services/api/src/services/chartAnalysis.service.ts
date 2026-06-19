@@ -55,10 +55,15 @@ const DEFAULT_TIMEFRAMES: Timeframe[] = ['1h', '4h', '1d'];
 const MAX_TOOL_CALL_ITERATIONS = 5;
 const TOKEN_BUDGET = 3000; // primitives JSON target
 
-const deepseek = new OpenAI({
-  baseURL: 'https://api.deepseek.com',
-  apiKey:  process.env.DEEPSEEK_API_KEY ?? '',
-});
+let _deepseek: OpenAI | null = null
+function getClient(): OpenAI {
+  if (!_deepseek) {
+    const apiKey = process.env.DEEPSEEK_API_KEY
+    if (!apiKey) throw new Error('DEEPSEEK_API_KEY is not set')
+    _deepseek = new OpenAI({ baseURL: 'https://api.deepseek.com', apiKey })
+  }
+  return _deepseek
+}
 
 // ─── Token estimator (rough) ──────────────────────────────────
 function estimateTokens(obj: unknown): number {
@@ -214,7 +219,7 @@ ${JSON.stringify(primitives, null, 2)}
 Return ONLY valid JSON matching the ChartAnalysisResult schema. No markdown, no explanation outside the JSON.
 `;
 
-const response = await deepseek.chat.completions.create({
+const response = await getClient().chat.completions.create({
   model:       'deepseek-chat',
   max_tokens:  1500,
   temperature: 0.3,

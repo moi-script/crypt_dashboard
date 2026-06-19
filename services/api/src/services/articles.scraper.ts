@@ -10,13 +10,15 @@ import * as cheerio from 'cheerio'
 import axios from 'axios'
 import OpenAI from 'openai'
 
-const apiKey = process.env.DEEPSEEK_API_KEY
-if (!apiKey) throw new Error('DEEPSEEK_API_KEY not set')
-
-const deepseek = new OpenAI({
-  baseURL: 'https://api.deepseek.com',
-  apiKey,
-})
+let _deepseek: OpenAI | null = null
+function getClient(): OpenAI {
+  if (!_deepseek) {
+    const apiKey = process.env.DEEPSEEK_API_KEY
+    if (!apiKey) throw new Error('DEEPSEEK_API_KEY is not set')
+    _deepseek = new OpenAI({ baseURL: 'https://api.deepseek.com', apiKey })
+  }
+  return _deepseek
+}
 
 
 // ── Site-specific selectors ────────────────────────────────────────────────
@@ -170,8 +172,8 @@ Rules:
 - coins: CoinGecko coin IDs mentioned (e.g. "bitcoin", "ethereum", "solana"). Empty array [] if none.`
 
   try {
-    const completion = await deepseek.chat.completions.create({
-      model:       'deepseek-v4-flash',   // same model as agent.service.ts
+    const completion = await getClient().chat.completions.create({
+      model:       'deepseek-chat',
       max_tokens:  4096,
       temperature: 0.3,                   // lower temp for structured JSON output
       messages: [
