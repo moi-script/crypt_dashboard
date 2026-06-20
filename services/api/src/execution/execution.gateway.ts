@@ -61,7 +61,7 @@ export async function executeIntent(
   }
 
   // ── 3. Risk engine validation ────────────────────────────────────────────────
-  const risk = riskEngine.validate(intent, walletState, mode)
+  const risk = await riskEngine.validate(intent, walletState, mode)
 
   if (!risk.allowed) {
     return {

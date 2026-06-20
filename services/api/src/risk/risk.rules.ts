@@ -10,6 +10,7 @@
 
 import type { Intent, TradeIntent } from '../agents/loop/loop.types'
 import type { WalletState }         from '../agents/loop/loop.types'
+import { DataHealthDoc }            from '../models/candle.model'
 
 export type RuleResult =
   | { verdict: 'allow' }
@@ -22,6 +23,13 @@ export type RuleContext = {
 }
 
 // ── Rule: allowed tokens allowlist ───────────────────────────────────────────
+
+const SYMBOL_TO_COINGECKO: Record<string, string> = {
+  BTC:  'bitcoin',
+  WBTC: 'bitcoin',
+  ETH:  'ethereum',
+  WETH: 'ethereum',
+}
 
 const ALLOWED_TOKENS = new Set([
   'USDC', 'USDT', 'DAI', 'USDC.e',   // stablecoins
@@ -131,5 +139,35 @@ export function ruleSelfTrade(ctx: RuleContext): RuleResult {
   if (trade.tokenIn.toLowerCase() === trade.tokenOut.toLowerCase()) {
     return { verdict: 'block', reason: `tokenIn and tokenOut are the same: "${trade.tokenIn}". This is a no-op trade.` }
   }
+  return { verdict: 'allow' }
+}
+
+// ── Rule: stale coin price data ───────────────────────────────────────────────
+// Blocks trades when the CoinGecko poller has flagged this coin's data as stale.
+// Fails open (allows) if no data_health record exists yet — startup grace period.
+
+export async function ruleStaleCoinData(ctx: RuleContext): Promise<RuleResult> {
+  if (ctx.intent.type !== 'propose_trade') return { verdict: 'allow' }
+  const trade       = ctx.intent as TradeIntent
+  const coingeckoId = SYMBOL_TO_COINGECKO[trade.tokenOut.toUpperCase()]
+  if (!coingeckoId) return { verdict: 'allow' }
+
+  try {
+    const health = await DataHealthDoc.findOne({ coingeckoId }).lean()
+    if (!health) {
+      console.warn(`[RiskEngine] No data_health for ${trade.tokenOut} — poller may not have run yet. Allowing.`)
+      return { verdict: 'allow' }
+    }
+    if (health.staleSince !== null) {
+      return {
+        verdict: 'block',
+        reason:  `Price data for ${trade.tokenOut} is stale since ${(health.staleSince as Date).toISOString()}. Not safe to trade on outdated prices.`,
+      }
+    }
+  } catch (err: any) {
+    console.warn(`[RiskEngine] ruleStaleCoinData DB check failed (non-fatal): ${err.message}`)
+    return { verdict: 'allow' }   // fail open — DB errors must not block trading
+  }
+
   return { verdict: 'allow' }
 }

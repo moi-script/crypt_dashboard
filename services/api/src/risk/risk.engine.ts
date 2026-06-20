@@ -20,6 +20,7 @@ import {
   ruleMinTradeSize,
   rulePaperModeOnly,
   ruleSelfTrade,
+  ruleStaleCoinData,
   type RuleContext,
   type RuleResult,
 } from './risk.rules'
@@ -32,14 +33,14 @@ export interface ValidationResult {
   passedRules:   number
 }
 
-type RuleFn = (ctx: RuleContext) => RuleResult
+type RuleFn = (ctx: RuleContext) => RuleResult | Promise<RuleResult>
 
 export class RiskEngine {
-  validate(
+  async validate(
     intent:      Intent,
     walletState: WalletState,
     mode:        AgentMode,
-  ): ValidationResult {
+  ): Promise<ValidationResult> {
     const limits = RISK_LIMITS[mode]
     const ctx: RuleContext = { intent, walletState, mode }
 
@@ -48,8 +49,9 @@ export class RiskEngine {
     }
 
     // All rules to run, in order
-    const rules: { name: string; fn: () => RuleResult }[] = [
+    const rules: { name: string; fn: () => RuleResult | Promise<RuleResult> }[] = [
       { name: 'AllowedTokens', fn: ()  => ruleAllowedTokens(ctx) },
+      { name: 'StaleCoinData', fn: ()  => ruleStaleCoinData(ctx) },
       { name: 'MaxTradeSize',  fn: ()  => ruleMaxTradeSize(ctx, limits.maxTradeUsd) },
       { name: 'MinTradeSize',  fn: ()  => ruleMinTradeSize(ctx) },
       { name: 'DailyLossCap', fn: ()  => ruleDailyLossCap(ctx, limits.dailyLossCapUsd) },
@@ -60,7 +62,7 @@ export class RiskEngine {
 
     let passed = 0
     for (const rule of rules) {
-      const result = rule.fn()
+      const result = await rule.fn()
       if (result.verdict === 'block') {
         console.warn(`[RiskEngine] BLOCKED by ${rule.name}: ${result.reason}`)
         return {
