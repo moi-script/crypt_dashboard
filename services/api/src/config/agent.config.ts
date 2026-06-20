@@ -58,6 +58,15 @@ export interface AgentConfig {
 
   /** Maximum dollar risk per trade regardless of portfolio %. Prevents giant positions on tiny SL distances (default $150). */
   maxRiskPerTradeUsd?: number
+
+  /** Equity-curve circuit breaker: halt trading after this % drawdown from peak (default 10). */
+  maxDrawdownPct?: number
+
+  /** Daily loss limit as % of portfolio — resets at 22:00 UTC (default 2). */
+  dailyLossLimitPct?: number
+
+  /** Hard cap on new position entries per trading day (default 3). Prevents chasing trends. */
+  maxNewPositionsPerDay?: number
 }
 
 /** Seed values for a brand-new per-user agent config. */
@@ -75,4 +84,7 @@ export const DEFAULT_AGENT_CONFIG: AgentConfig = {
   maxPortfolioHeatPct: 5.0,
   maxConcurrentPositions: 6,
   maxRiskPerTradeUsd: 150,
+  maxDrawdownPct: 10,
+  dailyLossLimitPct: 2,
+  maxNewPositionsPerDay: 3,
 }

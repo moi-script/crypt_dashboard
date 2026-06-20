@@ -190,11 +190,12 @@ async function checkDailyMaxLoss(userId: string, config: AgentConfig, portfolioU
   if (!closedToday.length) return { halt: false, dailyPnl: 0 }
 
   const dailyPnl = closedToday.reduce((s, p) => s + (p.realizedPnlUsd ?? 0), 0)
-  const DAILY_LOSS_LIMIT = -Math.max(200, portfolioUsd * 0.02)
+  const limitPct = (config.dailyLossLimitPct ?? 2) / 100
+  const DAILY_LOSS_LIMIT = -Math.max(200, portfolioUsd * limitPct)
   if (dailyPnl <= DAILY_LOSS_LIMIT) {
     return {
       halt:     true,
-      reason:   `Daily loss limit: -$${Math.abs(dailyPnl).toFixed(2)} today exceeds 2% of $${portfolioUsd.toFixed(0)} portfolio — no new entries until tomorrow`,
+      reason:   `Daily loss limit: -$${Math.abs(dailyPnl).toFixed(2)} today exceeds ${config.dailyLossLimitPct ?? 2}% of $${portfolioUsd.toFixed(0)} portfolio — no new entries until tomorrow`,
       dailyPnl,
     }
   }
@@ -243,7 +244,7 @@ async function fetchBtcMomentum(): Promise<{ movePct: number; block: boolean; bl
 
 // ── Framework win-rate check: disable if rolling 10-trade WR < 35% ────────────
 
-async function getFrameworkWinRates(userId: string, config: AgentConfig): Promise<Record<string, { winRate: number; tradeCount: number; disabled: boolean }>> {
+async function getFrameworkWinRates(userId: string, config: AgentConfig, regime?: string): Promise<Record<string, { winRate: number; tradeCount: number; disabled: boolean }>> {
   const recent = await PositionDoc.find({ userId, mode: config.mode, status: 'closed', framework: { $exists: true } })
     .sort({ exitAt: -1 }).limit(40).lean()
 
@@ -256,10 +257,16 @@ async function getFrameworkWinRates(userId: string, config: AgentConfig): Promis
     if ((p.realizedPnlUsd ?? 0) > 0) byFw[fw].wins++
   }
 
+  // In ranging markets all frameworks underperform by definition — use lower thresholds
+  // to avoid incorrectly disabling good frameworks that are temporarily in the wrong regime.
+  const isRanging = regime === 'ranging'
+  const disableAt     = isRanging ? 0.20 : 0.35
+  const fastDisableAt = isRanging ? 0.15 : 0.25
+
   const result: Record<string, { winRate: number; tradeCount: number; disabled: boolean }> = {}
   for (const [fw, s] of Object.entries(byFw)) {
     const winRate = s.total > 0 ? s.wins / s.total : 1
-    result[fw] = { winRate, tradeCount: s.total, disabled: (s.total >= 10 && winRate < 0.35) || (s.total >= 5 && winRate < 0.25) }
+    result[fw] = { winRate, tradeCount: s.total, disabled: (s.total >= 10 && winRate < disableAt) || (s.total >= 5 && winRate < fastDisableAt) }
   }
   return result
 }
@@ -283,10 +290,11 @@ async function checkEquityCurveHalt(userId: string, config: AgentConfig, current
   }
 
   const drawdownPct = peak > 0 ? (peak - balance) / peak * 100 : 0
-  if (drawdownPct >= 10) {
+  const haltThreshold = config.maxDrawdownPct ?? 10
+  if (drawdownPct >= haltThreshold) {
     return {
       halt:         true,
-      reason:       `Circuit breaker: ${drawdownPct.toFixed(1)}% drawdown from $${peak.toFixed(0)} peak — halting all new entries until manual reset`,
+      reason:       `Circuit breaker: ${drawdownPct.toFixed(1)}% drawdown from $${peak.toFixed(0)} peak (limit ${haltThreshold}%) — halting all new entries until manual reset`,
       drawdownPct,
     }
   }
@@ -452,13 +460,22 @@ async function autoExecuteBest(
   const anyShort = cards.some(c => c.signal?.bias === 'short')
   const signalBias = anyLong ? 'long' : 'short'
 
+  // ── Session and regime computed first — needed by pre-filter calls ────────
+  const sessionRisk = getSessionRisk()
+  if (sessionRisk.block) {
+    skipAll(`Session blocked [${sessionRisk.session}]: ${sessionRisk.reason}`)
+    return 'completed'
+  }
+  const regime = getMarketRegime(primitives)
+
   // ── Parallel pre-filters (independent DB + network calls) ────────────────
-  const [equityCheck, dailyCheck, btcMomentum, fwWinRates, allOpen, recentStopOut, fundingRate, vol24h] = await Promise.all([
+  const [equityCheck, dailyCheck, btcMomentum, fwWinRates, allPositions, recentStopOut, fundingRate, vol24h] = await Promise.all([
     checkEquityCurveHalt(userId, config, portfolioUsd),
     checkDailyMaxLoss(userId, config, portfolioUsd),
     fetchBtcMomentum(),
-    getFrameworkWinRates(userId, config),
-    PositionDoc.find({ userId, isOpen: true, mode: config.mode }).lean(),
+    getFrameworkWinRates(userId, config, regime.regime),
+    // Include pending limit orders — committed capital counts toward caps
+    PositionDoc.find({ userId, mode: config.mode, status: { $in: ['open', 'pending'] } }).lean(),
     PositionDoc.findOne({
       userId, tokenOut: symbol.toUpperCase(), mode: config.mode, status: 'closed',
       exitAt: { $gte: new Date(Date.now() - 4 * 60 * 60 * 1000) },
@@ -467,6 +484,8 @@ async function autoExecuteBest(
     fetchFundingRate(symbol),
     fetch24hVolumeUsd(`${symbol}USDT`),
   ])
+  // allOpen: only truly open positions are needed for heat/correlation logic
+  const allOpen = allPositions.filter(p => p.status === 'open')
 
   // ── Equity curve circuit breaker ─────────────────────────────────────────
   if (equityCheck.halt) {
@@ -480,15 +499,7 @@ async function autoExecuteBest(
     return 'completed'
   }
 
-  // ── Session / macro-event gate ────────────────────────────────────────────
-  const sessionRisk = getSessionRisk()
-  if (sessionRisk.block) {
-    skipAll(`Session blocked [${sessionRisk.session}]: ${sessionRisk.reason}`)
-    return 'completed'
-  }
-
   // ── Market regime filter ──────────────────────────────────────────────────
-  const regime = getMarketRegime(primitives)
   if (anyLong && regime.htfTrend === 'bearish' && regime.adx >= 25) {
     skipAll(`[Regime] Counter-trend long blocked — HTF trend bearish with ADX ${regime.adx.toFixed(0)} (strong downtrend)`)
     return 'completed'
@@ -514,11 +525,29 @@ async function autoExecuteBest(
     }
   }
 
-  // ── Max concurrent positions hard cap ────────────────────────────────────
+  // ── Max concurrent positions hard cap (open + pending limit orders) ──────
   const maxPositions = config.maxConcurrentPositions ?? 6
-  if (allOpen.length >= maxPositions) {
-    skipAll(`[Position cap] Already at max ${maxPositions} concurrent positions — close one before opening more`)
+  if (allPositions.length >= maxPositions) {
+    const pendingCount = allPositions.length - allOpen.length
+    skipAll(`[Position cap] ${allOpen.length} open + ${pendingCount} pending = ${allPositions.length} at max ${maxPositions} — close or cancel one first`)
     return 'completed'
+  }
+
+  // ── Max new positions per trading day ────────────────────────────────────
+  const maxNewPerDay = config.maxNewPositionsPerDay ?? 3
+  if (maxNewPerDay > 0) {
+    const dayCutoff = new Date()
+    dayCutoff.setUTCHours(22, 0, 0, 0)
+    if (dayCutoff.getUTCHours() < 22 || new Date().getUTCHours() < 22) dayCutoff.setUTCDate(dayCutoff.getUTCDate() - 1)
+    const openedToday = await PositionDoc.countDocuments({
+      userId, mode: config.mode,
+      entryAt: { $gte: dayCutoff },
+      status: { $in: ['open', 'pending', 'closed'] },
+    })
+    if (openedToday >= maxNewPerDay) {
+      skipAll(`[Daily entry cap] ${openedToday} positions entered today (max ${maxNewPerDay}) — wait for next trading day (22:00 UTC)`)
+      return 'completed'
+    }
   }
 
   // ── De-duplication: don't stack positions in the same symbol ──────────────
@@ -817,7 +846,12 @@ async function autoExecuteBest(
     : parseFloat((best.signal!.stop_loss + slBufferAbs).toFixed(4))
   const slBufferNote = slBufferAbs > 0 ? ` [SL buffered 0.3×ATR $${slBufferAbs.toFixed(0)} beyond structural level]` : ''
 
+  const MIN_TRADE_USD = 20  // exchange minimums; below this fees eat all profit
   const finalTradeAmount = tradeAmount * drawdownSizeMultiplier * atrSizeMultiplier * volumeSizeMultiplier
+  if (finalTradeAmount < MIN_TRADE_USD) {
+    skipAll(`[Min trade] Computed size $${finalTradeAmount.toFixed(2)} below $${MIN_TRADE_USD} minimum (after drawdown/ATR/vol multipliers) — not worth the fee drag`)
+    return 'completed'
+  }
   const regimeNote = regime.warning ? ` [${regime.warning}]` : ` [regime: ${regime.regime} ADX ${regime.adx.toFixed(0)}]`
 
   const signalBiasDir = best.signal!.bias as 'long' | 'short'
@@ -960,30 +994,85 @@ export async function approveCard(
   if (card.approvalStatus !== 'pending') throw Object.assign(new Error(`Card "${framework}" is not pending approval`), { statusCode: 400 })
   if (!card.signal)    throw Object.assign(new Error(`Card "${framework}" has no signal`), { statusCode: 400 })
 
-  // Re-check signal age — block approvals older than 6h
+  // ── Re-check signal age ───────────────────────────────────────────────────
   const run2 = await CoinAnalysisRunDoc.findOne({ coinAnalysisRunId, userId }).lean()
   if (run2?.startedAt) {
     const ageH = (Date.now() - new Date(run2.startedAt).getTime()) / 3_600_000
     if (ageH > 6) throw Object.assign(new Error(`Signal is ${ageH.toFixed(0)}h old — too stale to approve (max 6h)`), { statusCode: 400 })
   }
 
-  // Re-enforce min R:R — use worst-case fill (zone high for longs)
+  // ── Re-enforce min R:R at approval time ──────────────────────────────────
   const apEntry  = card.signal.bias === 'long' ? card.signal.entry_zone.high : card.signal.entry_zone.low
   const apRisk   = apEntry > 0 && card.signal.stop_loss > 0 ? Math.abs(apEntry - card.signal.stop_loss) / apEntry : 0
   const apReward = apEntry > 0 && card.signal.take_profit_levels[0] ? Math.abs(card.signal.take_profit_levels[0] - apEntry) / apEntry : 0
   const apRawRr  = apRisk > 0 ? apReward / apRisk : 0
   if (apRawRr < 1.5) throw Object.assign(new Error(`R:R ${apRawRr.toFixed(2)} (worst-case fill) below minimum 1.5 — cannot approve`), { statusCode: 400 })
 
+  // ── Re-check session risk — signal from 2pm cannot fire at 10:30pm dead zone ──
+  const approvalSession = getSessionRisk()
+  if (approvalSession.block) {
+    throw Object.assign(new Error(`Session blocked at approval time [${approvalSession.session}]: ${approvalSession.reason}`), { statusCode: 400 })
+  }
+
   const config      = await getOrCreateConfig(userId)
   const walletState = await loadWalletState(userId, config)
+
+  // ── Live price zone validity — reject if price has already run past the entry zone ──
+  try {
+    const priceRes = await fetch(`https://api.binance.com/api/v3/ticker/price?symbol=${run.symbol}USDT`)
+    if (priceRes.ok) {
+      const priceData = await priceRes.json() as { price: string }
+      const livePrice = parseFloat(priceData.price)
+      const zoneLow  = card.signal.entry_zone.low
+      const zoneHigh = card.signal.entry_zone.high
+      const isLongSig = card.signal.bias === 'long'
+      // Long: reject if price ran >5% above zone (chased) or >5% below zone (thesis dead)
+      // Short: opposite
+      const chased  = isLongSig  ? livePrice > zoneHigh * 1.05 : livePrice < zoneLow * 0.95
+      const thesis  = isLongSig  ? livePrice < zoneLow  * 0.95 : livePrice > zoneHigh * 1.05
+      if (chased) throw Object.assign(new Error(`Price $${livePrice.toFixed(4)} ran >5% past entry zone ($${zoneHigh.toFixed(4)}) — ${card.signal.bias} thesis is chasing`), { statusCode: 400 })
+      if (thesis) throw Object.assign(new Error(`Price $${livePrice.toFixed(4)} broke >5% below entry zone ($${zoneLow.toFixed(4)}) — ${card.signal.bias} thesis invalidated`), { statusCode: 400 })
+    }
+  } catch (e: any) { if (e.statusCode) throw e /* rethrow our own errors; swallow fetch failures */ }
+
+  // ── Re-check live portfolio state ─────────────────────────────────────────
+  const livePositions = await PositionDoc.find({ userId, mode: config.mode, status: { $in: ['open', 'pending'] } }).lean()
+  const liveOpen = livePositions.filter(p => p.status === 'open')
+  const maxPositions = config.maxConcurrentPositions ?? 6
+  if (livePositions.length >= maxPositions) {
+    throw Object.assign(new Error(`Cannot approve: ${livePositions.length} open/pending positions at max ${maxPositions}`), { statusCode: 400 })
+  }
+
+  // Portfolio heat at approval time using live prices
+  const openSymbols = [...new Set(liveOpen.map(p => p.tokenOut))]
+  const livePricesMap: Record<string, number> = {}
+  await Promise.all(openSymbols.map(async sym => {
+    try {
+      const r = await fetch(`https://api.binance.com/api/v3/ticker/price?symbol=${sym}USDT`)
+      if (r.ok) { const d = await r.json() as { price: string }; livePricesMap[sym] = parseFloat(d.price) }
+    } catch {}
+  }))
+  let liveHeatUsd = 0
+  for (const pos of liveOpen) {
+    if (!pos.entryPrice || !pos.stopLossPrice || !pos.entryAmountUsd) continue
+    const lp = livePricesMap[pos.tokenOut] ?? pos.entryPrice
+    liveHeatUsd += Math.max(0, Math.abs(lp - pos.stopLossPrice) * (pos.entryAmountUsd / pos.entryPrice))
+  }
+  const heatCapUsd = (walletState.totalValueUsd ?? 10_000) * ((config.maxPortfolioHeatPct ?? 5.0) / 100)
+  if (liveHeatUsd >= heatCapUsd) {
+    throw Object.assign(new Error(`Cannot approve: live portfolio heat $${liveHeatUsd.toFixed(0)} already at ${config.maxPortfolioHeatPct ?? 5}% cap ($${heatCapUsd.toFixed(0)})`), { statusCode: 400 })
+  }
+
   const adjustedConf = card.signal.confidence + card.newsImpact.confidenceDelta
 
-  // Portfolio-derived sizing — worst-case fill, riskPerTradePct from config
+  // ── Portfolio-derived sizing with maxRiskPerTradeUsd cap ─────────────────
   const worstApEntry = card.signal.bias === 'long' ? card.signal.entry_zone.high : card.signal.entry_zone.low
   const slDistance   = worstApEntry > 0 && card.signal.stop_loss > 0 ? Math.abs(worstApEntry - card.signal.stop_loss) / worstApEntry : 0.02
   const apRiskPct    = (config.riskPerTradePct ?? 1.0) / 100
-  const riskBasedSize = slDistance > 0 ? ((walletState.totalValueUsd ?? 0) * apRiskPct) / slDistance : config.maxTradeUsd
-  const tradeAmount  = Math.min(riskBasedSize, config.maxTradeUsd)
+  const portfolioRisk = (walletState.totalValueUsd ?? 0) * apRiskPct
+  const apMaxRiskUsd  = Math.min(portfolioRisk, config.maxRiskPerTradeUsd ?? 150)
+  const riskBasedSize = slDistance > 0 ? apMaxRiskUsd / slDistance : config.maxTradeUsd
+  const tradeAmount   = Math.min(riskBasedSize, config.maxTradeUsd)
 
   const recentClosed2 = await PositionDoc.find({
     userId, mode: config.mode, status: 'closed',
@@ -992,7 +1081,7 @@ export async function approveCard(
   let lossStreak2 = 0
   for (const p of recentClosed2) { if ((p.realizedPnlUsd ?? 0) < 0) lossStreak2++; else break }
   const ddMult = lossStreak2 >= 3 ? 0.5 : lossStreak2 >= 2 ? 0.75 : 1.0
-  const finalAmount = tradeAmount * ddMult
+  const finalAmount = Math.max(20, tradeAmount * ddMult)  // enforce min trade size
 
   const intent: TradeIntent = {
     type:             'propose_trade',
@@ -1000,13 +1089,16 @@ export async function approveCard(
     tokenOut:         run.symbol,
     amountUsd:        finalAmount,
     maxSlippageBps:   50,
-    rationale:        card.signal.reasoning + ` [manual approve · risk-sized: 1% of $${(walletState.totalValueUsd ?? 0).toFixed(0)} / ${(slDistance * 100).toFixed(1)}% SL = $${finalAmount.toFixed(0)}]` + (lossStreak2 >= 2 ? ` [⚠ ${lossStreak2}-loss streak → ${ddMult * 100}% size]` : ''),
+    rationale:        card.signal.reasoning +
+                      ` [manual approve · risk $${apMaxRiskUsd.toFixed(0)} / ${(slDistance * 100).toFixed(1)}% SL = $${finalAmount.toFixed(0)}]` +
+                      (lossStreak2 >= 2 ? ` [⚠ ${lossStreak2}-loss streak → ${ddMult * 100}% size]` : ''),
     stopLossPrice:    card.signal.stop_loss,
     takeProfitPrice:  card.signal.take_profit_levels[0],
     takeProfitPrice2: card.signal.take_profit_levels[1],
     entryZoneLow:     card.signal.entry_zone.low,
     entryZoneHigh:    card.signal.entry_zone.high,
     framework:        card.framework,
+    bias:             card.signal.bias as 'long' | 'short',
   } as TradeIntent & { takeProfitPrice2?: number }
 
   const gateway = await executeIntent(intent, walletState, {
