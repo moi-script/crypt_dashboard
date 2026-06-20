@@ -24,6 +24,7 @@ interface AgentRun {
   startedAt:   string;
   completedAt?: string;
   status:      string;
+  agentNote?:  string;
   decision?: {
     intent:        { type: string; rationale?: string };
     confidence:    number;
@@ -627,6 +628,18 @@ function RunsTab({ accentColor }: { accentColor: string }) {
                 {/* Row 1: badges + win/loss + time + chevron */}
                 <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 6 }}>
                   <StatusBadge status={run.status} />
+                  {run.executionResult?.simulatedPnlUsd !== undefined &&
+                   run.executionResult.simulatedPnlUsd !== 0 && (
+                    <span style={{
+                      display: "inline-block",
+                      width: 8,
+                      height: 8,
+                      borderRadius: "50%",
+                      background: run.executionResult.simulatedPnlUsd > 0 ? "#22c55e" : "#ef4444",
+                      marginLeft: 4,
+                      flexShrink: 0,
+                    }} />
+                  )}
                   {run.decision && <IntentBadge type={run.decision.intent.type} />}
                   {/* WIN / LOSS badge */}
                   {execOk && pnl !== undefined && (
@@ -741,6 +754,39 @@ function RunsTab({ accentColor }: { accentColor: string }) {
                           ⚠ {run.executionResult.riskRejectionReason}
                         </p>
                       )}
+                    </div>
+                  )}
+
+                  {/* ── Agent Note ─────────────────────────────────────────── */}
+                  {isOpen && run.agentNote && (
+                    <div style={{
+                      marginTop: 10,
+                      padding: "10px 12px",
+                      background: "rgba(255,255,255,0.04)",
+                      borderRadius: 6,
+                      border: "1px solid rgba(255,255,255,0.08)",
+                    }}>
+                      <div style={{
+                        fontSize: 9,
+                        fontWeight: 700,
+                        letterSpacing: "0.08em",
+                        color: "rgba(255,255,255,0.35)",
+                        marginBottom: 6,
+                        textTransform: "uppercase",
+                      }}>
+                        Agent Note
+                      </div>
+                      <pre style={{
+                        margin: 0,
+                        fontSize: 11,
+                        lineHeight: 1.6,
+                        color: "rgba(255,255,255,0.75)",
+                        fontFamily: "var(--font-mono, monospace)",
+                        whiteSpace: "pre-wrap",
+                        wordBreak: "break-word",
+                      }}>
+                        {run.agentNote}
+                      </pre>
                     </div>
                   )}
 
