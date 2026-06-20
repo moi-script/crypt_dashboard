@@ -315,6 +315,175 @@ function CandlestickPreview() {
   );
 }
 
+// ── 3D Candlestick Background ─────────────────────────────────────────────────
+
+function HeroBg3D() {
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+
+    const reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    let raf = 0;
+    let angle = -0.28;
+
+    const setSize = () => {
+      canvas.width  = canvas.offsetWidth  || 800;
+      canvas.height = canvas.offsetHeight || 600;
+    };
+    setSize();
+    window.addEventListener("resize", setSize);
+
+    // 26 candles with a gentle upward trend
+    const N = 26;
+    const candles: { o: number; h: number; l: number; c: number }[] = [];
+    let price = 72;
+    for (let i = 0; i < N; i++) {
+      const d = (Math.random() - 0.44) * 11;
+      const o = price;
+      price = Math.max(15, Math.min(188, price + d));
+      const c = price;
+      const body = Math.abs(c - o);
+      candles.push({ o, c, h: Math.max(o, c) + Math.random() * (body * 0.5 + 2.5), l: Math.min(o, c) - Math.random() * (body * 0.5 + 2.5) });
+    }
+    const minPrice = Math.min(...candles.map(b => b.l));
+
+    // Perspective project world → screen
+    const proj = (wx: number, wy: number, wz: number, cx: number, cy: number) => {
+      const tz = wz + 520;
+      if (tz < 1) return null;
+      const s = 520 / tz;
+      return { x: wx * s + cx, y: wy * s + cy };
+    };
+
+    // Rotate around Y axis then project
+    type Pt2 = { x: number; y: number } | null;
+    const p = (wx: number, wy: number, wz: number, cx: number, cy: number): Pt2 => {
+      const rx = wx * Math.cos(angle) - wz * Math.sin(angle);
+      const rz = wx * Math.sin(angle) + wz * Math.cos(angle);
+      return proj(rx, wy, rz, cx, cy);
+    };
+
+    const drawFace = (pts: Pt2[], r: number, g: number, bv: number, alpha: number) => {
+      const vp = pts.filter((q): q is { x: number; y: number } => q !== null);
+      if (vp.length < 3) return;
+      ctx.beginPath();
+      ctx.moveTo(vp[0].x, vp[0].y);
+      for (let k = 1; k < vp.length; k++) ctx.lineTo(vp[k].x, vp[k].y);
+      ctx.closePath();
+      ctx.fillStyle = `rgba(${r},${g},${bv},${alpha.toFixed(2)})`;
+      ctx.fill();
+    };
+
+    const drawWire = (pt1: Pt2, pt2: Pt2, r: number, g: number, bv: number, alpha: number) => {
+      if (!pt1 || !pt2) return;
+      ctx.beginPath();
+      ctx.moveTo(pt1.x, pt1.y);
+      ctx.lineTo(pt2.x, pt2.y);
+      ctx.strokeStyle = `rgba(${r},${g},${bv},${alpha.toFixed(2)})`;
+      ctx.lineWidth = 1;
+      ctx.stroke();
+    };
+
+    const draw = () => {
+      const W = canvas.width, H = canvas.height;
+      ctx.clearRect(0, 0, W, H);
+
+      if (!reduced) angle += 0.0022;
+
+      const cx = W * 0.62;
+      const cy = H * 0.46;
+      const spacing = 31;
+      const barW = 12, barD = 9;
+      const yScale = 1.9;
+      const totalW = N * spacing;
+
+      // World Y: toY(price) — lower price = higher worldY (projects lower on screen)
+      const toY = (v: number) => -(v - minPrice) * yScale - 12;
+      const gFloor = toY(minPrice) + 22; // floor sits just below lowest wick
+
+      // Sort back-to-front (painter's algorithm)
+      const sorted = candles
+        .map((bar, i) => {
+          const wx = i * spacing - totalW / 2 + spacing / 2;
+          return { ...bar, wx, rz: wx * Math.sin(angle) };
+        })
+        .sort((a, b) => b.rz - a.rz);
+
+      // Perspective grid floor
+      const gSize = totalW * 1.1;
+      for (let gi = 0; gi <= 7; gi++) {
+        const t = (gi / 7 - 0.5) * gSize;
+        drawWire(p(t, gFloor, -gSize / 2, cx, cy), p(t, gFloor, gSize / 2, cx, cy), 0, 212, 255, 0.045);
+        drawWire(p(-gSize / 2, gFloor, t, cx, cy), p(gSize / 2, gFloor, t, cx, cy), 0, 212, 255, 0.045);
+      }
+
+      // Candlestick bars
+      sorted.forEach(({ o, h, l, c, wx }) => {
+        const up = c >= o;
+        const [r, g, bv] = up ? [0, 229, 160] : [255, 85, 114];
+
+        const yTop = toY(Math.max(o, c));
+        const yBot = toY(Math.min(o, c));
+        const yH   = toY(h);
+        const yL   = toY(l);
+        const wz = 0;
+
+        const x0 = wx - barW / 2, x1 = wx + barW / 2;
+        const z0 = wz - barD / 2, z1 = wz + barD / 2;
+
+        // 8 corners of the body box
+        const tfl = p(x0, yTop, z0, cx, cy), tfr = p(x1, yTop, z0, cx, cy);
+        const tbl = p(x0, yTop, z1, cx, cy), tbr = p(x1, yTop, z1, cx, cy);
+        const bfl = p(x0, yBot, z0, cx, cy), bfr = p(x1, yBot, z0, cx, cy);
+        const bbl = p(x0, yBot, z1, cx, cy), bbr = p(x1, yBot, z1, cx, cy);
+
+        // Glow
+        ctx.shadowColor = `rgba(${r},${g},${bv},0.45)`;
+        ctx.shadowBlur = 12;
+
+        // Faces with depth shading (top brightest, back darkest)
+        drawFace([tfl, tfr, tbr, tbl], r, g, bv, 0.85); // top
+        drawFace([bfl, bfr, tfr, tfl], r, g, bv, 0.68); // front
+        drawFace([bfr, bbr, tbr, tfr], r, g, bv, 0.46); // right
+        drawFace([bbr, bbl, tbl, tbr], r, g, bv, 0.30); // back
+        drawFace([bbl, bfl, tfl, tbl], r, g, bv, 0.40); // left
+
+        ctx.shadowBlur = 0;
+
+        // Wicks
+        const midTop = p(wx, yTop, wz, cx, cy);
+        const midBot = p(wx, yBot, wz, cx, cy);
+        drawWire(p(wx, yH,  wz, cx, cy), midTop, r, g, bv, 0.55);
+        drawWire(midBot, p(wx, yL,  wz, cx, cy), r, g, bv, 0.55);
+      });
+
+      raf = requestAnimationFrame(draw);
+    };
+
+    draw();
+
+    return () => {
+      cancelAnimationFrame(raf);
+      window.removeEventListener("resize", setSize);
+    };
+  }, []);
+
+  return (
+    <canvas
+      ref={canvasRef}
+      style={{
+        position: "absolute", inset: 0,
+        width: "100%", height: "100%",
+        opacity: 0.28, pointerEvents: "none",
+      }}
+    />
+  );
+}
+
 // ── LoadingScreen ─────────────────────────────────────────────────────────────
 
 function LoadingScreen() {
@@ -617,6 +786,7 @@ export default function LandingView() {
               <div className="land-blob" style={{ position: "absolute", width: 680, height: 600, borderRadius: "50%", background: "radial-gradient(circle, rgba(0,212,255,0.065), transparent 65%)", top: "-15%", left: "-12%", animation: "drift1 9s ease-in-out infinite" }} />
               <div className="land-blob" style={{ position: "absolute", width: 540, height: 540, borderRadius: "50%", background: "radial-gradient(circle, rgba(167,139,250,0.055), transparent 65%)", bottom: "-15%", right: "-8%", animation: "drift2 11s ease-in-out infinite" }} />
               <div className="retro-grid" style={{ position: "absolute", inset: 0, opacity: 0.025 }} />
+              <HeroBg3D />
             </div>
 
             <div className="land-hero-content" style={{ position: "relative", zIndex: 1, maxWidth: 680 }}>
