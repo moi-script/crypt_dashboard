@@ -147,6 +147,73 @@ async function fetchFundingRate(symbol: string): Promise<number | null> {
   } catch { return null }
 }
 
+// ── Daily max loss: halt if today's realised P&L < -2% of $10k = -$200 ────────
+
+async function checkDailyMaxLoss(userId: string, config: AgentConfig): Promise<{ halt: boolean; reason?: string; dailyPnl: number }> {
+  const today = new Date()
+  today.setHours(0, 0, 0, 0)
+  const closedToday = await PositionDoc.find({
+    userId, mode: config.mode, status: 'closed',
+    exitAt: { $gte: today },
+  }).lean()
+  if (!closedToday.length) return { halt: false, dailyPnl: 0 }
+
+  const dailyPnl = closedToday.reduce((s, p) => s + (p.realizedPnlUsd ?? 0), 0)
+  const DAILY_LOSS_LIMIT = -200  // 2% of $10k initial capital
+  if (dailyPnl <= DAILY_LOSS_LIMIT) {
+    return {
+      halt:     true,
+      reason:   `Daily loss limit: -$${Math.abs(dailyPnl).toFixed(2)} today exceeds $${Math.abs(DAILY_LOSS_LIMIT)} limit — no new entries until tomorrow`,
+      dailyPnl,
+    }
+  }
+  return { halt: false, dailyPnl }
+}
+
+// ── Intraday BTC momentum: block longs when BTC drops >2.5% on 4H ─────────────
+
+async function fetchBtcMomentum(): Promise<{ dropPct: number; block: boolean; note: string }> {
+  try {
+    const r = await fetch('https://api.binance.com/api/v3/klines?symbol=BTCUSDT&interval=4h&limit=2')
+    if (!r.ok) return { dropPct: 0, block: false, note: '' }
+    const klines = await r.json() as number[][]
+    if (!klines?.length) return { dropPct: 0, block: false, note: '' }
+    const prevClose = parseFloat(String(klines[0][4]))
+    const currOpen  = parseFloat(String(klines[1][1]))
+    const dropPct   = prevClose > 0 ? (currOpen - prevClose) / prevClose * 100 : 0
+    const block     = dropPct <= -2.5
+    const note      = block
+      ? ` [⚠ BTC -${Math.abs(dropPct).toFixed(1)}% on 4H — altcoin long risk elevated, blocking]`
+      : dropPct <= -1.5
+      ? ` [BTC -${Math.abs(dropPct).toFixed(1)}% on 4H — caution]`
+      : ''
+    return { dropPct, block, note }
+  } catch { return { dropPct: 0, block: false, note: '' } }
+}
+
+// ── Framework win-rate check: disable if rolling 10-trade WR < 35% ────────────
+
+async function getFrameworkWinRates(userId: string, config: AgentConfig): Promise<Record<string, { winRate: number; tradeCount: number; disabled: boolean }>> {
+  const recent = await PositionDoc.find({ userId, mode: config.mode, status: 'closed', framework: { $exists: true } })
+    .sort({ exitAt: -1 }).limit(40).lean()
+
+  const byFw: Record<string, { wins: number; total: number }> = {}
+  for (const p of recent) {
+    const fw = p.framework as string
+    if (!byFw[fw]) byFw[fw] = { wins: 0, total: 0 }
+    if (byFw[fw].total >= 10) continue  // only rolling 10
+    byFw[fw].total++
+    if ((p.realizedPnlUsd ?? 0) > 0) byFw[fw].wins++
+  }
+
+  const result: Record<string, { winRate: number; tradeCount: number; disabled: boolean }> = {}
+  for (const [fw, s] of Object.entries(byFw)) {
+    const winRate = s.total > 0 ? s.wins / s.total : 1
+    result[fw] = { winRate, tradeCount: s.total, disabled: s.total >= 10 && winRate < 0.35 }
+  }
+  return result
+}
+
 // ── Equity curve halt: stop trading after 10% drawdown from peak ──────────────
 
 async function checkEquityCurveHalt(userId: string, config: AgentConfig): Promise<{ halt: boolean; reason?: string; drawdownPct: number }> {
@@ -334,6 +401,13 @@ async function autoExecuteBest(
     return 'completed'
   }
 
+  // ── Daily max loss halt ───────────────────────────────────────────────────
+  const dailyCheck = await checkDailyMaxLoss(userId, config)
+  if (dailyCheck.halt) {
+    skipAll(`[Daily limit] ${dailyCheck.reason}`)
+    return 'completed'
+  }
+
   // ── Session / macro-event gate ────────────────────────────────────────────
   const sessionRisk = getSessionRisk()
   if (sessionRisk.block) {
@@ -343,11 +417,28 @@ async function autoExecuteBest(
 
   // ── Market regime filter ──────────────────────────────────────────────────
   const regime = getMarketRegime(primitives)
-  // Block counter-trend longs in bearish HTF regime (only if confident in regime)
   const anyLong = cards.some(c => c.signal?.bias === 'long')
   if (anyLong && regime.htfTrend === 'bearish' && regime.adx >= 25) {
     skipAll(`[Regime] Counter-trend long blocked — HTF trend bearish with ADX ${regime.adx.toFixed(0)} (strong downtrend)`)
     return 'completed'
+  }
+
+  // ── Intraday BTC momentum filter: block longs on sharp BTC sell-off ────────
+  const btcMomentum = await fetchBtcMomentum()
+  if (anyLong && btcMomentum.block) {
+    skipAll(`[BTC Momentum] ${btcMomentum.note.trim()}`)
+    return 'completed'
+  }
+
+  // ── Framework win-rate filter: skip cards from underperforming frameworks ──
+  const fwWinRates = await getFrameworkWinRates(userId, config)
+  for (const card of cards) {
+    if (!card.signal || card.approvalStatus === 'skipped') continue
+    const fwStats = fwWinRates[card.framework]
+    if (fwStats?.disabled) {
+      card.approvalStatus = 'skipped'
+      card.skippedReason  = `[Framework disabled] ${card.framework} WR ${(fwStats.winRate * 100).toFixed(0)}% over last ${fwStats.tradeCount} trades — below 35% threshold`
+    }
   }
 
   // ── De-duplication: don't stack positions in the same symbol ──────────────
@@ -391,6 +482,20 @@ async function autoExecuteBest(
     }
   }
 
+  // ── Minimum R:R filter: require 1.5:1 raw before confidence check ─────────
+  const MIN_RAW_RR = 1.5
+  for (const card of cards) {
+    if (!card.signal || card.approvalStatus === 'skipped') continue
+    const entry  = (card.signal.entry_zone.low + card.signal.entry_zone.high) / 2
+    const risk   = entry > 0 && card.signal.stop_loss > 0 ? Math.abs(entry - card.signal.stop_loss) / entry : 0
+    const reward = entry > 0 && card.signal.take_profit_levels[0] ? Math.abs(card.signal.take_profit_levels[0] - entry) / entry : 0
+    const rawRr  = risk > 0 ? reward / risk : 0
+    if (rawRr < MIN_RAW_RR) {
+      card.approvalStatus = 'skipped'
+      card.skippedReason  = `R:R ${rawRr.toFixed(2)} below minimum 1.5 — not worth the fee drag`
+    }
+  }
+
   // ── Confidence threshold (session delta + regime delta applied to qualifying) ──
   const baseThreshold = config.minSignalConfidence
   const sessionDelta  = sessionRisk.confidenceDelta  // negative = harder to pass
@@ -398,6 +503,7 @@ async function autoExecuteBest(
 
   const qualifying = cards.filter(c =>
     c.signal !== null &&
+    c.approvalStatus !== 'skipped' &&
     (c.signal.bias === 'long' || config.allowShorts) &&
     (c.signal.confidence + c.newsImpact.confidenceDelta + regime.confidenceDelta + fundingDelta) >= confidenceThreshold,
   )
@@ -503,9 +609,22 @@ async function autoExecuteBest(
   let lossStreak = 0
   for (const p of recentClosed) { if ((p.realizedPnlUsd ?? 0) < 0) lossStreak++; else break }
   const drawdownSizeMultiplier = lossStreak >= 3 ? 0.5 : lossStreak >= 2 ? 0.75 : 1.0
-  const finalTradeAmount = tradeAmount * drawdownSizeMultiplier
   const drawdownNote = lossStreak >= 2 ? ` [⚠ ${lossStreak}-loss streak → ${drawdownSizeMultiplier * 100}% size]` : ''
 
+  // ── ATR noise check: warn if SL distance < 0.5 × ATR (inside 1-bar noise) ──
+  const atr14 = primitives.indicators?.atr_14 ?? 0
+  let atrSizeMultiplier = 1.0
+  let atrNote = ''
+  if (atr14 > 0 && entryMid > 0) {
+    const slDistAbs  = Math.abs(entryMid - best.signal!.stop_loss)
+    const halfAtr    = atr14 * 0.5
+    if (slDistAbs < halfAtr) {
+      atrSizeMultiplier = 0.5  // SL is inside noise band — half size
+      atrNote = ` [⚠ SL $${slDistAbs.toFixed(0)} < 0.5×ATR $${halfAtr.toFixed(0)} — inside noise, size halved]`
+    }
+  }
+
+  const finalTradeAmount = tradeAmount * drawdownSizeMultiplier * atrSizeMultiplier
   const regimeNote = regime.warning ? ` [${regime.warning}]` : ` [regime: ${regime.regime} ADX ${regime.adx.toFixed(0)}]`
 
   const intent: TradeIntent = {
@@ -517,7 +636,7 @@ async function autoExecuteBest(
     rationale:        best.signal!.reasoning +
                       (agreeingCount >= 2 ? ` [${agreeingCount} frameworks confluent → ${confluenceMultiplier.toFixed(2)}× size]` : '') +
                       ` [risk-sized: 1% of $${(walletState.totalValueUsd ?? 0).toFixed(0)} / ${(slDistance * 100).toFixed(1)}% SL = $${finalTradeAmount.toFixed(0)}]` +
-                      volumeTag + drawdownNote + regimeNote + fundingNote,
+                      volumeTag + drawdownNote + atrNote + regimeNote + fundingNote + btcMomentum.note,
     stopLossPrice:    best.signal!.stop_loss,
     takeProfitPrice:  best.signal!.take_profit_levels[0],
     takeProfitPrice2: best.signal!.take_profit_levels[1],
@@ -637,6 +756,20 @@ export async function approveCard(
   if (!card)           throw Object.assign(new Error(`Card "${framework}" not found`), { statusCode: 404 })
   if (card.approvalStatus !== 'pending') throw Object.assign(new Error(`Card "${framework}" is not pending approval`), { statusCode: 400 })
   if (!card.signal)    throw Object.assign(new Error(`Card "${framework}" has no signal`), { statusCode: 400 })
+
+  // Re-check signal age — block approvals older than 6h
+  const run2 = await CoinAnalysisRunDoc.findOne({ coinAnalysisRunId, userId }).lean()
+  if (run2?.startedAt) {
+    const ageH = (Date.now() - new Date(run2.startedAt).getTime()) / 3_600_000
+    if (ageH > 6) throw Object.assign(new Error(`Signal is ${ageH.toFixed(0)}h old — too stale to approve (max 6h)`), { statusCode: 400 })
+  }
+
+  // Re-enforce min R:R
+  const apEntry  = (card.signal.entry_zone.low + card.signal.entry_zone.high) / 2
+  const apRisk   = apEntry > 0 && card.signal.stop_loss > 0 ? Math.abs(apEntry - card.signal.stop_loss) / apEntry : 0
+  const apReward = apEntry > 0 && card.signal.take_profit_levels[0] ? Math.abs(card.signal.take_profit_levels[0] - apEntry) / apEntry : 0
+  const apRawRr  = apRisk > 0 ? apReward / apRisk : 0
+  if (apRawRr < 1.5) throw Object.assign(new Error(`R:R ${apRawRr.toFixed(2)} below minimum 1.5 — cannot approve`), { statusCode: 400 })
 
   const config      = await getOrCreateConfig(userId)
   const walletState = await loadWalletState(userId, config)

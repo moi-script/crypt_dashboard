@@ -533,10 +533,36 @@ function RunsTab({ accentColor }: { accentColor: string }) {
                   </div>
                 )}
 
+                {/* Net R:R (after fees + slippage) */}
+                {rrApproval !== null && (
+                  (() => {
+                    const entry    = ap.chartSnapshot ? (ap.chartSnapshot.entryZone.low + ap.chartSnapshot.entryZone.high) / 2 : 0;
+                    const sl       = ap.chartSnapshot?.stopLoss ?? 0;
+                    const tp       = ap.chartSnapshot?.takeProfitLevels[0] ?? 0;
+                    const friction = 0.0025;  // 0.1% entry fee + 0.1% exit fee + 0.05% slippage
+                    const rawRisk  = entry > 0 ? (entry - sl) / entry : 0;
+                    const rawRew   = entry > 0 ? (tp - entry) / entry  : 0;
+                    const netRew   = rawRew - friction;
+                    const netRisk  = rawRisk + friction;
+                    const netRr    = netRisk > 0 ? netRew / netRisk : 0;
+                    const netOk    = netRr >= 1.5;
+                    return (
+                      <div style={{ margin: "0 12px 8px", padding: "5px 10px", borderRadius: 7,
+                        background: netOk ? "#00e5a008" : "#ff557210",
+                        border: `1px solid ${netOk ? "#00e5a025" : "#ff557230"}` }}>
+                        <span style={{ fontSize: 10, fontFamily: "var(--font-mono)", color: netOk ? "#00e5a0" : "#ff5572" }}>
+                          Net R:R after fees: <b>{netRr.toFixed(2)}</b>
+                          {!netOk && " — below 1.5 minimum, edge is thin after fees"}
+                        </span>
+                      </div>
+                    );
+                  })()
+                )}
+
                 {/* Approve / Reject buttons */}
                 <div style={{ display: "flex", gap: 6, padding: "0 12px 12px" }}>
                   <button
-                    disabled={isActing}
+                    disabled={isActing || isDanger}
                     onClick={async () => {
                       setApproving(ap.runId);
                       try { await doApprove(ap.runId); await load(); }
@@ -545,12 +571,12 @@ function RunsTab({ accentColor }: { accentColor: string }) {
                     }}
                     style={{
                       flex: 1, padding: "8px 0", borderRadius: 8, border: "none",
-                      fontSize: 12, fontWeight: 700, cursor: isActing ? "not-allowed" : "pointer",
-                      background: isActing ? "rgba(0,229,160,0.2)" : "#00e5a0",
-                      color: isActing ? "rgba(255,255,255,0.3)" : "#020609",
+                      fontSize: 12, fontWeight: 700, cursor: (isActing || isDanger) ? "not-allowed" : "pointer",
+                      background: isDanger ? "rgba(255,255,255,0.06)" : isActing ? "rgba(0,229,160,0.2)" : "#00e5a0",
+                      color: isDanger ? "rgba(255,255,255,0.2)" : isActing ? "rgba(255,255,255,0.3)" : "#020609",
                       fontFamily: "var(--font-display,sans-serif)", transition: "all 0.15s ease",
                     }}
-                  >{isActing ? "Processing…" : "✓ Approve"}</button>
+                  >{isActing ? "Processing…" : isDanger ? "Expired — Reject" : "✓ Approve"}</button>
                   <button
                     disabled={isActing}
                     onClick={async () => {
@@ -1048,6 +1074,7 @@ function PositionsTab({ accentColor }: { accentColor: string }) {
   const [trailInputs,    setTrailInputs]    = useState<Record<string, string>>({});
   const [updatingSl,     setUpdatingSl]     = useState<Record<string, boolean>>({});
   const [partialExiting, setPartialExiting] = useState<Record<string, boolean>>({});
+  const [closingPos,     setClosingPos]     = useState<Record<string, boolean>>({});
   const pnlColor = (v: number) => v >= 0 ? "#00e5a0" : "#ff5572";
 
   const reloadPositions = useCallback(async () => {
@@ -1206,6 +1233,23 @@ function PositionsTab({ accentColor }: { accentColor: string }) {
     })).sort((a, b) => b.totalPnl - a.totalPnl);
   })();
 
+  // Per-coin P&L breakdown
+  const coinPerf = (() => {
+    const closed = positions.filter(p => p.status === "closed");
+    const byCoin: Record<string, { wins: number; losses: number; totalPnl: number; trades: number }> = {};
+    for (const p of closed) {
+      const coin = p.tokenOut;
+      if (!byCoin[coin]) byCoin[coin] = { wins: 0, losses: 0, totalPnl: 0, trades: 0 };
+      const v = p.realizedPnlUsd ?? 0;
+      byCoin[coin].totalPnl += v;
+      byCoin[coin].trades++;
+      if (v > 0) byCoin[coin].wins++; else byCoin[coin].losses++;
+    }
+    return Object.entries(byCoin)
+      .map(([coin, s]) => ({ coin, ...s, winRate: s.trades > 0 ? Math.round(s.wins / s.trades * 100) : 0 }))
+      .sort((a, b) => b.totalPnl - a.totalPnl);
+  })();
+
   // Drawdown / risk stats from closed position history
   const riskStats = (() => {
     const closed = positions
@@ -1252,6 +1296,13 @@ function PositionsTab({ accentColor }: { accentColor: string }) {
     setPartialExiting(prev => ({ ...prev, [pos.positionId]: true }));
     try { await apiClient.post(`/positions/${pos.positionId}/partial-exit`, { exitPercent: pct }); await reloadPositions(); }
     catch {} finally { setPartialExiting(prev => ({ ...prev, [pos.positionId]: false })); }
+  };
+
+  const closeAtMarket = async (pos: Position) => {
+    if (!window.confirm(`Close ${pos.tokenOut} position at market? This cannot be undone.`)) return;
+    setClosingPos(prev => ({ ...prev, [pos.positionId]: true }));
+    try { await apiClient.post(`/positions/${pos.positionId}/close`, {}); await reloadPositions(); }
+    catch {} finally { setClosingPos(prev => ({ ...prev, [pos.positionId]: false })); }
   };
 
   return (
@@ -1329,7 +1380,8 @@ function PositionsTab({ accentColor }: { accentColor: string }) {
               {[
                 { label: "Exp. Value / Trade", val: `${advancedStats.ev >= 0 ? "+" : ""}$${advancedStats.ev.toFixed(2)}`, color: advancedStats.ev > 0 ? "#00e5a0" : "#ff5572" },
                 { label: "Profit Factor",      val: advancedStats.pf !== null ? advancedStats.pf.toFixed(2) + "×" : "—",  color: (advancedStats.pf ?? 0) >= 1.5 ? "#00e5a0" : (advancedStats.pf ?? 0) >= 1 ? "#ffb020" : "#ff5572" },
-                { label: "Sharpe (per trade)", val: advancedStats.sharpe !== null ? advancedStats.sharpe.toFixed(2) : "—", color: (advancedStats.sharpe ?? 0) > 0.5 ? "#00e5a0" : (advancedStats.sharpe ?? 0) > 0 ? "#ffb020" : "#ff5572" },
+                { label: "Info Ratio (per trade)", val: advancedStats.sharpe !== null ? advancedStats.sharpe.toFixed(2) : "—", color: (advancedStats.sharpe ?? 0) > 0.5 ? "#00e5a0" : (advancedStats.sharpe ?? 0) > 0 ? "#ffb020" : "#ff5572",
+                  tip: "Mean P&L / Std Dev P&L per trade — not annualised Sharpe. Needs 20+ trades to be meaningful." },
                 { label: "Kelly %",            val: advancedStats.kelly !== null ? `${(advancedStats.kelly * 100).toFixed(1)}%` : "—", color: (advancedStats.kelly ?? 0) > 0.05 ? "#00e5a0" : (advancedStats.kelly ?? 0) > 0 ? "#ffb020" : "#ff5572",
                   tip: "Optimal bet size per Kelly criterion — use half-Kelly (÷2) in practice" },
               ].map(s => (
@@ -1370,6 +1422,26 @@ function PositionsTab({ accentColor }: { accentColor: string }) {
                     <div style={{ height: "100%", width: `${Math.min(100, Math.abs(s.totalPnl) / 5)}%`, background: s.totalPnl >= 0 ? "#00e5a0" : "#ff5572", borderRadius: 2 }} />
                   </div>
                   <span style={{ fontSize: 11, fontFamily: "var(--font-mono)", fontWeight: 700, color: pnlColor(s.totalPnl), width: 56, textAlign: "right" }}>
+                    {s.totalPnl >= 0 ? "+" : ""}${s.totalPnl.toFixed(2)}
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* Per-coin P&L breakdown */}
+          {coinPerf.length > 0 && (
+            <div style={{ borderRadius: 10, background: "rgb(8,18,32)", border: "1px solid rgba(255,255,255,0.06)", padding: "10px 12px" }}>
+              <p style={{ fontSize: 9, color: "rgba(255,255,255,0.25)", margin: "0 0 8px", textTransform: "uppercase", letterSpacing: "0.08em" }}>P&L by Coin</p>
+              {coinPerf.map(s => (
+                <div key={s.coin} style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 5 }}>
+                  <span style={{ fontSize: 10, fontFamily: "var(--font-mono)", color: "rgba(255,255,255,0.6)", width: 44, flexShrink: 0 }}>{s.coin}</span>
+                  <span style={{ fontSize: 9, fontFamily: "var(--font-mono)", color: "rgba(255,255,255,0.2)", width: 32 }}>{s.trades}t</span>
+                  <span style={{ fontSize: 10, fontFamily: "var(--font-mono)", color: s.winRate >= 60 ? "#00e5a0" : s.winRate >= 40 ? "#ffb020" : "#ff5572", width: 38 }}>{s.winRate}% WR</span>
+                  <div style={{ flex: 1, height: 4, borderRadius: 2, background: "rgba(255,255,255,0.06)", overflow: "hidden" }}>
+                    <div style={{ height: "100%", width: `${Math.min(100, Math.abs(s.totalPnl) / 3)}%`, background: s.totalPnl >= 0 ? "#00e5a0" : "#ff5572", borderRadius: 2 }} />
+                  </div>
+                  <span style={{ fontSize: 11, fontFamily: "var(--font-mono)", fontWeight: 700, color: pnlColor(s.totalPnl), width: 60, textAlign: "right" }}>
                     {s.totalPnl >= 0 ? "+" : ""}${s.totalPnl.toFixed(2)}
                   </span>
                 </div>
@@ -1538,8 +1610,8 @@ function PositionsTab({ accentColor }: { accentColor: string }) {
                       </span>
                     )}
                   </div>
-                  {/* Partial exit buttons */}
-                  <div style={{ display: "flex", gap: 5, marginTop: 7, flexWrap: "wrap" }}>
+                  {/* Partial exit + Close at market */}
+                  <div style={{ display: "flex", gap: 5, marginTop: 7, flexWrap: "wrap", alignItems: "center" }}>
                     <span style={{ fontSize: 9, color: "rgba(255,255,255,0.25)", alignSelf: "center", textTransform: "uppercase", letterSpacing: "0.05em" }}>Exit partial:</span>
                     {[25, 50, 75].map(pct => (
                       <button key={pct}
@@ -1555,6 +1627,19 @@ function PositionsTab({ accentColor }: { accentColor: string }) {
                         {partialExiting[pos.positionId] ? "…" : `${pct}%`}
                       </button>
                     ))}
+                    <button
+                      onClick={() => closeAtMarket(pos)}
+                      disabled={!!closingPos[pos.positionId]}
+                      style={{
+                        marginLeft: "auto", padding: "3px 10px", borderRadius: 5,
+                        border: "1px solid rgba(255,85,114,0.35)",
+                        background: "rgba(255,85,114,0.08)", color: "#ff5572",
+                        fontSize: 10, fontWeight: 700, fontFamily: "var(--font-mono)", cursor: "pointer",
+                        opacity: closingPos[pos.positionId] ? 0.4 : 1,
+                      }}
+                    >
+                      {closingPos[pos.positionId] ? "Closing…" : "✕ Close Now"}
+                    </button>
                   </div>
                 </div>
               )}

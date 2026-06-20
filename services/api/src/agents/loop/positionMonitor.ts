@@ -209,6 +209,24 @@ export async function runPositionMonitorSweep(): Promise<void> {
         currentPrice >= position.entryZoneLow && currentPrice <= position.entryZoneHigh
       if (!inZone) continue
 
+      // Candle-close confirmation: require a completed 1H candle closing inside zone
+      // (prevents fills on wicks that touch the zone and immediately reverse)
+      try {
+        const sym   = position.tokenOut
+        const klRes = await fetch(`https://api.binance.com/api/v3/klines?symbol=${sym}USDT&interval=1h&limit=2`)
+        if (klRes.ok) {
+          const klines = await klRes.json() as number[][]
+          const lastClosedClose = klines?.[0]?.[4] ? parseFloat(String(klines[0][4])) : null
+          const zoneLow  = position.entryZoneLow!
+          const zoneHigh = position.entryZoneHigh!
+          if (lastClosedClose !== null && (lastClosedClose < zoneLow || lastClosedClose > zoneHigh)) {
+            // Last CLOSED 1H candle is outside the zone — this is a wick, not confirmation
+            console.log(`[PositionMonitor] ${position.positionId}: tick in zone but 1H close $${lastClosedClose.toFixed(4)} outside — awaiting candle confirmation`)
+            continue
+          }
+        }
+      } catch { /* non-fatal — proceed without confirmation on fetch error */ }
+
       await activateLimitPosition(position, currentPrice)
     } catch (err: any) {
       console.warn(`[PositionMonitor] Error processing pending position ${position.positionId}:`, err.message)

@@ -70,6 +70,39 @@ export async function partialExitPosition(req: AuthRequest, res: Response, next:
   } catch (err) { next(err) }
 }
 
+export async function closePositionAtMarket(req: AuthRequest, res: Response, next: NextFunction) {
+  try {
+    const { positionId } = req.params
+    const pos = await PositionDoc.findOne({ positionId, userId: req.userId!, isOpen: true }).lean()
+    if (!pos)            return res.status(404).json({ error: 'Position not found or not open' })
+    if (!pos.entryPrice) return res.status(400).json({ error: 'Position has no entry price' })
+
+    const priceRes = await fetch(`https://api.binance.com/api/v3/ticker/price?symbol=${pos.tokenOut}USDT`)
+    if (!priceRes.ok) return res.status(502).json({ error: 'Could not fetch live price' })
+    const { price } = await priceRes.json() as { price: string }
+    const exitPrice = parseFloat(price)
+    if (!isFinite(exitPrice) || exitPrice <= 0) return res.status(502).json({ error: 'Invalid price' })
+
+    const SLIPPAGE_PCT = 0.001  // 0.1% market order slippage + 0.1% fee
+    const FEE_PCT      = 0.001
+    const netExit      = exitPrice * (1 - SLIPPAGE_PCT - FEE_PCT)
+    const pnlUsd       = ((netExit - pos.entryPrice) / pos.entryPrice) * pos.entryAmountUsd
+
+    await PositionDoc.updateOne({ positionId }, {
+      $set: {
+        status:         'closed',
+        isOpen:         false,
+        exitPrice:      parseFloat(netExit.toFixed(4)),
+        exitAmountUsd:  pos.entryAmountUsd * (netExit / pos.entryPrice),
+        exitAt:         new Date(),
+        realizedPnlUsd: parseFloat(pnlUsd.toFixed(4)),
+      },
+    })
+
+    res.json({ ok: true, exitPrice: netExit, pnlUsd, positionId })
+  } catch (err) { next(err) }
+}
+
 export async function listPositions(req: AuthRequest, res: Response, next: NextFunction) {
   try {
     const mode    = (req.query.mode as string) ?? 'paper'
