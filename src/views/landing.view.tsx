@@ -930,7 +930,6 @@ function SectionHeading({ line1, line2, accent, sub }: { line1: string; line2: s
 
 export default function LandingView() {
   const { status } = useAuth();
-  const router = useRouter();
   const { data: coins, isError: coinsError } = useCoinList();
   const [activeSection, setActiveSection] = useState<ActiveSection>("hero");
   const [navShow, setNavShow] = useState(false);
@@ -942,10 +941,6 @@ export default function LandingView() {
     return () => { document.documentElement.style.scrollBehavior = ""; };
   }, []);
 
-  // Auth redirect
-  useEffect(() => {
-    if (status === "authed") router.replace("/dashboard");
-  }, [status, router]);
 
   // Section refs (for IntersectionObserver)
   const heroRef    = useRef<HTMLElement>(null);
@@ -996,7 +991,7 @@ export default function LandingView() {
   useReveal(agentContent);
   useReveal(statsContent);
 
-  if (status === "loading" || status === "authed") return <LoadingScreen />;
+  if (status === "loading") return <LoadingScreen />;
 
   const topCoins  = (coins ?? []).slice(0, 6);
   const firstCoin = (coins ?? [])[0];
