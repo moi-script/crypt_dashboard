@@ -209,11 +209,10 @@ export async function runPolicyEngine(
   }
 
   const rationale  = 'rationale' in intent ? intent.rationale : ''
-  const rationale2 = 'rationale' in (intent ?? {}) ? (intent as any).rationale as string : ''
   console.log(
     `[PolicyEngine] Decision — intent:${intent?.type ?? 'none'} | ` +
     `toolTrace:[${toolCallTrace.join(' → ')}] | ` +
-    `rationale:"${rationale2.slice(0, 120)}"`,
+    `rationale:"${rationale.slice(0, 120)}"`,
   )
   const confidence =
     intent.type === 'no_action'     ? 90 :
