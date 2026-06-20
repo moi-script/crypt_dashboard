@@ -43,10 +43,14 @@ export class RiskEngine {
     const limits = RISK_LIMITS[mode]
     const ctx: RuleContext = { intent, walletState, mode }
 
+    if (limits.maxTradeUsd > 10_000) {
+      console.warn(`[RiskEngine] maxTradeUsd=$${limits.maxTradeUsd} exceeds recommended ceiling of $10,000. Proceeding.`)
+    }
+
     // All rules to run, in order
     const rules: { name: string; fn: () => RuleResult }[] = [
       { name: 'AllowedTokens', fn: ()  => ruleAllowedTokens(ctx) },
-      { name: 'MaxTradeSize',  fn: ()  => ruleMaxTradeSize(ctx, Math.min(limits.maxTradeUsd, 100)) },
+      { name: 'MaxTradeSize',  fn: ()  => ruleMaxTradeSize(ctx, limits.maxTradeUsd) },
       { name: 'MinTradeSize',  fn: ()  => ruleMinTradeSize(ctx) },
       { name: 'DailyLossCap', fn: ()  => ruleDailyLossCap(ctx, limits.dailyLossCapUsd) },
       { name: 'MaxSlippage',  fn: ()  => ruleMaxSlippage(ctx) },
