@@ -136,7 +136,7 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
   const demo = useDemoMode();
   useLivePrices();
 
-  if (pathname === "/login" || pathname === "/register") {
+  if (pathname === "/" || pathname === "/login" || pathname === "/register") {
     return <>{children}</>;
   }
 
