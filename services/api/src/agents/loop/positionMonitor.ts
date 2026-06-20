@@ -68,14 +68,18 @@ async function closePosition(
     positionId: position.positionId,
   })
 
-  await PositionDoc.updateOne({ positionId: position.positionId }, { $set: {
-    status: 'closed',
-    isOpen: false,
-    exitPrice,
-    exitAmountUsd: result.filledAmountUsd,
-    exitAt: result.executedAt,
-    realizedPnlUsd: result.simulatedPnlUsd ?? 0,
-  } })
+  // $inc preserves any realizedPnlUsd already credited by TP1/TP2 partial exits.
+  // $set on the same update handles the close-specific fields.
+  await PositionDoc.updateOne({ positionId: position.positionId }, {
+    $set: {
+      status: 'closed',
+      isOpen: false,
+      exitPrice,
+      exitAmountUsd: result.filledAmountUsd,
+      exitAt: result.executedAt,
+    },
+    $inc: { realizedPnlUsd: result.simulatedPnlUsd ?? 0 },
+  })
 
   console.log(`[PositionMonitor] Closed ${position.positionId} (${reason}) — PnL: $${(result.simulatedPnlUsd ?? 0).toFixed(2)}`)
 
@@ -148,17 +152,22 @@ async function activateLimitPosition(
     positionId: position.positionId,
   })
 
+  // Use fillPrice (the confirmed zone price) as entry, not executePaper's live market price.
+  // executePaper is called only to update the wallet ledger; the position records the
+  // actual limit fill price which is guaranteed to be inside the entry zone.
+  const limitEntryPrice = fillPrice
+  const limitFee = position.entryAmountUsd * 0.001  // maker fee on limit fills
   await PositionDoc.updateOne({ positionId: position.positionId }, { $set: {
     status: 'open',
     isOpen: true,
-    entryPrice: result.entryPrice,
-    entryAmountUsd: result.filledAmountUsd,
-    entryFeesUsd: result.feesUsd ?? 0,
+    entryPrice: limitEntryPrice,
+    entryAmountUsd: position.entryAmountUsd - limitFee,
+    entryFeesUsd: limitFee,
     entryAt: result.executedAt,
     orderId,
   } })
 
-  console.log(`[PositionMonitor] Opened ${position.positionId} (limit fill) at $${(result.entryPrice ?? fillPrice).toFixed(4)}`)
+  console.log(`[PositionMonitor] Opened ${position.positionId} (limit fill) at $${limitEntryPrice.toFixed(4)} (fee $${limitFee.toFixed(4)})`)
 }
 
 // ── SL exit price model ───────────────────────────────────────────────────────
@@ -186,10 +195,26 @@ export async function runPositionMonitorSweep(): Promise<void> {
   if (openPositions.length === 0 && pendingPositions.length === 0) return
 
   const uniqueSymbols = [...new Set([...openPositions, ...pendingPositions].map(p => p.tokenOut))]
+
+  // Fetch live prices in parallel
   const prices: Record<string, number> = {}
-  for (const symbol of uniqueSymbols) {
-    prices[symbol] = await getLivePrice(symbol)
-  }
+  await Promise.all(uniqueSymbols.map(async sym => { prices[sym] = await getLivePrice(sym) }))
+
+  // Fetch 1H candle low/high in parallel for all symbols that have SL-protected open positions.
+  // This catches flash crashes that bottomed out and recovered within the 60s sweep interval.
+  const symbolsWithSL = [...new Set(openPositions.filter(p => p.stopLossPrice).map(p => p.tokenOut))]
+  const candleLows: Record<string, number>  = {}
+  const candleHighs: Record<string, number> = {}
+  await Promise.all(symbolsWithSL.map(async sym => {
+    try {
+      const r = await fetch(`https://api.binance.com/api/v3/klines?symbol=${sym}USDT&interval=1h&limit=1`)
+      if (r.ok) {
+        const k = await r.json() as string[][]
+        candleLows[sym]  = parseFloat(k[0][3])  // index 3 = candle low
+        candleHighs[sym] = parseFloat(k[0][2])  // index 2 = candle high
+      }
+    } catch { /* non-fatal — live price check still fires for this sweep */ }
+  }))
 
   // ── Pending limit orders: expire or activate ──────────────────────────────
   const now = Date.now()
@@ -326,9 +351,28 @@ export async function runPositionMonitorSweep(): Promise<void> {
     const isLong   = !bias || bias === 'long'  // default long for backward compat
     const FEE_PCT  = 0.001  // taker fee on partial exits (full closes use executePaper which already fees)
 
-    const hitStopLoss   = position.stopLossPrice   !== undefined && (isLong ? currentPrice <= position.stopLossPrice : currentPrice >= position.stopLossPrice)
-    const hitTakeProfit = position.takeProfitPrice !== undefined && (isLong ? currentPrice >= position.takeProfitPrice : currentPrice <= position.takeProfitPrice)
+    // Live-price SL/TP check
+    const liveSL = position.stopLossPrice   !== undefined && (isLong ? currentPrice <= position.stopLossPrice : currentPrice >= position.stopLossPrice)
+    const liveTp = position.takeProfitPrice !== undefined && (isLong ? currentPrice >= position.takeProfitPrice : currentPrice <= position.takeProfitPrice)
+
+    // 1H candle cross-check: catches flash crashes that bottomed and recovered within the sweep interval.
+    // If the last 1H candle's low (for longs) or high (for shorts) crossed the SL, fire it
+    // even though the live price has since recovered.
+    const candleLow  = candleLows[position.tokenOut]
+    const candleHigh = candleHighs[position.tokenOut]
+    const flashSL = position.stopLossPrice !== undefined && (
+      (isLong  && candleLow  !== undefined && candleLow  <= position.stopLossPrice) ||
+      (!isLong && candleHigh !== undefined && candleHigh >= position.stopLossPrice)
+    )
+
+    const hitStopLoss   = liveSL || flashSL
+    const hitTakeProfit = liveTp
     if (!hitStopLoss && !hitTakeProfit) continue
+
+    // When fired by flash-cross (not live price), use the candle extreme for slippage modeling
+    const slPriceRef = (flashSL && !liveSL)
+      ? (isLong ? (candleLow ?? currentPrice) : (candleHigh ?? currentPrice))
+      : currentPrice
 
     try {
       const tp2          = (position as any).takeProfitPrice2 as number | undefined
@@ -419,17 +463,21 @@ export async function runPositionMonitorSweep(): Promise<void> {
 
       // Runner's trailing stop hit → close the runner
       } else if (hitStopLoss && runnerActive) {
-        const slExitPrice = computeSlExitPrice(currentPrice, position.stopLossPrice)
-        console.log(`[PositionMonitor] Runner stopped out: ${position.positionId} @ $${slExitPrice.toFixed(4)} (intended SL $${position.stopLossPrice?.toFixed(4)})`)
+        const slExitPrice = computeSlExitPrice(slPriceRef, position.stopLossPrice)
+        const flashNote = flashSL && !liveSL ? ` [flash-crash candle low $${slPriceRef.toFixed(4)}]` : ''
+        console.log(`[PositionMonitor] Runner stopped out: ${position.positionId} @ $${slExitPrice.toFixed(4)} (intended SL $${position.stopLossPrice?.toFixed(4)})${flashNote}`)
         await closePosition(position, slExitPrice, 'stop_loss')
 
       } else {
         // Full close: apply SL slippage model for stops; model taker fee for TP exits
         const exitPrice = hitStopLoss
-          ? computeSlExitPrice(currentPrice, position.stopLossPrice)
+          ? computeSlExitPrice(slPriceRef, position.stopLossPrice)
           : isLong
-            ? parseFloat((currentPrice * (1 - FEE_PCT)).toFixed(4))   // TP fee for longs
-            : parseFloat((currentPrice * (1 + FEE_PCT)).toFixed(4))   // TP fee for shorts (higher price = worse fill)
+            ? parseFloat((currentPrice * (1 - FEE_PCT)).toFixed(4))
+            : parseFloat((currentPrice * (1 + FEE_PCT)).toFixed(4))
+        if (hitStopLoss && flashSL && !liveSL) {
+          console.log(`[PositionMonitor] Flash-crash SL: ${position.positionId} live $${currentPrice.toFixed(4)} recovered above SL $${position.stopLossPrice?.toFixed(4)} but 1H candle low $${slPriceRef.toFixed(4)} crossed it — exit at $${exitPrice.toFixed(4)}`)
+        }
         await closePosition(position, exitPrice, hitStopLoss ? 'stop_loss' : 'take_profit')
       }
     } catch (err: any) {
