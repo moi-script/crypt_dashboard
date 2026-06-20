@@ -326,150 +326,271 @@ function HeroBg3D() {
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
 
+    // Offscreen canvas — scene is rendered here, then bloom-composited to main
+    const oc  = document.createElement("canvas");
+    const oct = oc.getContext("2d");
+    if (!oct) return;
+
     const reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-    let raf = 0;
-    let angle = -0.28;
+    let raf = 0, angle = -0.28, tick = 0;
 
     const setSize = () => {
-      canvas.width  = canvas.offsetWidth  || 800;
-      canvas.height = canvas.offsetHeight || 600;
+      const w = canvas.offsetWidth || 800, h = canvas.offsetHeight || 600;
+      canvas.width = w; canvas.height = h;
+      oc.width     = w; oc.height     = h;
     };
     setSize();
     window.addEventListener("resize", setSize);
 
-    // 26 candles with a gentle upward trend
-    const N = 26;
-    const candles: { o: number; h: number; l: number; c: number }[] = [];
-    let price = 72;
+    // ── Price series (30 bars, upward bias) ──────────────────────────────────
+    const N = 30;
+    type Bar = { o: number; h: number; l: number; c: number };
+    const bars: Bar[] = [];
+    let price = 68;
     for (let i = 0; i < N; i++) {
-      const d = (Math.random() - 0.44) * 11;
+      const d = (Math.random() - 0.43) * 12;
       const o = price;
-      price = Math.max(15, Math.min(188, price + d));
+      price = Math.max(14, Math.min(192, price + d));
       const c = price;
       const body = Math.abs(c - o);
-      candles.push({ o, c, h: Math.max(o, c) + Math.random() * (body * 0.5 + 2.5), l: Math.min(o, c) - Math.random() * (body * 0.5 + 2.5) });
+      bars.push({ o, c, h: Math.max(o, c) + Math.random() * (body * 0.45 + 2), l: Math.min(o, c) - Math.random() * (body * 0.45 + 2) });
     }
-    const minPrice = Math.min(...candles.map(b => b.l));
+    const minP  = Math.min(...bars.map(b => b.l));
+    const maxP  = Math.max(...bars.map(b => b.h));
+    const pRange = maxP - minP;
 
-    // Perspective project world → screen
-    const proj = (wx: number, wy: number, wz: number, cx: number, cy: number) => {
-      const tz = wz + 520;
-      if (tz < 1) return null;
-      const s = 520 / tz;
-      return { x: wx * s + cx, y: wy * s + cy };
+    // EMA-9
+    const ema9: number[] = [];
+    let emaV = bars[0].c;
+    bars.forEach(b => { emaV = b.c * (2 / 10) + emaV * (8 / 10); ema9.push(emaV); });
+
+    // ── Particle system ───────────────────────────────────────────────────────
+    type Particle = { x: number; y: number; vx: number; vy: number; life: number; ml: number; r: number; g: number; bv: number; sz: number };
+    const particles: Particle[] = [];
+    const spawnPt = (sx: number, sy: number, r: number, g: number, bv: number) => {
+      if (particles.length >= 120) return;
+      particles.push({ x: sx + (Math.random() - 0.5) * 7, y: sy, vx: (Math.random() - 0.5) * 0.55, vy: -(Math.random() * 1.2 + 0.35), life: 1, ml: 55 + Math.random() * 55, r, g, bv, sz: Math.random() * 1.5 + 0.4 });
     };
 
-    // Rotate around Y axis then project
+    // ── Data rain (subtle background vertical streaks) ────────────────────────
+    const rain = Array.from({ length: 38 }, () => ({
+      x: Math.random(), y: Math.random(), speed: Math.random() * 0.0018 + 0.0008, alpha: Math.random() * 0.052 + 0.016,
+    }));
+
+    // ── Projection: Y-axis rotation → X-axis tilt → perspective ──────────────
     type Pt2 = { x: number; y: number } | null;
-    const p = (wx: number, wy: number, wz: number, cx: number, cy: number): Pt2 => {
-      const rx = wx * Math.cos(angle) - wz * Math.sin(angle);
-      const rz = wx * Math.sin(angle) + wz * Math.cos(angle);
-      return proj(rx, wy, rz, cx, cy);
+    const proj3 = (wx: number, wy: number, wz: number, cx: number, cy: number, ax: number): Pt2 => {
+      // Y rotation
+      const rx  = wx * Math.cos(angle) - wz * Math.sin(angle);
+      const rz1 = wx * Math.sin(angle) + wz * Math.cos(angle);
+      // X tilt
+      const ry  = wy  * Math.cos(ax) - rz1 * Math.sin(ax);
+      const rz2 = wy  * Math.sin(ax) + rz1 * Math.cos(ax);
+      // Perspective
+      const depth = rz2 + 520;
+      if (depth < 1) return null;
+      const s = 520 / depth;
+      return { x: rx * s + cx, y: ry * s + cy };
     };
 
-    const drawFace = (pts: Pt2[], r: number, g: number, bv: number, alpha: number) => {
+    const drawFace = (c: CanvasRenderingContext2D, pts: Pt2[], r: number, g: number, bv: number, a: number) => {
       const vp = pts.filter((q): q is { x: number; y: number } => q !== null);
       if (vp.length < 3) return;
-      ctx.beginPath();
-      ctx.moveTo(vp[0].x, vp[0].y);
-      for (let k = 1; k < vp.length; k++) ctx.lineTo(vp[k].x, vp[k].y);
-      ctx.closePath();
-      ctx.fillStyle = `rgba(${r},${g},${bv},${alpha.toFixed(2)})`;
-      ctx.fill();
+      c.beginPath(); c.moveTo(vp[0].x, vp[0].y);
+      for (let i = 1; i < vp.length; i++) c.lineTo(vp[i].x, vp[i].y);
+      c.closePath();
+      c.fillStyle = `rgba(${r},${g},${bv},${a.toFixed(2)})`; c.fill();
     };
 
-    const drawWire = (pt1: Pt2, pt2: Pt2, r: number, g: number, bv: number, alpha: number) => {
-      if (!pt1 || !pt2) return;
-      ctx.beginPath();
-      ctx.moveTo(pt1.x, pt1.y);
-      ctx.lineTo(pt2.x, pt2.y);
-      ctx.strokeStyle = `rgba(${r},${g},${bv},${alpha.toFixed(2)})`;
-      ctx.lineWidth = 1;
-      ctx.stroke();
+    const drawLine = (c: CanvasRenderingContext2D, a: Pt2, b: Pt2, style: string, lw = 1) => {
+      if (!a || !b) return;
+      c.beginPath(); c.moveTo(a.x, a.y); c.lineTo(b.x, b.y);
+      c.strokeStyle = style; c.lineWidth = lw; c.stroke();
     };
 
+    // ── Main render loop ──────────────────────────────────────────────────────
     const draw = () => {
       const W = canvas.width, H = canvas.height;
       ctx.clearRect(0, 0, W, H);
+      oct.clearRect(0, 0, W, H);
 
-      if (!reduced) angle += 0.0022;
+      if (!reduced) { angle += 0.0015; tick++; }
 
-      const cx = W * 0.62;
-      const cy = H * 0.46;
-      const spacing = 31;
-      const barW = 12, barD = 9;
-      const yScale = 1.9;
-      const totalW = N * spacing;
+      // Camera: slow X-tilt oscillation + vertical breathing
+      const ax = 0.20 + Math.sin(tick * 0.0055) * 0.022;
+      const cx = W * 0.65;
+      const cy = H * 0.44 + Math.sin(tick * 0.0085) * 20;
 
-      // World Y: toY(price) — lower price = higher worldY (projects lower on screen)
-      const toY = (v: number) => -(v - minPrice) * yScale - 12;
-      const gFloor = toY(minPrice) + 22; // floor sits just below lowest wick
+      const spacing = 28, barW = 11, barD = 9, yScale = 1.85;
+      const totalW  = N * spacing;
+      const toY = (v: number) => -(v - minP) * yScale - 10;
+      const gFloor  = toY(minP) + 24;
 
-      // Sort back-to-front (painter's algorithm)
-      const sorted = candles
-        .map((bar, i) => {
-          const wx = i * spacing - totalW / 2 + spacing / 2;
-          return { ...bar, wx, rz: wx * Math.sin(angle) };
-        })
-        .sort((a, b) => b.rz - a.rz);
+      // Full-depth painter sort (includes X-tilt contribution)
+      const sorted = bars.map((bar, i) => {
+        const wx  = i * spacing - totalW / 2 + spacing / 2;
+        const rz1 = wx * Math.sin(angle);
+        const rz2 = toY(bar.c) * Math.sin(ax) + rz1 * Math.cos(ax);
+        return { ...bar, wx, rz2 };
+      }).sort((a, b) => b.rz2 - a.rz2);
 
-      // Perspective grid floor
-      const gSize = totalW * 1.1;
-      for (let gi = 0; gi <= 7; gi++) {
-        const t = (gi / 7 - 0.5) * gSize;
-        drawWire(p(t, gFloor, -gSize / 2, cx, cy), p(t, gFloor, gSize / 2, cx, cy), 0, 212, 255, 0.045);
-        drawWire(p(-gSize / 2, gFloor, t, cx, cy), p(gSize / 2, gFloor, t, cx, cy), 0, 212, 255, 0.045);
+      const p = (wx: number, wy: number, wz: number) => proj3(wx, wy, wz, cx, cy, ax);
+
+      // ── 1. Data rain (deepest background layer) ───────────────────────────
+      rain.forEach(d => {
+        d.y += d.speed;
+        if (d.y > 1) { d.y = 0; d.x = Math.random(); }
+        oct.beginPath();
+        oct.moveTo(d.x * W, d.y * H);
+        oct.lineTo(d.x * W, d.y * H - 14);
+        oct.strokeStyle = `rgba(0,212,255,${d.alpha.toFixed(3)})`;
+        oct.lineWidth = 0.5; oct.stroke();
+      });
+
+      // ── 2. Horizon ambient glow ───────────────────────────────────────────
+      const hg = oct.createRadialGradient(cx, cy + 55, 0, cx, cy + 55, W * 0.46);
+      hg.addColorStop(0, "rgba(0,212,255,0.06)");
+      hg.addColorStop(1, "rgba(0,0,0,0)");
+      oct.fillStyle = hg; oct.fillRect(0, 0, W, H);
+
+      // ── 3. Perspective floor grid with intersection glows ─────────────────
+      const gSize = totalW * 1.2;
+      oct.lineWidth = 0.5;
+      for (let gi = 0; gi <= 9; gi++) {
+        const t = (gi / 9 - 0.5) * gSize;
+        drawLine(oct, p(t, gFloor, -gSize / 2), p(t, gFloor, gSize / 2), "rgba(0,212,255,0.048)");
+        drawLine(oct, p(-gSize / 2, gFloor, t), p(gSize / 2, gFloor, t), "rgba(0,212,255,0.048)");
+        if (gi % 3 === 0) {
+          for (let gj = 0; gj <= 9; gj += 3) {
+            const t2 = (gj / 9 - 0.5) * gSize;
+            const gpt = p(t, gFloor, t2);
+            if (gpt) { oct.beginPath(); oct.arc(gpt.x, gpt.y, 1.4, 0, Math.PI * 2); oct.fillStyle = "rgba(0,212,255,0.18)"; oct.fill(); }
+          }
+        }
       }
 
-      // Candlestick bars
+      // ── 4. Price reference lines ──────────────────────────────────────────
+      [minP + pRange * 0.33, minP + pRange * 0.67].forEach(refP => {
+        drawLine(oct, p(-totalW / 2, toY(refP), 0), p(totalW / 2, toY(refP), 0), "rgba(0,212,255,0.07)", 0.5);
+      });
+
+      // ── 5. Ghost chart (z = +145, violet) ────────────────────────────────
+      sorted.forEach(({ o, c, wx }) => {
+        const yTop = toY(Math.max(o, c)), yBot = toY(Math.min(o, c));
+        const gz = 145;
+        const x0 = wx - barW / 2 - 2, x1 = wx + barW / 2 + 2;
+        const z0 = gz - barD / 2,     z1 = gz + barD / 2;
+        drawFace(oct, [p(x0,yTop,z0),p(x1,yTop,z0),p(x1,yTop,z1),p(x0,yTop,z1)], 167, 139, 250, 0.21);
+        drawFace(oct, [p(x0,yBot,z0),p(x1,yBot,z0),p(x1,yTop,z0),p(x0,yTop,z0)], 167, 139, 250, 0.14);
+        drawFace(oct, [p(x1,yBot,z0),p(x1,yBot,z1),p(x1,yTop,z1),p(x1,yTop,z0)], 167, 139, 250, 0.09);
+      });
+
+      // ── 6. Volume bars (below price bars) ────────────────────────────────
+      sorted.forEach(({ o, c, wx }) => {
+        const up = c >= o;
+        const [r, g, bv] = up ? [0, 229, 160] : [255, 85, 114];
+        const vol  = Math.min((Math.abs(c - o) / (pRange * 0.1)) * 14, 22);
+        const vTop = gFloor - vol;
+        const x0 = wx - barW / 2 + 1, x1 = wx + barW / 2 - 1;
+        const z0 = -barD / 2, z1 = barD / 2;
+        drawFace(oct, [p(x0,vTop,z0),p(x1,vTop,z0),p(x1,vTop,z1),p(x0,vTop,z1)], r, g, bv, 0.28);
+        drawFace(oct, [p(x0,gFloor,z0),p(x1,gFloor,z0),p(x1,vTop,z0),p(x0,vTop,z0)], r, g, bv, 0.22);
+        drawFace(oct, [p(x1,gFloor,z0),p(x1,gFloor,z1),p(x1,vTop,z1),p(x1,vTop,z0)], r, g, bv, 0.14);
+      });
+
+      // ── 7. Main candlestick bars ──────────────────────────────────────────
+      const bullishHighs: Pt2[] = [];
       sorted.forEach(({ o, h, l, c, wx }) => {
         const up = c >= o;
         const [r, g, bv] = up ? [0, 229, 160] : [255, 85, 114];
-
-        const yTop = toY(Math.max(o, c));
-        const yBot = toY(Math.min(o, c));
-        const yH   = toY(h);
-        const yL   = toY(l);
-        const wz = 0;
-
+        const yTop = toY(Math.max(o, c)), yBot = toY(Math.min(o, c));
+        const yH = toY(h), yL = toY(l);
         const x0 = wx - barW / 2, x1 = wx + barW / 2;
-        const z0 = wz - barD / 2, z1 = wz + barD / 2;
+        const z0 = -barD / 2,     z1 = barD / 2;
 
-        // 8 corners of the body box
-        const tfl = p(x0, yTop, z0, cx, cy), tfr = p(x1, yTop, z0, cx, cy);
-        const tbl = p(x0, yTop, z1, cx, cy), tbr = p(x1, yTop, z1, cx, cy);
-        const bfl = p(x0, yBot, z0, cx, cy), bfr = p(x1, yBot, z0, cx, cy);
-        const bbl = p(x0, yBot, z1, cx, cy), bbr = p(x1, yBot, z1, cx, cy);
+        const tfl = p(x0,yTop,z0), tfr = p(x1,yTop,z0);
+        const tbl = p(x0,yTop,z1), tbr = p(x1,yTop,z1);
+        const bfl = p(x0,yBot,z0), bfr = p(x1,yBot,z0);
+        const bbl = p(x0,yBot,z1), bbr = p(x1,yBot,z1);
 
-        // Glow
-        ctx.shadowColor = `rgba(${r},${g},${bv},0.45)`;
-        ctx.shadowBlur = 12;
+        oct.shadowColor = `rgba(${r},${g},${bv},0.6)`; oct.shadowBlur = 18;
+        drawFace(oct, [tfl,tfr,tbr,tbl], r, g, bv, 0.92); // top
+        drawFace(oct, [bfl,bfr,tfr,tfl], r, g, bv, 0.74); // front
+        drawFace(oct, [bfr,bbr,tbr,tfr], r, g, bv, 0.50); // right
+        drawFace(oct, [bbr,bbl,tbl,tbr], r, g, bv, 0.30); // back
+        drawFace(oct, [bbl,bfl,tfl,tbl], r, g, bv, 0.42); // left
+        oct.shadowBlur = 0;
 
-        // Faces with depth shading (top brightest, back darkest)
-        drawFace([tfl, tfr, tbr, tbl], r, g, bv, 0.85); // top
-        drawFace([bfl, bfr, tfr, tfl], r, g, bv, 0.68); // front
-        drawFace([bfr, bbr, tbr, tfr], r, g, bv, 0.46); // right
-        drawFace([bbr, bbl, tbl, tbr], r, g, bv, 0.30); // back
-        drawFace([bbl, bfl, tfl, tbl], r, g, bv, 0.40); // left
+        const pHigh = p(wx,yH, 0), pTop = p(wx,yTop,0);
+        const pBot  = p(wx,yBot,0), pLow = p(wx,yL, 0);
+        drawLine(oct, pHigh, pTop, `rgba(${r},${g},${bv},0.62)`);
+        drawLine(oct, pBot,  pLow, `rgba(${r},${g},${bv},0.62)`);
 
-        ctx.shadowBlur = 0;
-
-        // Wicks
-        const midTop = p(wx, yTop, wz, cx, cy);
-        const midBot = p(wx, yBot, wz, cx, cy);
-        drawWire(p(wx, yH,  wz, cx, cy), midTop, r, g, bv, 0.55);
-        drawWire(midBot, p(wx, yL,  wz, cx, cy), r, g, bv, 0.55);
+        if (up && pHigh) bullishHighs.push(pHigh);
       });
+
+      // ── 8. EMA-9 glowing curve ────────────────────────────────────────────
+      const emaPts: Pt2[] = bars.map((_, i) => p(i * spacing - totalW / 2 + spacing / 2, toY(ema9[i]), 0));
+      oct.save();
+      oct.shadowColor = "rgba(0,212,255,0.95)"; oct.shadowBlur = 10;
+      oct.strokeStyle = "rgba(0,212,255,0.80)"; oct.lineWidth = 1.9;
+      oct.lineJoin = "round"; oct.lineCap = "round";
+      oct.beginPath();
+      let started = false;
+      emaPts.forEach((pt, i) => {
+        if (!pt) return;
+        if (!started) { oct.moveTo(pt.x, pt.y); started = true; }
+        else {
+          const prev = emaPts[i - 1];
+          if (prev) { const mx = (prev.x + pt.x) / 2, my = (prev.y + pt.y) / 2; oct.quadraticCurveTo(prev.x, prev.y, mx, my); }
+        }
+      });
+      oct.stroke(); oct.restore();
+
+      // ── 9. Live-price pulsing dot ─────────────────────────────────────────
+      const lastWx = (N - 1) * spacing - totalW / 2 + spacing / 2;
+      const liveDot = p(lastWx, toY(bars[N - 1].c), 0);
+      if (liveDot) {
+        const pr = 2.4 + Math.sin(tick * 0.14) * 1.7;
+        oct.save();
+        oct.shadowColor = "rgba(0,212,255,1)"; oct.shadowBlur = 22;
+        oct.beginPath(); oct.arc(liveDot.x, liveDot.y, pr, 0, Math.PI * 2);
+        oct.fillStyle = "rgba(0,212,255,0.96)"; oct.fill(); oct.restore();
+      }
+
+      // ── 10. Spawn + draw particles ────────────────────────────────────────
+      if (!reduced) {
+        bullishHighs.forEach(pt => { if (pt && Math.random() < 0.016) spawnPt(pt.x, pt.y, 0, 229, 160); });
+      }
+      for (let pi = particles.length - 1; pi >= 0; pi--) {
+        const pt = particles[pi];
+        pt.x += pt.vx; pt.y += pt.vy; pt.vx *= 0.99;
+        pt.life -= 1 / pt.ml;
+        if (pt.life <= 0) { particles.splice(pi, 1); continue; }
+        oct.beginPath(); oct.arc(pt.x, pt.y, pt.sz, 0, Math.PI * 2);
+        oct.fillStyle = `rgba(${pt.r},${pt.g},${pt.bv},${(pt.life * 0.72).toFixed(2)})`; oct.fill();
+      }
+
+      // ── Bloom composite (sharp → glow on top) ────────────────────────────
+      // Pass 1: sharp scene
+      ctx.drawImage(oc, 0, 0);
+      // Pass 2: wide bloom
+      ctx.save();
+      ctx.filter = "blur(14px)";
+      ctx.globalAlpha = 0.44;
+      ctx.globalCompositeOperation = "screen";
+      ctx.drawImage(oc, 0, 0);
+      // Pass 3: tight rim glow
+      ctx.filter = "blur(4px)";
+      ctx.globalAlpha = 0.28;
+      ctx.drawImage(oc, 0, 0);
+      ctx.restore();
 
       raf = requestAnimationFrame(draw);
     };
 
     draw();
-
-    return () => {
-      cancelAnimationFrame(raf);
-      window.removeEventListener("resize", setSize);
-    };
+    return () => { cancelAnimationFrame(raf); window.removeEventListener("resize", setSize); };
   }, []);
 
   return (
@@ -478,7 +599,10 @@ function HeroBg3D() {
       style={{
         position: "absolute", inset: 0,
         width: "100%", height: "100%",
-        opacity: 0.28, pointerEvents: "none",
+        opacity: 0.42,
+        pointerEvents: "none",
+        WebkitMaskImage: "linear-gradient(to right, transparent 13%, black 43%)",
+        maskImage:        "linear-gradient(to right, transparent 13%, black 43%)",
       }}
     />
   );
