@@ -6,7 +6,7 @@
  * Logic:
  * 1. Pull APYs for USDC across top protocols from DefiLlama
  * 2. Filter TVL < $5M (scam guard)
- * 3. Compare each pool's current APY vs its 7-day rolling average (from baselines)
+ * 3. Compare each pool's current APY vs its 7-day rolling average (persisted in MongoDB)
  * 4. Flag any pool where APY spiked > 5 percentage points vs the 7d avg
  * 5. Produce a context summary string the policy engine feeds to the LLM
  *
@@ -18,11 +18,12 @@
 
 import type { Strategy, StrategyResult } from './strategy.types'
 import type { LoopContext } from '../../loop/loop.types'
+import { ApyBaselineDoc, MAX_SAMPLES } from '../../../models/apyBaseline.model'
 
-const DEFILLAMA_BASE = 'https://yields.llama.fi'
-const MIN_TVL_USD    = 5_000_000   // scam guard
-const SPIKE_THRESHOLD_PCT = 5      // flag if APY spiked > 5pt vs 7d avg
-const ASSETS_TO_WATCH = ['USDC', 'USDT', 'DAI', 'USDC.e', 'cUSDC']
+const DEFILLAMA_BASE      = 'https://yields.llama.fi'
+const MIN_TVL_USD         = 5_000_000
+const SPIKE_THRESHOLD_PCT = 5
+const ASSETS_TO_WATCH     = ['USDC', 'USDT', 'DAI', 'USDC.e', 'cUSDC']
 
 interface PoolData {
   pool:       string
@@ -40,23 +41,6 @@ interface AnomalyPool extends PoolData {
   spikePct:    number
 }
 
-// ── Simple in-memory 7-day baseline store ─────────────────────────────────────
-// In production this would live in Mongo via baselines.ts
-const apyHistory = new Map<string, number[]>()  // poolId → last 7 samples
-
-function updateBaseline(poolId: string, apy: number): void {
-  const history = apyHistory.get(poolId) ?? []
-  history.push(apy)
-  if (history.length > 7) history.shift()
-  apyHistory.set(poolId, history)
-}
-
-function getAvg7d(poolId: string): number | null {
-  const history = apyHistory.get(poolId)
-  if (!history || history.length < 2) return null
-  return history.reduce((s, v) => s + v, 0) / history.length
-}
-
 async function fetchPools(): Promise<PoolData[]> {
   const res  = await fetch(`${DEFILLAMA_BASE}/pools`)
   if (!res.ok) throw new Error(`DefiLlama ${res.status}`)
@@ -71,15 +55,74 @@ async function fetchPools(): Promise<PoolData[]> {
       )
     })
     .map((p: any) => ({
-      pool:       p.pool,
-      protocol:   p.project,
-      chain:      p.chain,
-      symbol:     p.symbol,
-      apyPct:     parseFloat((p.apy ?? 0).toFixed(2)),
-      tvlUsd:     p.tvlUsd ?? 0,
-      apyBase:    p.apyBase,
-      apyReward:  p.apyReward,
+      pool:      p.pool,
+      protocol:  p.project,
+      chain:     p.chain,
+      symbol:    p.symbol,
+      apyPct:    parseFloat((p.apy ?? 0).toFixed(2)),
+      tvlUsd:    p.tvlUsd ?? 0,
+      apyBase:   p.apyBase,
+      apyReward: p.apyReward,
     }))
+}
+
+// ── Persist baselines and detect spikes in one bulk pass ─────────────────────
+//
+// Loads all existing baseline docs for the current pool set in a single query,
+// applies the new sample in memory, bulk-upserts the updated docs, then
+// returns the anomaly list. This keeps the MongoDB round trips to two
+// regardless of how many pools are scanned.
+
+async function updateAndDetect(pools: PoolData[]): Promise<AnomalyPool[]> {
+  const poolIds = pools.map(p => p.pool)
+
+  // Load all existing baselines in one query
+  const existing = await ApyBaselineDoc.find({ poolId: { $in: poolIds } }).lean()
+  const baselineMap = new Map(existing.map(d => [d.poolId, d.samples]))
+
+  const anomalies: AnomalyPool[] = []
+  const bulkOps: any[] = []
+
+  for (const pool of pools) {
+    const prev    = baselineMap.get(pool.pool) ?? []
+    const updated = [...prev, pool.apyPct].slice(-MAX_SAMPLES)
+
+    // Need at least 2 samples to compute a meaningful average
+    if (prev.length >= 1) {
+      const avg7d   = prev.reduce((s, v) => s + v, 0) / prev.length
+      const spikePct = pool.apyPct - avg7d
+      if (spikePct >= SPIKE_THRESHOLD_PCT) {
+        anomalies.push({
+          ...pool,
+          avg7dApyPct: parseFloat(avg7d.toFixed(2)),
+          spikePct:    parseFloat(spikePct.toFixed(2)),
+        })
+      }
+    }
+
+    bulkOps.push({
+      updateOne: {
+        filter: { poolId: pool.pool },
+        update: {
+          $set: {
+            poolId:    pool.pool,
+            protocol:  pool.protocol,
+            chain:     pool.chain,
+            symbol:    pool.symbol,
+            samples:   updated,
+            updatedAt: new Date(),
+          },
+        },
+        upsert: true,
+      },
+    })
+  }
+
+  if (bulkOps.length > 0) {
+    await ApyBaselineDoc.bulkWrite(bulkOps, { ordered: false })
+  }
+
+  return anomalies
 }
 
 export const yieldHunterStrategy: Strategy = {
@@ -89,27 +132,11 @@ export const yieldHunterStrategy: Strategy = {
   async buildContext(_ctx: LoopContext): Promise<StrategyResult> {
     const pools = await fetchPools()
 
-    // Update baselines and detect spikes
-    const anomalies: AnomalyPool[] = []
-    const topPools: PoolData[] = []
+    const anomalies = await updateAndDetect(pools)
 
-    for (const p of pools) {
-      updateBaseline(p.pool, p.apyPct)
-      const avg7d = getAvg7d(p.pool)
-      if (avg7d !== null) {
-        const spike = p.apyPct - avg7d
-        if (spike >= SPIKE_THRESHOLD_PCT) {
-          anomalies.push({ ...p, avg7dApyPct: parseFloat(avg7d.toFixed(2)), spikePct: parseFloat(spike.toFixed(2)) })
-        }
-      }
-      topPools.push(p)
-    }
+    // Sort top pools by APY for the LLM context summary
+    const top10 = [...pools].sort((a, b) => b.apyPct - a.apyPct).slice(0, 10)
 
-    // Sort top pools by APY
-    topPools.sort((a, b) => b.apyPct - a.apyPct)
-    const top10 = topPools.slice(0, 10)
-
-    // Build LLM-readable context summary
     const topPoolLines = top10
       .map(p => `  ${p.protocol}/${p.chain} (${p.symbol}): ${p.apyPct}% APY, TVL $${(p.tvlUsd / 1e6).toFixed(1)}M`)
       .join('\n')
@@ -139,10 +166,10 @@ export const yieldHunterStrategy: Strategy = {
       strategyName: 'yieldHunter',
       contextSummary,
       metadata: {
-        totalPools:   pools.length,
-        anomalies:    anomalies.length,
-        topPools:     top10,
-        spikedPools:  anomalies,
+        totalPools:  pools.length,
+        anomalies:   anomalies.length,
+        topPools:    top10,
+        spikedPools: anomalies,
       },
     }
   },
