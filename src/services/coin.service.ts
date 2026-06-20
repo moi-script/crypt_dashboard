@@ -3,11 +3,15 @@ import { mockCoin, mockCoins, mockIndicators, mockOHLCV } from "./mock/fixtures"
 import type { Coin, Indicator, OHLCVBar, OHLCVRange } from "@/models/coin.model";
 
 export const coinService = {
-  getAll: () =>
-    withFallback<Coin[]>(
-      () => apiClient.get<Coin[]>("/coins"),
-      () => mockCoins(),
-    ),
+  getAll: async () => {
+    try {
+      return await apiClient.get<Coin[]>("/coins");
+    } catch {
+      // Backend unreachable OR returning an error (e.g. CoinGecko rate limit) —
+      // always show coins rather than an empty table.
+      return mockCoins();
+    }
+  },
 
   getOne: (id: string) =>
     withFallback<Coin>(
