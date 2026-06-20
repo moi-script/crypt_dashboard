@@ -46,6 +46,15 @@ export interface AgentConfig {
 
   /** Allow short positions. Defaults false (spot/paper only goes long). Enable when margin/perp trading is available. */
   allowShorts?: boolean
+
+  /** Risk per trade as % of portfolio (default 1.0). Range 0.25–3.0. */
+  riskPerTradePct?: number
+
+  /** Max total open-position risk as % of portfolio before blocking new entries (default 5.0). */
+  maxPortfolioHeatPct?: number
+
+  /** Hard cap on concurrent open positions regardless of correlation (default 6). */
+  maxConcurrentPositions?: number
 }
 
 /** Seed values for a brand-new per-user agent config. */
@@ -59,4 +68,7 @@ export const DEFAULT_AGENT_CONFIG: AgentConfig = {
   requireManualApproval: true,
   minSignalConfidence: 55,
   allowShorts: false,
+  riskPerTradePct: 1.0,
+  maxPortfolioHeatPct: 5.0,
+  maxConcurrentPositions: 6,
 }

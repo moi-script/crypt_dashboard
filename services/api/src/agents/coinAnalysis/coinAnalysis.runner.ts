@@ -63,7 +63,7 @@ function getSessionRisk(): { session: string; block: boolean; confidenceDelta: n
   const yr  = now.getUTCFullYear()
   const mon = now.getUTCMonth() // 0-indexed
 
-  if (h >= 21) {
+  if (h >= 22) {
     return { session: 'Dead Zone', block: true, confidenceDelta: 0, reason: `Post-NY dead zone (${h}:${String(m).padStart(2, '0')} UTC) — skip new entries` }
   }
 
@@ -219,14 +219,17 @@ async function getFrameworkWinRates(userId: string, config: AgentConfig): Promis
 
 // ── Equity curve halt: stop trading after 10% drawdown from peak ──────────────
 
-async function checkEquityCurveHalt(userId: string, config: AgentConfig): Promise<{ halt: boolean; reason?: string; drawdownPct: number }> {
+async function checkEquityCurveHalt(userId: string, config: AgentConfig, currentEquity = 10_000): Promise<{ halt: boolean; reason?: string; drawdownPct: number }> {
   const allClosed = await PositionDoc.find({ userId, mode: config.mode, status: 'closed' })
     .sort({ exitAt: 1 }).lean()
   if (allClosed.length < 5) return { halt: false, drawdownPct: 0 }
 
-  const INITIAL_CAPITAL = 10_000
-  let balance = INITIAL_CAPITAL
-  let peak    = INITIAL_CAPITAL
+  // Reconstruct equity curve from current value (most accurate) plus closed P&L
+  const totalRealised = allClosed.reduce((s, p) => s + (p.realizedPnlUsd ?? 0), 0)
+  const impliedStart  = currentEquity - totalRealised
+
+  let balance = impliedStart
+  let peak    = impliedStart
   for (const p of allClosed) {
     balance += p.realizedPnlUsd ?? 0
     if (balance > peak) peak = balance
@@ -397,15 +400,34 @@ async function autoExecuteBest(
     for (const card of cards) { card.approvalStatus = 'skipped'; if (card.signal) card.skippedReason = reason }
   }
 
+  const portfolioUsd = walletState.totalValueUsd ?? 10_000
+  const anyLong  = cards.some(c => c.signal?.bias === 'long')
+  const anyShort = cards.some(c => c.signal?.bias === 'short')
+  const signalBias = anyLong ? 'long' : 'short'
+
+  // ── Parallel pre-filters (independent DB + network calls) ────────────────
+  const [equityCheck, dailyCheck, btcMomentum, fwWinRates, allOpen, recentStopOut, fundingRate, vol24h] = await Promise.all([
+    checkEquityCurveHalt(userId, config, portfolioUsd),
+    checkDailyMaxLoss(userId, config, portfolioUsd),
+    fetchBtcMomentum(),
+    getFrameworkWinRates(userId, config),
+    PositionDoc.find({ userId, isOpen: true, mode: config.mode }).lean(),
+    PositionDoc.findOne({
+      userId, tokenOut: symbol.toUpperCase(), mode: config.mode, status: 'closed',
+      exitAt: { $gte: new Date(Date.now() - 4 * 60 * 60 * 1000) },
+      realizedPnlUsd: { $lt: 0 },
+    }).lean(),
+    fetchFundingRate(symbol),
+    fetch24hVolumeUsd(`${symbol}USDT`),
+  ])
+
   // ── Equity curve circuit breaker ─────────────────────────────────────────
-  const equityCheck = await checkEquityCurveHalt(userId, config)
   if (equityCheck.halt) {
     skipAll(`[Circuit breaker] ${equityCheck.reason}`)
     return 'completed'
   }
 
   // ── Daily max loss halt ───────────────────────────────────────────────────
-  const dailyCheck = await checkDailyMaxLoss(userId, config, walletState.totalValueUsd ?? 10_000)
   if (dailyCheck.halt) {
     skipAll(`[Daily limit] ${dailyCheck.reason}`)
     return 'completed'
@@ -420,15 +442,12 @@ async function autoExecuteBest(
 
   // ── Market regime filter ──────────────────────────────────────────────────
   const regime = getMarketRegime(primitives)
-  const anyLong = cards.some(c => c.signal?.bias === 'long')
   if (anyLong && regime.htfTrend === 'bearish' && regime.adx >= 25) {
     skipAll(`[Regime] Counter-trend long blocked — HTF trend bearish with ADX ${regime.adx.toFixed(0)} (strong downtrend)`)
     return 'completed'
   }
 
   // ── Intraday BTC momentum filter: block longs on sell-off, shorts on pump ──
-  const btcMomentum = await fetchBtcMomentum()
-  const anyShort = cards.some(c => c.signal?.bias === 'short')
   if (anyLong && btcMomentum.block) {
     skipAll(`[BTC Momentum] ${btcMomentum.note.trim()}`)
     return 'completed'
@@ -438,20 +457,24 @@ async function autoExecuteBest(
     return 'completed'
   }
 
-  // ── Framework win-rate filter: skip cards from underperforming frameworks ──
-  const fwWinRates = await getFrameworkWinRates(userId, config)
+  // ── Framework win-rate filter ─────────────────────────────────────────────
   for (const card of cards) {
     if (!card.signal || card.approvalStatus === 'skipped') continue
     const fwStats = fwWinRates[card.framework]
     if (fwStats?.disabled) {
       card.approvalStatus = 'skipped'
-      card.skippedReason  = `[Framework disabled] ${card.framework} WR ${(fwStats.winRate * 100).toFixed(0)}% over last ${fwStats.tradeCount} trades — below 35% threshold`
+      card.skippedReason  = `[Framework disabled] ${card.framework} WR ${(fwStats.winRate * 100).toFixed(0)}% over last ${fwStats.tradeCount} trades — below threshold`
     }
   }
 
-  // ── De-duplication: don't stack positions in the same symbol ──────────────
-  const allOpen = await PositionDoc.find({ userId, isOpen: true, mode: config.mode }).lean()
+  // ── Max concurrent positions hard cap ────────────────────────────────────
+  const maxPositions = config.maxConcurrentPositions ?? 6
+  if (allOpen.length >= maxPositions) {
+    skipAll(`[Position cap] Already at max ${maxPositions} concurrent positions — close one before opening more`)
+    return 'completed'
+  }
 
+  // ── De-duplication: don't stack positions in the same symbol ──────────────
   const alreadyOpen = allOpen.filter(p => p.tokenOut === symbol.toUpperCase()).length
   if (alreadyOpen > 0) {
     for (const card of cards) {
@@ -461,15 +484,14 @@ async function autoExecuteBest(
     return 'completed'
   }
 
-  // ── Re-entry block: 4h cooldown after a stop-out on the same coin ─────────
-  const recentStopOut = await PositionDoc.findOne({
-    userId, tokenOut: symbol.toUpperCase(), mode: config.mode, status: 'closed',
-    exitAt: { $gte: new Date(Date.now() - 4 * 60 * 60 * 1000) },
-    realizedPnlUsd: { $lt: 0 },
-  }).lean()
+  // ── Re-entry block: 4h cooldown after stop-out in same direction ──────────
   if (recentStopOut) {
-    skipAll(`[Re-entry block] ${symbol} stopped out $${(recentStopOut.realizedPnlUsd ?? 0).toFixed(2)} within last 4h — 4h cooldown after loss`)
-    return 'completed'
+    const stoppedBias = (recentStopOut as any).bias as string | undefined
+    const blocked = !stoppedBias || stoppedBias === signalBias  // block if same direction or unknown
+    if (blocked) {
+      skipAll(`[Re-entry block] ${symbol} stopped out $${(recentStopOut.realizedPnlUsd ?? 0).toFixed(2)} in last 4h — 4h ${signalBias} cooldown after loss`)
+      return 'completed'
+    }
   }
 
   // ── Correlation filter: max 2 positions from any correlated group ──────────
@@ -487,15 +509,29 @@ async function autoExecuteBest(
     }
   }
 
-  // ── Funding rate filter: crowded longs reduce long confidence ────────────
-  const fundingRate = await fetchFundingRate(symbol)
+  // ── Portfolio heat check: total open-position risk must stay < heat cap ───
+  const riskPct    = (config.riskPerTradePct ?? 1.0) / 100
+  const heatCapPct = (config.maxPortfolioHeatPct ?? 5.0) / 100
+  let totalOpenRiskUsd = 0
+  for (const pos of allOpen) {
+    if (!pos.entryPrice || !pos.stopLossPrice || !pos.entryAmountUsd) continue
+    const slDist = Math.abs(pos.entryPrice - pos.stopLossPrice) / pos.entryPrice
+    totalOpenRiskUsd += slDist * pos.entryAmountUsd
+  }
+  const heatCapUsd = portfolioUsd * heatCapPct
+  if (totalOpenRiskUsd >= heatCapUsd) {
+    skipAll(`[Portfolio heat] Open risk $${totalOpenRiskUsd.toFixed(0)} already at ${(heatCapPct * 100).toFixed(0)}% cap ($${heatCapUsd.toFixed(0)}) — wait for exits`)
+    return 'completed'
+  }
+
+  // ── Funding rate filter ───────────────────────────────────────────────────
   let fundingDelta = 0
   let fundingNote  = ''
   if (fundingRate !== null) {
-    if (fundingRate > 0.001) {          // > 0.1% per 8h = >108% annualized: longs are crowded
+    if (fundingRate > 0.001) {
       fundingDelta = -20
       fundingNote  = ` [⚠ funding +${(fundingRate * 100).toFixed(3)}% — crowded longs, conf -20]`
-    } else if (fundingRate < -0.0005) { // very negative: shorts crowded, potential long squeeze
+    } else if (fundingRate < -0.0005) {
       fundingDelta = +5
       fundingNote  = ` [funding ${(fundingRate * 100).toFixed(3)}% — short squeeze risk, conf +5]`
     }
@@ -604,33 +640,56 @@ async function autoExecuteBest(
   )
   const adjustedConf = best.signal!.confidence + best.newsImpact.confidenceDelta
 
-  // ── Confluence: 2+ frameworks agree — modest signal confidence bonus ────────
-  // Cap at 1.15× because all frameworks share the same market primitives;
-  // agreement doesn't represent independent evidence.
+  // ── TP sanity check: must clear entry zone by at least 0.5% ──────────────
+  const tp1 = best.signal!.take_profit_levels[0]
+  const tp2 = best.signal!.take_profit_levels[1]
+  const tpEntryRef = best.signal!.bias === 'long' ? best.signal!.entry_zone.high : best.signal!.entry_zone.low
+  const tp1Valid = tp1 && (
+    best.signal!.bias === 'long'  ? tp1 > tpEntryRef * 1.005 :
+                                    tp1 < tpEntryRef * 0.995
+  )
+  const tp2Valid = !tp2 || (
+    best.signal!.bias === 'long'  ? tp2 > tp1! :
+                                    tp2 < tp1!
+  )
+  if (!tp1Valid || !tp2Valid) {
+    for (const card of cards) {
+      card.approvalStatus = 'skipped'
+      if (card.signal && !card.skippedReason)
+        card.skippedReason = `TP level invalid: TP1 $${tp1} must clear entry zone (${best.signal!.bias} $${tpEntryRef}) by ≥0.5%${!tp2Valid ? ', TP2 ordering wrong' : ''}`
+    }
+    return 'completed'
+  }
+
+  // ── Confluence: 2+ frameworks agree — modest size bonus ──────────────────
   const agreeingCount = qualifying.filter(c => c.signal?.bias === best.signal!.bias).length
   const confluenceMultiplier = Math.min(1.15, 1 + (agreeingCount - 1) * 0.08)
 
-  // ── Portfolio-derived position sizing (risk-based) ─────────────────────────
-  // Risk 1% of portfolio per trade, sized from SL distance. Cap at maxTradeUsd.
-  const entryMid   = (best.signal!.entry_zone.low + best.signal!.entry_zone.high) / 2
-  const slDistance = entryMid > 0 && best.signal!.stop_loss > 0
-    ? Math.abs(entryMid - best.signal!.stop_loss) / entryMid
+  // ── Position sizing: risk riskPerTradePct of portfolio, sized by SL distance ──
+  // Use worst-case fill (zone high for longs) to match R:R filter — consistent risk calc.
+  const worstFillEntry = best.signal!.bias === 'long'
+    ? best.signal!.entry_zone.high
+    : best.signal!.entry_zone.low
+  const slDistance = worstFillEntry > 0 && best.signal!.stop_loss > 0
+    ? Math.abs(worstFillEntry - best.signal!.stop_loss) / worstFillEntry
     : 0.02
-  const portfolioRisk  = (walletState.totalValueUsd ?? 0) * 0.01
+  const portfolioRisk  = portfolioUsd * riskPct
   const riskBasedSize  = slDistance > 0 ? portfolioRisk / slDistance : config.maxTradeUsd
   const tradeAmount    = Math.min(riskBasedSize * confluenceMultiplier, config.maxTradeUsd)
 
-  // ── Volume check — reduce size 50% for sub-$30M 24h volume ───────────────
-  const vol24h   = await fetch24hVolumeUsd(`${symbol}USDT`)
+  // ── Volume (already fetched in parallel above) ────────────────────────────
   const isLowVol = vol24h !== null && vol24h < 30_000_000
   const volumeSizeMultiplier = isLowVol ? 0.5 : 1.0
   const volumeTag = vol24h !== null
     ? ` [vol $${(vol24h / 1e6).toFixed(0)}M${isLowVol ? ' ⚠ low-vol → 50% size' : ''}]`
     : ''
 
-  // ── Drawdown-based size reduction: cut size after consecutive losses ─────────
-  const recentClosed = await PositionDoc.find({ userId, mode: config.mode, status: 'closed' })
-    .sort({ exitAt: -1 }).limit(5).lean()
+  // ── Drawdown-based size reduction: streak on fully-closed positions only ────
+  // Exclude positions with tp1ScaledOut (partial-exit P&L on open pos distorts streak)
+  const recentClosed = await PositionDoc.find({
+    userId, mode: config.mode, status: 'closed',
+    $or: [{ tp1ScaledOut: { $ne: true } }, { tp1ScaledOut: { $exists: false } }],
+  }).sort({ exitAt: -1 }).limit(5).lean()
   let lossStreak = 0
   for (const p of recentClosed) { if ((p.realizedPnlUsd ?? 0) < 0) lossStreak++; else break }
   const drawdownSizeMultiplier = lossStreak >= 3 ? 0.5 : lossStreak >= 2 ? 0.75 : 1.0
@@ -640,8 +699,8 @@ async function autoExecuteBest(
   const atr14 = primitives.indicators?.atr_14 ?? 0
   let atrSizeMultiplier = 1.0
   let atrNote = ''
-  if (atr14 > 0 && entryMid > 0) {
-    const slDistAbs = Math.abs(entryMid - best.signal!.stop_loss)
+  if (atr14 > 0 && worstFillEntry > 0) {
+    const slDistAbs = Math.abs(worstFillEntry - best.signal!.stop_loss)
     const halfAtr   = atr14 * 0.5
     if (slDistAbs < halfAtr) {
       atrSizeMultiplier = 0.5
@@ -807,14 +866,17 @@ export async function approveCard(
   const walletState = await loadWalletState(userId, config)
   const adjustedConf = card.signal.confidence + card.newsImpact.confidenceDelta
 
-  // Portfolio-derived sizing (same logic as autoExecuteBest)
-  const entryMid     = (card.signal.entry_zone.low + card.signal.entry_zone.high) / 2
-  const slDistance   = entryMid > 0 && card.signal.stop_loss > 0 ? Math.abs(entryMid - card.signal.stop_loss) / entryMid : 0.02
-  const riskBasedSize = slDistance > 0 ? ((walletState.totalValueUsd ?? 0) * 0.01) / slDistance : config.maxTradeUsd
+  // Portfolio-derived sizing — worst-case fill, riskPerTradePct from config
+  const worstApEntry = card.signal.bias === 'long' ? card.signal.entry_zone.high : card.signal.entry_zone.low
+  const slDistance   = worstApEntry > 0 && card.signal.stop_loss > 0 ? Math.abs(worstApEntry - card.signal.stop_loss) / worstApEntry : 0.02
+  const apRiskPct    = (config.riskPerTradePct ?? 1.0) / 100
+  const riskBasedSize = slDistance > 0 ? ((walletState.totalValueUsd ?? 0) * apRiskPct) / slDistance : config.maxTradeUsd
   const tradeAmount  = Math.min(riskBasedSize, config.maxTradeUsd)
 
-  const recentClosed2 = await PositionDoc.find({ userId, mode: config.mode, status: 'closed' })
-    .sort({ exitAt: -1 }).limit(5).lean()
+  const recentClosed2 = await PositionDoc.find({
+    userId, mode: config.mode, status: 'closed',
+    $or: [{ tp1ScaledOut: { $ne: true } }, { tp1ScaledOut: { $exists: false } }],
+  }).sort({ exitAt: -1 }).limit(5).lean()
   let lossStreak2 = 0
   for (const p of recentClosed2) { if ((p.realizedPnlUsd ?? 0) < 0) lossStreak2++; else break }
   const ddMult = lossStreak2 >= 3 ? 0.5 : lossStreak2 >= 2 ? 0.75 : 1.0
