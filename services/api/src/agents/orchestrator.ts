@@ -12,6 +12,7 @@ import { detectRegimeForSymbol } from '../services/regimeDetector.service'
 import { selectSkillsForRegime } from './policy/policy.engine'
 import { analyzeSymbol }         from '../services/chartAnalysis.service'
 import { MarketRegime }          from './chartAnalysis.types'
+import { ohlcvIngest }           from '../read/ingestion/ohlcv.ingest'
 
 const cg = new CoinGeckoService()
 
@@ -79,10 +80,15 @@ export async function orchestrate(coinId: string): Promise<OrchestratorResult> {
 
   // ── 1. Fetch data ─────────────────────────────────────────────────────
 
+  // Pre-check Binance symbol so we can conditionally skip CoinGecko OHLC
+  const earlyBinanceSymbol = COINGECKO_TO_BINANCE[coinId]
+
   const [detail, chart30d, ohlcRaw] = await Promise.all([
     cg.getCoinDetail(coinId, { marketData: true }),
     cg.getMarketChart(coinId, 'usd', 30, 'daily'),
-    cg.getOHLC(coinId, 'usd', 30),
+    // Only fetch CoinGecko OHLC when we have no Binance mapping — it returns
+    // zero volume and must be patched with smeared daily aggregates (unreliable)
+    earlyBinanceSymbol ? Promise.resolve(null) : cg.getOHLC(coinId, 'usd', 30),
   ])
 
   const price    = detail.market_data?.current_price?.usd ?? 0
@@ -93,15 +99,50 @@ export async function orchestrate(coinId: string): Promise<OrchestratorResult> {
     time: Math.round(ts / 1000), price: p,
   }))
 
-  const ohlcv = ohlcRaw.map(([ts, open, high, low, close]) => ({
-    time: Math.round(ts / 1000), open, high, low, close, volume: 0,
-  }))
+  // ── Build OHLCV: real Binance candles when mapped, CoinGecko fallback otherwise
+  let ohlcv: { time: number; open: number; high: number; low: number; close: number; volume: number }[]
+  let ohlcvSource = 'coingecko'
 
-  const volumes = chart30d.total_volumes
-  ohlcv.forEach(bar => {
-    const match = volumes.find(([ts]) => Math.abs(Math.round(ts / 1000) - bar.time) < 43200)
-    if (match) bar.volume = match[1]
-  })
+  if (earlyBinanceSymbol) {
+    try {
+      // Fetch 30 real 1D candles from Binance — genuine per-candle volume
+      const binanceResult = await ohlcvIngest.fetch({
+        symbol:    earlyBinanceSymbol,
+        timeframe: '1d',
+        limit:     30,
+      })
+      ohlcv = binanceResult.candles.map(c => ({
+        time:   Math.round(c.timestamp / 1000),
+        open:   c.open,
+        high:   c.high,
+        low:    c.low,
+        close:  c.close,
+        volume: c.volume,
+      }))
+      ohlcvSource = `binance:${earlyBinanceSymbol}`
+    } catch (binErr: any) {
+      console.warn(`[Orchestrator] Binance 1D fetch failed for ${earlyBinanceSymbol}, falling back to CoinGecko OHLC:`, binErr.message)
+      const fallbackRaw = ohlcRaw ?? await cg.getOHLC(coinId, 'usd', 30)
+      ohlcv = (fallbackRaw as number[][]).map(([ts, open, high, low, close]) => ({
+        time: Math.round(ts / 1000), open, high, low, close, volume: 0,
+      }))
+      const volumes = chart30d.total_volumes
+      ohlcv.forEach(bar => {
+        const match = volumes.find(([ts]: [number, number]) => Math.abs(Math.round(ts / 1000) - bar.time) < 43200)
+        if (match) bar.volume = match[1]
+      })
+    }
+  } else {
+    // No Binance mapping: use CoinGecko OHLC and patch volume from daily aggregates
+    ohlcv = (ohlcRaw as number[][] ?? []).map(([ts, open, high, low, close]) => ({
+      time: Math.round(ts / 1000), open, high, low, close, volume: 0,
+    }))
+    const volumes = chart30d.total_volumes
+    ohlcv.forEach(bar => {
+      const match = volumes.find(([ts]: [number, number]) => Math.abs(Math.round(ts / 1000) - bar.time) < 43200)
+      if (match) bar.volume = match[1]
+    })
+  }
 
   const change7d = priceHistory.length >= 7
     ? ((price - priceHistory[priceHistory.length - 7].price) / priceHistory[priceHistory.length - 7].price) * 100
@@ -114,7 +155,9 @@ export async function orchestrate(coinId: string): Promise<OrchestratorResult> {
   addStep({
     phase:    'context',
     title:    'Market data loaded',
-    detail:   `Fetched ${priceHistory.length} daily price points and ${ohlcv.length} OHLCV candles for ${coinName} (${symbol}). Current price: $${price.toFixed(4)}. 7-day change: ${change7d.toFixed(2)}%. 30-day change: ${change30d.toFixed(2)}%.`,
+    detail:   `Fetched ${priceHistory.length} daily price points and ${ohlcv.length} OHLCV candles for ${coinName} (${symbol}). ` +
+              `Volume source: ${ohlcvSource === 'coingecko' ? 'CoinGecko daily aggregates (smeared — no Binance mapping)' : `Binance 1D candles (${ohlcvSource}) — real per-candle volume`}. ` +
+              `Current price: $${price.toFixed(4)}. 7-day change: ${change7d.toFixed(2)}%. 30-day change: ${change30d.toFixed(2)}%.`,
     decision: `Working with ${priceHistory.length} days of price history`,
   })
 
@@ -124,7 +167,7 @@ export async function orchestrate(coinId: string): Promise<OrchestratorResult> {
 
   let detectedRegime: MarketRegime = 'ranging'
   let regimeSkills: string[] = []
-  const binanceSymbol = COINGECKO_TO_BINANCE[coinId]
+  const binanceSymbol = earlyBinanceSymbol
 
   if (binanceSymbol) {
     try {

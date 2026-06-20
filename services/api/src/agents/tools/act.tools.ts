@@ -51,19 +51,50 @@ const proposeTradeTool: RegisteredTool = {
           type: 'string',
           description: 'Preferred execution venue, e.g. "binance" or "uniswap_v3_base". Optional.',
         },
+        stopLossPrice: {
+          type: 'number',
+          description:
+            'Price at which the position is automatically closed at a loss. ' +
+            'For longs: below entry. For shorts: above entry. ' +
+            'Always set this — a trade without a stop is unmanaged risk.',
+        },
+        takeProfitPrice: {
+          type: 'number',
+          description:
+            'First take-profit target. When price reaches this level, 50% of the ' +
+            'position is closed and the stop-loss moves to break-even.',
+        },
+        takeProfitPrice2: {
+          type: 'number',
+          description:
+            'Second take-profit target. Used after the TP1 50% scale-out. ' +
+            'When hit, 90% of the remaining position closes and a 10% runner ' +
+            'stays open with a 5% trailing stop.',
+        },
+        bias: {
+          type: 'string',
+          enum: ['long', 'short'],
+          description:
+            'Trade direction. "long" = buying tokenOut expecting it to rise. ' +
+            '"short" = currently unsupported in paper spot mode. Default: "long".',
+        },
       },
       required: ['tokenIn', 'tokenOut', 'amountUsd', 'rationale'],
     },
   },
   handler: async (args, _ctx: ToolContext): Promise<TradeIntent> => {
     return {
-      type:           'propose_trade',
-      tokenIn:        args.tokenIn        as string,
-      tokenOut:       args.tokenOut       as string,
-      amountUsd:      args.amountUsd      as number,
-      maxSlippageBps: (args.maxSlippageBps as number) ?? 50,
-      rationale:      args.rationale      as string,
-      venue:          args.venue          as string | undefined,
+      type:             'propose_trade',
+      tokenIn:          args.tokenIn          as string,
+      tokenOut:         args.tokenOut         as string,
+      amountUsd:        args.amountUsd        as number,
+      maxSlippageBps:   (args.maxSlippageBps  as number) ?? 50,
+      rationale:        args.rationale        as string,
+      venue:            args.venue            as string | undefined,
+      stopLossPrice:    args.stopLossPrice    as number | undefined,
+      takeProfitPrice:  args.takeProfitPrice  as number | undefined,
+      takeProfitPrice2: args.takeProfitPrice2 as number | undefined,
+      bias:             (args.bias as 'long' | 'short' | undefined) ?? 'long',
     }
   },
 }
