@@ -147,9 +147,9 @@ async function fetchFundingRate(symbol: string): Promise<number | null> {
   } catch { return null }
 }
 
-// ── Daily max loss: halt if today's realised P&L < -2% of $10k = -$200 ────────
+// ── Daily max loss: halt if today's realised P&L < -2% of portfolio ──────────
 
-async function checkDailyMaxLoss(userId: string, config: AgentConfig): Promise<{ halt: boolean; reason?: string; dailyPnl: number }> {
+async function checkDailyMaxLoss(userId: string, config: AgentConfig, portfolioUsd = 10_000): Promise<{ halt: boolean; reason?: string; dailyPnl: number }> {
   const today = new Date()
   today.setHours(0, 0, 0, 0)
   const closedToday = await PositionDoc.find({
@@ -159,36 +159,39 @@ async function checkDailyMaxLoss(userId: string, config: AgentConfig): Promise<{
   if (!closedToday.length) return { halt: false, dailyPnl: 0 }
 
   const dailyPnl = closedToday.reduce((s, p) => s + (p.realizedPnlUsd ?? 0), 0)
-  const DAILY_LOSS_LIMIT = -200  // 2% of $10k initial capital
+  const DAILY_LOSS_LIMIT = -Math.max(200, portfolioUsd * 0.02)
   if (dailyPnl <= DAILY_LOSS_LIMIT) {
     return {
       halt:     true,
-      reason:   `Daily loss limit: -$${Math.abs(dailyPnl).toFixed(2)} today exceeds $${Math.abs(DAILY_LOSS_LIMIT)} limit — no new entries until tomorrow`,
+      reason:   `Daily loss limit: -$${Math.abs(dailyPnl).toFixed(2)} today exceeds 2% of $${portfolioUsd.toFixed(0)} portfolio — no new entries until tomorrow`,
       dailyPnl,
     }
   }
   return { halt: false, dailyPnl }
 }
 
-// ── Intraday BTC momentum: block longs when BTC drops >2.5% on 4H ─────────────
+// ── Intraday BTC momentum: block longs on sell-off, shorts on pump ───────────
 
-async function fetchBtcMomentum(): Promise<{ dropPct: number; block: boolean; note: string }> {
+async function fetchBtcMomentum(): Promise<{ movePct: number; block: boolean; blockShorts: boolean; note: string }> {
   try {
     const r = await fetch('https://api.binance.com/api/v3/klines?symbol=BTCUSDT&interval=4h&limit=2')
-    if (!r.ok) return { dropPct: 0, block: false, note: '' }
+    if (!r.ok) return { movePct: 0, block: false, blockShorts: false, note: '' }
     const klines = await r.json() as number[][]
-    if (!klines?.length) return { dropPct: 0, block: false, note: '' }
+    if (!klines?.length) return { movePct: 0, block: false, blockShorts: false, note: '' }
     const prevClose = parseFloat(String(klines[0][4]))
     const currOpen  = parseFloat(String(klines[1][1]))
-    const dropPct   = prevClose > 0 ? (currOpen - prevClose) / prevClose * 100 : 0
-    const block     = dropPct <= -2.5
-    const note      = block
-      ? ` [⚠ BTC -${Math.abs(dropPct).toFixed(1)}% on 4H — altcoin long risk elevated, blocking]`
-      : dropPct <= -1.5
-      ? ` [BTC -${Math.abs(dropPct).toFixed(1)}% on 4H — caution]`
+    const movePct   = prevClose > 0 ? (currOpen - prevClose) / prevClose * 100 : 0
+    const block       = movePct <= -2.5
+    const blockShorts = movePct >= 3.0
+    const note = block
+      ? ` [⚠ BTC -${Math.abs(movePct).toFixed(1)}% on 4H — altcoin long risk elevated, blocking]`
+      : blockShorts
+      ? ` [⚠ BTC +${movePct.toFixed(1)}% on 4H — short squeeze risk, blocking altcoin shorts]`
+      : movePct <= -1.5
+      ? ` [BTC -${Math.abs(movePct).toFixed(1)}% on 4H — caution]`
       : ''
-    return { dropPct, block, note }
-  } catch { return { dropPct: 0, block: false, note: '' } }
+    return { movePct, block, blockShorts, note }
+  } catch { return { movePct: 0, block: false, blockShorts: false, note: '' } }
 }
 
 // ── Framework win-rate check: disable if rolling 10-trade WR < 35% ────────────
@@ -209,7 +212,7 @@ async function getFrameworkWinRates(userId: string, config: AgentConfig): Promis
   const result: Record<string, { winRate: number; tradeCount: number; disabled: boolean }> = {}
   for (const [fw, s] of Object.entries(byFw)) {
     const winRate = s.total > 0 ? s.wins / s.total : 1
-    result[fw] = { winRate, tradeCount: s.total, disabled: s.total >= 10 && winRate < 0.35 }
+    result[fw] = { winRate, tradeCount: s.total, disabled: (s.total >= 10 && winRate < 0.35) || (s.total >= 5 && winRate < 0.25) }
   }
   return result
 }
@@ -402,7 +405,7 @@ async function autoExecuteBest(
   }
 
   // ── Daily max loss halt ───────────────────────────────────────────────────
-  const dailyCheck = await checkDailyMaxLoss(userId, config)
+  const dailyCheck = await checkDailyMaxLoss(userId, config, walletState.totalValueUsd ?? 10_000)
   if (dailyCheck.halt) {
     skipAll(`[Daily limit] ${dailyCheck.reason}`)
     return 'completed'
@@ -423,9 +426,14 @@ async function autoExecuteBest(
     return 'completed'
   }
 
-  // ── Intraday BTC momentum filter: block longs on sharp BTC sell-off ────────
+  // ── Intraday BTC momentum filter: block longs on sell-off, shorts on pump ──
   const btcMomentum = await fetchBtcMomentum()
+  const anyShort = cards.some(c => c.signal?.bias === 'short')
   if (anyLong && btcMomentum.block) {
+    skipAll(`[BTC Momentum] ${btcMomentum.note.trim()}`)
+    return 'completed'
+  }
+  if (anyShort && btcMomentum.blockShorts) {
     skipAll(`[BTC Momentum] ${btcMomentum.note.trim()}`)
     return 'completed'
   }
@@ -450,6 +458,17 @@ async function autoExecuteBest(
       card.approvalStatus = 'skipped'
       if (card.signal) card.skippedReason = `Already in open ${symbol} position — skipping to avoid stacking`
     }
+    return 'completed'
+  }
+
+  // ── Re-entry block: 4h cooldown after a stop-out on the same coin ─────────
+  const recentStopOut = await PositionDoc.findOne({
+    userId, tokenOut: symbol.toUpperCase(), mode: config.mode, status: 'closed',
+    exitAt: { $gte: new Date(Date.now() - 4 * 60 * 60 * 1000) },
+    realizedPnlUsd: { $lt: 0 },
+  }).lean()
+  if (recentStopOut) {
+    skipAll(`[Re-entry block] ${symbol} stopped out $${(recentStopOut.realizedPnlUsd ?? 0).toFixed(2)} within last 4h — 4h cooldown after loss`)
     return 'completed'
   }
 
@@ -482,17 +501,19 @@ async function autoExecuteBest(
     }
   }
 
-  // ── Minimum R:R filter: require 1.5:1 raw before confidence check ─────────
+  // ── Minimum R:R filter: use worst-case fill (zone high for longs) ─────────
   const MIN_RAW_RR = 1.5
   for (const card of cards) {
     if (!card.signal || card.approvalStatus === 'skipped') continue
-    const entry  = (card.signal.entry_zone.low + card.signal.entry_zone.high) / 2
-    const risk   = entry > 0 && card.signal.stop_loss > 0 ? Math.abs(entry - card.signal.stop_loss) / entry : 0
-    const reward = entry > 0 && card.signal.take_profit_levels[0] ? Math.abs(card.signal.take_profit_levels[0] - entry) / entry : 0
+    const worstEntry = card.signal.bias === 'long'
+      ? card.signal.entry_zone.high   // worst long fill = top of zone
+      : card.signal.entry_zone.low    // worst short fill = bottom of zone
+    const risk   = worstEntry > 0 && card.signal.stop_loss > 0 ? Math.abs(worstEntry - card.signal.stop_loss) / worstEntry : 0
+    const reward = worstEntry > 0 && card.signal.take_profit_levels[0] ? Math.abs(card.signal.take_profit_levels[0] - worstEntry) / worstEntry : 0
     const rawRr  = risk > 0 ? reward / risk : 0
     if (rawRr < MIN_RAW_RR) {
       card.approvalStatus = 'skipped'
-      card.skippedReason  = `R:R ${rawRr.toFixed(2)} below minimum 1.5 — not worth the fee drag`
+      card.skippedReason  = `R:R ${rawRr.toFixed(2)} (worst-case fill) below minimum 1.5 — not worth the fee drag`
     }
   }
 
@@ -583,9 +604,11 @@ async function autoExecuteBest(
   )
   const adjustedConf = best.signal!.confidence + best.newsImpact.confidenceDelta
 
-  // ── Confluence bonus: 2+ frameworks agree → increase position size ─────────
+  // ── Confluence: 2+ frameworks agree — modest signal confidence bonus ────────
+  // Cap at 1.15× because all frameworks share the same market primitives;
+  // agreement doesn't represent independent evidence.
   const agreeingCount = qualifying.filter(c => c.signal?.bias === best.signal!.bias).length
-  const confluenceMultiplier = Math.min(2, 1 + (agreeingCount - 1) * 0.25)
+  const confluenceMultiplier = Math.min(1.15, 1 + (agreeingCount - 1) * 0.08)
 
   // ── Portfolio-derived position sizing (risk-based) ─────────────────────────
   // Risk 1% of portfolio per trade, sized from SL distance. Cap at maxTradeUsd.
@@ -597,10 +620,12 @@ async function autoExecuteBest(
   const riskBasedSize  = slDistance > 0 ? portfolioRisk / slDistance : config.maxTradeUsd
   const tradeAmount    = Math.min(riskBasedSize * confluenceMultiplier, config.maxTradeUsd)
 
-  // ── Volume check — flag low-liquidity setups in the rationale ─────────────
-  const vol24h    = await fetch24hVolumeUsd(`${symbol}USDT`)
+  // ── Volume check — reduce size 50% for sub-$30M 24h volume ───────────────
+  const vol24h   = await fetch24hVolumeUsd(`${symbol}USDT`)
+  const isLowVol = vol24h !== null && vol24h < 30_000_000
+  const volumeSizeMultiplier = isLowVol ? 0.5 : 1.0
   const volumeTag = vol24h !== null
-    ? ` [vol $${(vol24h / 1e6).toFixed(0)}M${vol24h < 30_000_000 ? ' ⚠ low-vol' : ''}]`
+    ? ` [vol $${(vol24h / 1e6).toFixed(0)}M${isLowVol ? ' ⚠ low-vol → 50% size' : ''}]`
     : ''
 
   // ── Drawdown-based size reduction: cut size after consecutive losses ─────────
@@ -611,20 +636,27 @@ async function autoExecuteBest(
   const drawdownSizeMultiplier = lossStreak >= 3 ? 0.5 : lossStreak >= 2 ? 0.75 : 1.0
   const drawdownNote = lossStreak >= 2 ? ` [⚠ ${lossStreak}-loss streak → ${drawdownSizeMultiplier * 100}% size]` : ''
 
-  // ── ATR noise check: warn if SL distance < 0.5 × ATR (inside 1-bar noise) ──
+  // ── ATR noise check: half size if SL distance < 0.5×ATR ─────────────────
   const atr14 = primitives.indicators?.atr_14 ?? 0
   let atrSizeMultiplier = 1.0
   let atrNote = ''
   if (atr14 > 0 && entryMid > 0) {
-    const slDistAbs  = Math.abs(entryMid - best.signal!.stop_loss)
-    const halfAtr    = atr14 * 0.5
+    const slDistAbs = Math.abs(entryMid - best.signal!.stop_loss)
+    const halfAtr   = atr14 * 0.5
     if (slDistAbs < halfAtr) {
-      atrSizeMultiplier = 0.5  // SL is inside noise band — half size
+      atrSizeMultiplier = 0.5
       atrNote = ` [⚠ SL $${slDistAbs.toFixed(0)} < 0.5×ATR $${halfAtr.toFixed(0)} — inside noise, size halved]`
     }
   }
 
-  const finalTradeAmount = tradeAmount * drawdownSizeMultiplier * atrSizeMultiplier
+  // ── SL buffer: push SL 0.3×ATR past structural level to survive wicks ─────
+  const slBufferAbs = atr14 > 0 ? atr14 * 0.3 : 0
+  const adjustedSL  = best.signal!.bias === 'long'
+    ? parseFloat((best.signal!.stop_loss - slBufferAbs).toFixed(4))
+    : parseFloat((best.signal!.stop_loss + slBufferAbs).toFixed(4))
+  const slBufferNote = slBufferAbs > 0 ? ` [SL buffered 0.3×ATR $${slBufferAbs.toFixed(0)} beyond structural level]` : ''
+
+  const finalTradeAmount = tradeAmount * drawdownSizeMultiplier * atrSizeMultiplier * volumeSizeMultiplier
   const regimeNote = regime.warning ? ` [${regime.warning}]` : ` [regime: ${regime.regime} ADX ${regime.adx.toFixed(0)}]`
 
   const intent: TradeIntent = {
@@ -634,10 +666,10 @@ async function autoExecuteBest(
     amountUsd:        finalTradeAmount,
     maxSlippageBps:   50,
     rationale:        best.signal!.reasoning +
-                      (agreeingCount >= 2 ? ` [${agreeingCount} frameworks confluent → ${confluenceMultiplier.toFixed(2)}× size]` : '') +
+                      (agreeingCount >= 2 ? ` [${agreeingCount} frameworks confluent]` : '') +
                       ` [risk-sized: 1% of $${(walletState.totalValueUsd ?? 0).toFixed(0)} / ${(slDistance * 100).toFixed(1)}% SL = $${finalTradeAmount.toFixed(0)}]` +
-                      volumeTag + drawdownNote + atrNote + regimeNote + fundingNote + btcMomentum.note,
-    stopLossPrice:    best.signal!.stop_loss,
+                      volumeTag + drawdownNote + atrNote + slBufferNote + regimeNote + fundingNote + btcMomentum.note,
+    stopLossPrice:    adjustedSL,
     takeProfitPrice:  best.signal!.take_profit_levels[0],
     takeProfitPrice2: best.signal!.take_profit_levels[1],
     entryZoneLow:     best.signal!.entry_zone.low,
@@ -764,12 +796,12 @@ export async function approveCard(
     if (ageH > 6) throw Object.assign(new Error(`Signal is ${ageH.toFixed(0)}h old — too stale to approve (max 6h)`), { statusCode: 400 })
   }
 
-  // Re-enforce min R:R
-  const apEntry  = (card.signal.entry_zone.low + card.signal.entry_zone.high) / 2
+  // Re-enforce min R:R — use worst-case fill (zone high for longs)
+  const apEntry  = card.signal.bias === 'long' ? card.signal.entry_zone.high : card.signal.entry_zone.low
   const apRisk   = apEntry > 0 && card.signal.stop_loss > 0 ? Math.abs(apEntry - card.signal.stop_loss) / apEntry : 0
   const apReward = apEntry > 0 && card.signal.take_profit_levels[0] ? Math.abs(card.signal.take_profit_levels[0] - apEntry) / apEntry : 0
   const apRawRr  = apRisk > 0 ? apReward / apRisk : 0
-  if (apRawRr < 1.5) throw Object.assign(new Error(`R:R ${apRawRr.toFixed(2)} below minimum 1.5 — cannot approve`), { statusCode: 400 })
+  if (apRawRr < 1.5) throw Object.assign(new Error(`R:R ${apRawRr.toFixed(2)} (worst-case fill) below minimum 1.5 — cannot approve`), { statusCode: 400 })
 
   const config      = await getOrCreateConfig(userId)
   const walletState = await loadWalletState(userId, config)

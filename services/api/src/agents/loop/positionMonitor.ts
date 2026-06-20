@@ -161,6 +161,17 @@ async function activateLimitPosition(
   console.log(`[PositionMonitor] Opened ${position.positionId} (limit fill) at $${(result.entryPrice ?? fillPrice).toFixed(4)}`)
 }
 
+// ── SL exit price model ───────────────────────────────────────────────────────
+// Paper SL fills model realistic slippage. If price gapped >1% past the SL
+// level the fill takes additional gap slippage; otherwise 0.3% below the SL.
+function computeSlExitPrice(currentPrice: number, slPrice: number | undefined): number {
+  if (!slPrice) return parseFloat((currentPrice * (1 - 0.003)).toFixed(4))
+  const gapped = currentPrice < slPrice * 0.99   // gapped through by >1%
+  return gapped
+    ? parseFloat((currentPrice * (1 - 0.002)).toFixed(4))   // extra 0.2% for gap fill
+    : parseFloat((slPrice       * (1 - 0.003)).toFixed(4))  // 0.3% below intended SL
+}
+
 export async function runPositionMonitorSweep(): Promise<void> {
   const openPositions = await PositionDoc.find({
     status: 'open',
@@ -302,7 +313,28 @@ export async function runPositionMonitorSweep(): Promise<void> {
       // TP1 hit + TP2 exists + not yet scaled → do 50% exit, move SL to BE, switch to TP2
       if (hitTakeProfit && tp2 && !tp1ScaledOut && position.entryPrice) {
         const halfAmount = position.entryAmountUsd * 0.5
-        console.log(`[PositionMonitor] TP1 scale-out: ${position.positionId} — exit 50% @ $${currentPrice}, move SL → BE, set TP = $${tp2}`)
+        const pnlPct     = (currentPrice - position.entryPrice) / position.entryPrice
+        const partialPnl = parseFloat((halfAmount * pnlPct).toFixed(4))
+        console.log(`[PositionMonitor] TP1 scale-out: ${position.positionId} — exit 50% @ $${currentPrice}, locked PnL $${partialPnl.toFixed(2)}, SL → BE, TP → $${tp2}`)
+
+        // Record the partial exit as a closed order so it appears in P&L stats
+        await OrderDoc.create({
+          orderId:         `order-tp1-${generateMyId(10)}`,
+          runId:           (position as any).runId ?? `monitor-${generateMyId(10)}`,
+          userId:          position.userId,
+          mode:            'paper',
+          intentType:      'partial_exit',
+          tokenIn:         position.tokenOut,
+          tokenOut:        position.tokenIn,
+          amountUsd:       halfAmount,
+          status:          'filled',
+          filledAmountUsd: parseFloat((halfAmount * (1 + pnlPct)).toFixed(4)),
+          entryPrice:      currentPrice,
+          feesUsd:         parseFloat((halfAmount * 0.001).toFixed(4)),
+          executedAt:      new Date(),
+          positionId:      position.positionId,
+        })
+
         await PositionDoc.updateOne({ positionId: position.positionId }, {
           $set: {
             entryAmountUsd:  halfAmount,
@@ -310,6 +342,7 @@ export async function runPositionMonitorSweep(): Promise<void> {
             takeProfitPrice: tp2,
             tp1ScaledOut:    true,
           },
+          $inc: { realizedPnlUsd: partialPnl },
         })
 
       // TP2 hit after TP1 scale-out + no runner yet → exit 90%, keep 10% as runner with 5% trail
@@ -337,11 +370,15 @@ export async function runPositionMonitorSweep(): Promise<void> {
 
       // Runner's trailing stop hit → close the runner
       } else if (hitStopLoss && runnerActive) {
-        console.log(`[PositionMonitor] Runner stopped out: ${position.positionId} @ $${currentPrice}`)
-        await closePosition(position, currentPrice, 'stop_loss')
+        const slExitPrice = computeSlExitPrice(currentPrice, position.stopLossPrice)
+        console.log(`[PositionMonitor] Runner stopped out: ${position.positionId} @ $${slExitPrice.toFixed(4)} (intended SL $${position.stopLossPrice?.toFixed(4)})`)
+        await closePosition(position, slExitPrice, 'stop_loss')
 
       } else {
-        await closePosition(position, currentPrice, hitStopLoss ? 'stop_loss' : 'take_profit')
+        const exitPrice = hitStopLoss
+          ? computeSlExitPrice(currentPrice, position.stopLossPrice)
+          : currentPrice
+        await closePosition(position, exitPrice, hitStopLoss ? 'stop_loss' : 'take_profit')
       }
     } catch (err: any) {
       console.warn(`[PositionMonitor] Error processing position ${position.positionId}:`, err.message)
