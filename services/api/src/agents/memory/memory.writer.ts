@@ -4,6 +4,8 @@ import { saveMemory, findMemoryByRunId } from './memory.store'
 import { embed }                         from './memory.embedder'
 import type { LoopContext, Decision }    from '../loop/loop.types'
 import type { AgentMemoryEntry }        from './memory.types'
+import { buildOutcomeNote }             from '../notes/agentNote.generator'
+import { AgentRunDoc }                  from '../../models/agentRun.model'
 
 function extractCoin(decision: Decision): string {
   const intent = decision.intent
@@ -75,6 +77,25 @@ export async function writeOutcome(
       signals:      decisionEntry.signals,
       tools:        decisionEntry.tools,
     })
+
+    // Append outcome note to the original run's agentNote field
+    try {
+      const outcomeText = buildOutcomeNote(
+        outcome.success ? 'take_profit' : 'stop_loss',
+        0,
+        outcome.pnl,
+        outcome.pnlPercent ?? 0,
+        outcome.durationHeldMs ?? 0,
+      )
+      const runDoc = await AgentRunDoc.findOne({ runId }).select('agentNote').lean()
+      if (runDoc) {
+        const updated = (runDoc.agentNote ?? '') + outcomeText
+        await AgentRunDoc.updateOne({ runId }, { $set: { agentNote: updated } }).catch(() => {})
+        console.log(`[MemoryWriter] Outcome note appended to run ${runId}`)
+      }
+    } catch (err: any) {
+      console.warn('[MemoryWriter] Outcome note append failed (non-fatal):', err.message)
+    }
   } catch (err: any) {
     console.warn('[MemoryWriter] writeOutcome failed (non-fatal):', err.message)
   }

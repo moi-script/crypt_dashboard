@@ -43,6 +43,7 @@ import { retrieve }            from '../memory/memory.retriever'
 import { renderMemorySection } from '../policy/prompts/memory.section.prompt'
 import { writeDecision }       from '../memory/memory.writer'
 import { ohlcvIngest }         from '@/read/ingestion/ohlcv.ingest'
+import { buildEntryNote }     from '../notes/agentNote.generator'
 
 // How long a pending limit order waits for price to re-enter the entry zone
 // before it's cancelled. Defaults to 6h.
@@ -359,6 +360,10 @@ export async function runLoopTick(userId: string): Promise<void> {
       (gateway.execution.entryPrice ? ` | entryPrice:$${gateway.execution.entryPrice}` : ''),
     )
 
+    // ── Agent note — entry ────────────────────────────────────────────────────
+    const agentNote = buildEntryNote(loopCtx, decision, gateway)
+    console.log(`[AgentLoop] Agent note written (${agentNote.length} chars)`)
+
     await persistExecution(userId, config.mode, runId, decision.intent, gateway.execution, strategy, decision.confidence)
     console.log(
       `[AgentLoop][Step 10] Execution persisted — orderId:${gateway.execution.orderId ?? 'n/a'} | ` +
@@ -382,6 +387,7 @@ export async function runLoopTick(userId: string): Promise<void> {
     await AgentRunDoc.updateOne({ runId }, { $set: {
       completedAt: new Date(), status: finalStatus,
       contextSnapshot: contextSummary.slice(0, 2000), decision, executionResult: gateway.execution,
+      agentNote,
     } })
 
     const durationMs = Date.now() - startedAt.getTime()

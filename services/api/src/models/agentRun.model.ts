@@ -97,6 +97,7 @@ const AgentRunSchema = new Schema<AgentRunRecord>({
   executionResult: ExecutionResultSchema,
   chartSnapshot:   { type: ChartSnapshotSchema, default: undefined },
   errorMessage:    String,
+  agentNote:       { type: String, default: null },
 }, { timestamps: true })
 
 AgentRunSchema.index({ strategy: 1, startedAt: -1 })

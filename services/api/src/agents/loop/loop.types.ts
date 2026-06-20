@@ -131,6 +131,7 @@ export interface AgentRunRecord {
   executionResult?: ExecutionResult
   errorMessage?: string
   chartSnapshot?:  ChartSnapshot   // ← add this line
+  agentNote?: string
 }
 
 // ── ExecutionResult ───────────────────────────────────────────────────────────
