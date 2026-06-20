@@ -286,10 +286,15 @@ export async function runLoopTick(userId: string): Promise<void> {
   const strategy  = Object.entries(config.strategies).find(([, v]) => v)?.[0] ?? 'yieldHunter'
 
   console.log(`[AgentLoop] Tick: user=${userId} runId=${runId} strategy=${strategy} mode=${config.mode}`)
+  console.log(
+    `[AgentLoop][Step 1] Config — strategy:${strategy} | mode:${config.mode} | ` +
+    `maxTradeUsd:$${config.maxTradeUsd} | watchlist:[${config.watchlist.join(', ')}]`,
+  )
 
   let runDoc: any
   try {
     runDoc = await AgentRunDoc.create({ runId, userId, strategy, mode: config.mode, startedAt, status: 'running' })
+    console.log(`[AgentLoop][Step 2] Run created — runId:${runId}`)
   } catch (err: any) {
     console.error('[AgentLoop] Failed to create AgentRunDoc:', err.message)
     return
@@ -297,15 +302,25 @@ export async function runLoopTick(userId: string): Promise<void> {
 
   try {
     const walletState = await loadWalletState(userId, config)
+    console.log(
+      `[AgentLoop][Step 3] Wallet — total:$${walletState.totalValueUsd.toFixed(2)} | ` +
+      `dailyPnL:$${walletState.dailyPnlUsd.toFixed(2)} | openPositions:${walletState.openPositions}`,
+    )
 
     const strategyImpl = STRATEGIES[strategy]
     if (!strategyImpl) throw new Error(`Strategy "${strategy}" not found in registry.`)
 
     const loopCtx: LoopContext = { runId, userId, strategy, startedAt: startedAt.getTime(), contextSummary: '', walletState, marketData: {}, config }
     const strategyResult = await strategyImpl.buildContext(loopCtx)
+    console.log(
+      `[AgentLoop][Step 4] Strategy context — strategy:${strategy} | ` +
+      `deterministicDecision:${strategyResult.deterministicDecision ? strategyResult.deterministicDecision.intent.type : 'none (LLM will decide)'} | ` +
+      `contextLines:${strategyResult.contextSummary.split('\n').length}`,
+    )
 
     const { text: contextSummary } = buildContextSummary(loopCtx, strategyResult.contextSummary)
     loopCtx.contextSummary = contextSummary
+    console.log(`[AgentLoop][Step 5] Context summary built — ${contextSummary.length} chars`)
 
     // ── Memory retrieval (RAG) ──────────────────────────────────────────────
     let memoryContext: string | undefined
@@ -316,21 +331,43 @@ export async function runLoopTick(userId: string): Promise<void> {
     } catch (err: any) {
       console.warn('[AgentLoop] Memory retrieval failed (non-fatal):', err.message)
     }
+    console.log(
+      `[AgentLoop][Step 6] Memory — coin:${(config.watchlist[0] ?? 'BTC').toUpperCase()} | ` +
+      `retrieved:${memoryContext ? 'yes' : 'no'}`,
+    )
 
     await persistOpportunities(userId, strategy, runId, strategyResult.metadata)
+    const spikedCount = (strategyResult.metadata?.spikedPools as any[] | undefined)?.length ?? 0
+    console.log(`[AgentLoop][Step 7] Opportunities — ${spikedCount} yield spike(s) persisted`)
 
+    console.log(`[AgentLoop][Step 8] Policy engine starting — deterministic:${!!strategyResult.deterministicDecision}`)
     const decision = strategyResult.deterministicDecision
       ?? await runPolicyEngine(loopCtx, contextSummary, config, memoryContext)
+    console.log(
+      `[AgentLoop][Step 8] Policy engine done — intent:${decision.intent.type} | ` +
+      `confidence:${decision.confidence} | toolCalls:[${decision.toolCallTrace.join(', ')}]`,
+    )
 
+    console.log(`[AgentLoop][Step 9] Executing intent — type:${decision.intent.type}`)
     const gateway = await executeIntent(decision.intent, walletState, {
       userId, config, runId, strategy,
       rationale: decision.reasoning, confidence: decision.confidence,
     })
+    console.log(
+      `[AgentLoop][Step 9] Execution result — riskPassed:${gateway.riskPassed} | status:${gateway.execution.status}` +
+      (gateway.riskBlockedBy ? ` | blockedBy:${gateway.riskBlockedBy} (${gateway.riskReason})` : '') +
+      (gateway.execution.entryPrice ? ` | entryPrice:$${gateway.execution.entryPrice}` : ''),
+    )
 
     await persistExecution(userId, config.mode, runId, decision.intent, gateway.execution, strategy, decision.confidence)
+    console.log(
+      `[AgentLoop][Step 10] Execution persisted — orderId:${gateway.execution.orderId ?? 'n/a'} | ` +
+      `status:${gateway.execution.status}`,
+    )
 
     // ── Write decision memory ───────────────────────────────────────────────
     await writeDecision(loopCtx, decision)
+    console.log(`[AgentLoop][Step 11] Decision written to memory`)
 
     // Save chart snapshot for chartSignal runs that produced a signal
     const chartSnapshot = strategyResult.metadata?.chartSnapshot as import('@/agents/loop/loop.types').ChartSnapshot | undefined
@@ -346,6 +383,12 @@ export async function runLoopTick(userId: string): Promise<void> {
       completedAt: new Date(), status: finalStatus,
       contextSnapshot: contextSummary.slice(0, 2000), decision, executionResult: gateway.execution,
     } })
+
+    const durationMs = Date.now() - startedAt.getTime()
+    console.log(
+      `[AgentLoop][Step 12] Run finalized — runId:${runId} | status:${finalStatus} | duration:${durationMs}ms`,
+    )
+    console.log(`[AgentLoop] ─────────────────────────────────────────────────────`)
 
     console.log(`[AgentLoop] Tick complete: runId=${runId} status=${finalStatus}`)
   } catch (err: any) {
