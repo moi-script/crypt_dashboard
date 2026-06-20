@@ -110,7 +110,7 @@ export function buildEntryNote(
       `Risk gate: BLOCKED by ${gateway.riskBlockedBy} — ${gateway.riskReason}`,
     )
   } else if (gateway.pendingApproval) {
-    lines.push('Risk gate: PASSED (7/7 rules) — queued for manual approval')
+    lines.push('Risk gate: PASSED (8/8 rules) — queued for manual approval')
   } else {
     // Calculate portfolio heat
     const tradeUsd =
@@ -119,7 +119,7 @@ export function buildEntryNote(
     const heatPct =
       totalValueUsd > 0 ? ((tradeUsd / totalValueUsd) * 100).toFixed(1) : '0.0'
     lines.push(
-      `Risk gate: PASSED (7/7 rules) | portfolio heat: $${tradeUsd.toFixed(0)}/${totalValueUsd.toFixed(0)} (${heatPct}%)`,
+      `Risk gate: PASSED (8/8 rules) | portfolio heat: $${tradeUsd.toFixed(0)}/${totalValueUsd.toFixed(0)} (${heatPct}%)`,
     )
   }
 

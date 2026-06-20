@@ -21,6 +21,7 @@ export interface AgentMemoryEntry {
     durationHeldMs:  number
     closedAt:        Date
     success:         boolean
+    exitPrice?:      number
   }
 
   marketRegime: string

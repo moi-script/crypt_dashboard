@@ -53,24 +53,30 @@ interface SimplePriceResponse {
 /** Mark missed polls for a coin when fetch fails */
 async function markMissedPoll(coingeckoId: string): Promise<void> {
   try {
+    const now = new Date()
     const health = await DataHealthDoc.findOneAndUpdate(
       { coingeckoId },
-      {
-        $inc: { consecutiveMissedPolls: 1 },
-      },
+      [
+        {
+          $set: {
+            consecutiveMissedPolls: { $add: ['$consecutiveMissedPolls', 1] },
+            staleSince: {
+              $cond: {
+                if: { $and: [{ $gte: [{ $add: ['$consecutiveMissedPolls', 1] }, 2] }, { $eq: ['$staleSince', null] }] },
+                then: now,
+                else: '$staleSince',
+              },
+            },
+            lastPolledAt: now,
+          },
+        },
+      ],
       { upsert: true, new: true },
     )
 
-    if (health && health.consecutiveMissedPolls >= 2 && !health.staleSince) {
-      const symbol = COIN_SYMBOL[coingeckoId] || coingeckoId.toUpperCase()
-      const now = new Date()
-      await DataHealthDoc.findByIdAndUpdate(
-        health._id,
-        { staleSince: now },
-      ).catch(() => {})
-
+    if (health && health.consecutiveMissedPolls >= 2 && health.staleSince) {
       console.log(
-        `[CandlePoller] STALE: ${coingeckoId} — ${health.consecutiveMissedPolls} consecutive missed polls since ${now.toISOString()}`,
+        `[CandlePoller] STALE: ${coingeckoId} — ${health.consecutiveMissedPolls} consecutive missed polls since ${new Date(health.staleSince).toISOString()}`,
       )
     }
   } catch {
@@ -92,7 +98,9 @@ async function pollOnce(coingeckoIds: string[]): Promise<void> {
   const headers: Record<string, string> = {
     Accept: 'application/json',
   }
-  if (process.env.COINGECKO_API_KEY) {
+  if (process.env.COINGECKO_PRO_API_KEY) {
+    headers['x-cg-pro-api-key'] = process.env.COINGECKO_PRO_API_KEY
+  } else if (process.env.COINGECKO_API_KEY) {
     headers['x-cg-demo-api-key'] = process.env.COINGECKO_API_KEY
   }
 
@@ -140,7 +148,7 @@ async function pollOnce(coingeckoIds: string[]): Promise<void> {
     const ticks = await TickRawDoc.find({
       coingeckoId,
       polledAt: { $gte: bucketStart, $lt: bucketEnd },
-    }).catch(() => [])
+    }).sort({ polledAt: 1 }).lean().catch(() => [])
 
     // Skip if no ticks (shouldn't happen, but handle gracefully)
     if (ticks.length === 0) continue

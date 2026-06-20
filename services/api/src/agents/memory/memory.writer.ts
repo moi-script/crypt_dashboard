@@ -82,7 +82,7 @@ export async function writeOutcome(
     try {
       const outcomeText = buildOutcomeNote(
         outcome.success ? 'take_profit' : 'stop_loss',
-        0,
+        outcome.exitPrice ?? 0,
         outcome.pnl,
         outcome.pnlPercent ?? 0,
         outcome.durationHeldMs ?? 0,

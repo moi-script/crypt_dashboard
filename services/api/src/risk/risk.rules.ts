@@ -161,7 +161,7 @@ export async function ruleStaleCoinData(ctx: RuleContext): Promise<RuleResult> {
     if (health.staleSince !== null) {
       return {
         verdict: 'block',
-        reason:  `Price data for ${trade.tokenOut} is stale since ${(health.staleSince as Date).toISOString()}. Not safe to trade on outdated prices.`,
+        reason:  `Price data for ${trade.tokenOut} is stale since ${new Date(health.staleSince!).toISOString()}. Not safe to trade on outdated prices.`,
       }
     }
   } catch (err: any) {
