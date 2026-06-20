@@ -634,6 +634,113 @@ function HeroBg3D() {
   );
 }
 
+// ── DashboardShowcase ─────────────────────────────────────────────────────────
+
+const SHOWCASE_TABS = [
+  { id: "dashboard", label: "Dashboard", src: "/screenshots/dashboard.png", desc: "Live market overview — price feeds, portfolio snapshot, and trend indicators updating every 15 seconds." },
+  { id: "portfolio", label: "Portfolio",  src: "/screenshots/portfolio.png", desc: "Full position history with realized PnL, allocation breakdown, and closed-trade analytics." },
+  { id: "agent",     label: "AI Agent",   src: "/screenshots/agent.png",    desc: "Conversational co-pilot backed by MongoDB Atlas vector search — ask about your positions, signals, or market context." },
+  { id: "positions", label: "Positions",  src: "/screenshots/positions.png", desc: "Open position cards with entry price, current mark, trailing stop level, and one-click management." },
+] as const;
+
+type ShowcaseTabId = typeof SHOWCASE_TABS[number]["id"];
+
+function DashboardShowcase() {
+  const [active, setActive] = useState<ShowcaseTabId>("dashboard");
+  const tab = SHOWCASE_TABS.find(t => t.id === active)!;
+
+  return (
+    <section id="section-showcase" style={{ padding: "5rem 5vw 4rem", position: "relative", overflow: "hidden" }}>
+      {/* ambient violet glow */}
+      <div style={{ position: "absolute", inset: 0, background: "radial-gradient(ellipse at 65% 40%, rgba(167,139,250,0.07) 0%, transparent 60%)", pointerEvents: "none" }} />
+
+      <div style={{ position: "relative", zIndex: 1 }}>
+        {/* heading */}
+        <div style={{ marginBottom: 36, maxWidth: 560 }}>
+          <h2 style={{ fontFamily: "var(--font-display)", fontSize: "clamp(2rem, 4vw, 3.4rem)", fontWeight: 800, color: "var(--ink)", letterSpacing: "-0.04em", lineHeight: 1.08, marginBottom: 14 }}>
+            The terminal,{" "}
+            <span style={{ color: "var(--violet)", textShadow: "0 0 36px rgba(167,139,250,0.36)" }}>inside.</span>
+          </h2>
+          <p style={{ fontFamily: "var(--font-mono)", fontSize: 14, color: "var(--ink-soft)", lineHeight: 1.72, maxWidth: "52ch" }}>
+            Real data. No mockups. This is exactly how it looks in production — live feeds, AI memory, and full position control in one window.
+          </p>
+        </div>
+
+        {/* browser frame */}
+        <div style={{
+          borderRadius: 14, overflow: "hidden",
+          border: "1px solid rgba(255,255,255,0.08)",
+          boxShadow: "0 48px 120px rgba(0,0,0,0.72), 0 0 0 1px rgba(255,255,255,0.03), 0 0 60px rgba(167,139,250,0.06)",
+          transform: "perspective(1600px) rotateX(1.8deg)",
+          transformOrigin: "center top",
+        }}>
+
+          {/* macOS chrome bar */}
+          <div style={{ height: 40, display: "flex", alignItems: "center", gap: 7, padding: "0 16px", background: "rgba(4,9,18,1)", borderBottom: "1px solid rgba(255,255,255,0.05)" }}>
+            {(["#ff5f57","#ffbd2e","#28c840"] as const).map((c, i) => (
+              <span key={i} style={{ width: 12, height: 12, borderRadius: "50%", background: c, opacity: 0.75, flexShrink: 0 }} />
+            ))}
+            {/* URL bar */}
+            <div style={{ flex: 1, marginLeft: 12, marginRight: 12, height: 24, borderRadius: 6, background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.06)", display: "flex", alignItems: "center", justifyContent: "center", gap: 6 }}>
+              <svg viewBox="0 0 16 16" fill="none" width="10" height="10" aria-hidden="true">
+                <path d="M6 2a4 4 0 100 8A4 4 0 006 2zM0 6a6 6 0 1110.89 3.477l4.817 4.816a1 1 0 01-1.414 1.414l-4.816-4.817A6 6 0 010 6z" fill="currentColor" style={{ color: "rgba(255,255,255,0.2)" }} />
+              </svg>
+              <span style={{ fontFamily: "var(--font-mono)", fontSize: 11, color: "var(--ink-faint)", letterSpacing: "0.03em" }}>
+                crptx.app / {tab.id}
+              </span>
+            </div>
+          </div>
+
+          {/* in-app nav tabs */}
+          <div style={{ display: "flex", background: "rgba(3,7,14,0.99)", borderBottom: "1px solid rgba(255,255,255,0.05)", padding: "0 6px", gap: 2 }}>
+            {SHOWCASE_TABS.map(t => {
+              const isActive = t.id === active;
+              return (
+                <button
+                  key={t.id}
+                  onClick={() => setActive(t.id)}
+                  style={{
+                    padding: "10px 18px",
+                    background: isActive ? "rgba(167,139,250,0.08)" : "transparent",
+                    border: "none",
+                    borderBottom: isActive ? "2px solid var(--violet)" : "2px solid transparent",
+                    cursor: "pointer",
+                    fontFamily: "var(--font-mono)",
+                    fontSize: 11,
+                    letterSpacing: "0.08em",
+                    textTransform: "uppercase",
+                    color: isActive ? "var(--violet)" : "var(--ink-faint)",
+                    transition: "all 0.18s",
+                    flexShrink: 0,
+                  }}
+                >
+                  {t.label}
+                </button>
+              );
+            })}
+          </div>
+
+          {/* screenshot */}
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            key={active}
+            src={tab.src}
+            alt={`CRPTX Terminal — ${tab.label} view`}
+            className="scrn-img"
+            loading="lazy"
+            style={{ width: "100%", display: "block", maxHeight: 560, objectFit: "cover", objectPosition: "top center" }}
+          />
+        </div>
+
+        {/* caption */}
+        <p style={{ marginTop: 18, fontFamily: "var(--font-mono)", fontSize: 12, color: "var(--ink-muted)", lineHeight: 1.7, maxWidth: "60ch" }}>
+          {tab.desc}
+        </p>
+      </div>
+    </section>
+  );
+}
+
 // ── LoadingScreen ─────────────────────────────────────────────────────────────
 
 function LoadingScreen() {
@@ -916,9 +1023,15 @@ export default function LandingView() {
         .land-cta-primary:active { transform: translateY(0) scale(0.98); }
         .land-cta-ghost    { transition: all 0.2s !important; }
         .land-cta-ghost:hover { border-color: rgba(255,255,255,0.22) !important; color: var(--ink) !important; }
+        @keyframes scrnFadeIn {
+          from { opacity: 0; transform: scale(1.012); }
+          to   { opacity: 1; transform: scale(1); }
+        }
+        .scrn-img { animation: scrnFadeIn 0.38s cubic-bezier(0.16,1,0.3,1) both; }
         @media (prefers-reduced-motion: reduce) {
           .land-blob, .land-hero-content { animation: none !important; }
           .land-hero-content { opacity: 1 !important; transform: none !important; }
+          .scrn-img { animation: none !important; }
         }
       `}</style>
 
@@ -1088,6 +1201,9 @@ export default function LandingView() {
               </div>
             </div>
           </section>
+
+          {/* 4b — Dashboard showcase */}
+          <DashboardShowcase />
 
           {/* 5 — Stats */}
           <section id="section-stats" ref={statsRef} style={{ minHeight: "60vh", display: "flex", alignItems: "center", padding: sectionPad }}>
