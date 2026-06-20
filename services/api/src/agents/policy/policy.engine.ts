@@ -132,6 +132,11 @@ export async function runPolicyEngine(
 
     const choice = completion.choices?.[0]
     const msg    = choice?.message
+    const toolNames = msg?.tool_calls?.map(tc => (tc.type === 'function' ? tc.function.name : 'unknown')).join(', ') ?? 'none'
+    console.log(
+      `[PolicyEngine][iter ${iteration + 1}] tools-called:[${toolNames}] | ` +
+      `finish_reason:${choice?.finish_reason ?? 'unknown'}`,
+    )
 
     if (!msg) break
 
@@ -204,6 +209,12 @@ export async function runPolicyEngine(
   }
 
   const rationale  = 'rationale' in intent ? intent.rationale : ''
+  const rationale2 = 'rationale' in (intent ?? {}) ? (intent as any).rationale as string : ''
+  console.log(
+    `[PolicyEngine] Decision — intent:${intent?.type ?? 'none'} | ` +
+    `toolTrace:[${toolCallTrace.join(' → ')}] | ` +
+    `rationale:"${rationale2.slice(0, 120)}"`,
+  )
   const confidence =
     intent.type === 'no_action'     ? 90 :
     intent.type === 'propose_trade' ? 65 :
