@@ -17,6 +17,7 @@ import positionRoutes                          from './routes/position.routes'
 import { opportunityRouter }                   from './routes/position.routes'
 import { startScheduler, isSchedulerRunning, startReflectionScheduler }  from './agents/loop/scheduler'
 import { startPositionMonitor, isPositionMonitorRunning } from './agents/loop/positionMonitor'
+import { startCandlePoller, isCandlePollerRunning } from './services/candlePoller.service'
 import agent from './routes/agent.routes';
 // ── S03 routes ────────────────────────────────────────────────────────────────
 import intelligenceRouter  from './routes/intelligence.routes'
@@ -102,6 +103,9 @@ async function start() {
   startReflectionScheduler()
   if (!isPositionMonitorRunning()) {
     startPositionMonitor()
+  }
+  if (!isCandlePollerRunning()) {
+    startCandlePoller(['bitcoin', 'ethereum'])
   }
 
   server.listen(4000, () => console.log('API ready on :4000'))
