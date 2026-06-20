@@ -45,6 +45,7 @@ export interface IPosition {
   maxHoldHours?:       number   // auto-exit if position exceeds this age without reaching TP1
   runnerActive?:       boolean  // true when a 10% runner remains after TP2 hit
   runnerTrailPct?:     number   // trailing stop % for the runner slice
+  bias?:               'long' | 'short'  // trade direction (required for correct SL/TP logic on shorts)
 }
 
 const PositionSchema = new Schema<IPosition>({
@@ -82,6 +83,7 @@ const PositionSchema = new Schema<IPosition>({
   maxHoldHours:        Number,
   runnerActive:        { type: Boolean, default: false },
   runnerTrailPct:      Number,
+  bias:                { type: String, enum: ['long', 'short'] },
 }, { timestamps: true })
 
 PositionSchema.index({ isOpen: 1, mode: 1 })

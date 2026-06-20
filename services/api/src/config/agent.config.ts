@@ -55,6 +55,9 @@ export interface AgentConfig {
 
   /** Hard cap on concurrent open positions regardless of correlation (default 6). */
   maxConcurrentPositions?: number
+
+  /** Maximum dollar risk per trade regardless of portfolio %. Prevents giant positions on tiny SL distances (default $150). */
+  maxRiskPerTradeUsd?: number
 }
 
 /** Seed values for a brand-new per-user agent config. */
@@ -71,4 +74,5 @@ export const DEFAULT_AGENT_CONFIG: AgentConfig = {
   riskPerTradePct: 1.0,
   maxPortfolioHeatPct: 5.0,
   maxConcurrentPositions: 6,
+  maxRiskPerTradeUsd: 150,
 }

@@ -191,6 +191,8 @@ async function persistExecution(
         entryExpiresAt:   new Date(Date.now() + LIMIT_ORDER_TTL_MS),
         framework:        intent.framework,
         confidence,
+        bias:             (intent as any).bias,
+        trailingStopPct:  (intent as any).trailingStopPct,
       })
     } else if (executionResult.status === 'filled' && executionResult.filledAmountUsd) {
       await PositionDoc.create({
@@ -214,6 +216,8 @@ async function persistExecution(
         maxHoldHours:     48,
         framework:        intent.framework,
         confidence,
+        bias:             (intent as any).bias,
+        trailingStopPct:  (intent as any).trailingStopPct,
       })
     }
   } catch (err: any) {

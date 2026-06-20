@@ -29,6 +29,8 @@ export interface TradeIntent {
   entryZoneLow?: number       // set by chartSignal strategy only — limit-order entry zone
   entryZoneHigh?: number      // set by chartSignal strategy only — limit-order entry zone
   framework?: string          // 'SmartMoney' | 'Wyckoff' | 'ElliottWave' | 'Harmonic'
+  bias?: 'long' | 'short'    // trade direction — required for correct SL/TP polarity
+  trailingStopPct?: number    // if set, server-side monitor ratchets SL up/down as price moves
 }
 
 export interface AlertIntent {

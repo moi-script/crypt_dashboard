@@ -40,9 +40,15 @@ function getClient(): OpenAI {
 }
 
 // ── Correlated asset groups — max 2 open from any one group ──────────────────
+// Groups reflect actual on-chain / market correlation, not just "crypto".
+// BTC/ETH are their own group; major L1s are a second group; L2s a third.
 
 const CORRELATED_GROUPS: Set<string>[] = [
-  new Set(['BTC', 'ETH', 'SOL', 'BNB', 'AVAX', 'MATIC', 'ARB', 'OP', 'NEAR', 'APT', 'SUI', 'INJ']),
+  new Set(['BTC', 'WBTC']),                              // BTC family — highly correlated
+  new Set(['ETH', 'WETH', 'stETH']),                     // ETH / LSTs — move together
+  new Set(['SOL', 'AVAX', 'NEAR', 'APT', 'SUI']),        // Alt-L1s — high beta to each other
+  new Set(['ARB', 'OP', 'MATIC', 'BASE']),               // L2 rollups — correlated governance & TVL flows
+  new Set(['BNB', 'INJ', 'TIA']),                        // BNB-ecosystem / Cosmos cluster
 ]
 
 // ── Session / macro-event risk ────────────────────────────────────────────────
@@ -88,9 +94,30 @@ function getSessionRisk(): { session: string; block: boolean; confidenceDelta: n
     return { session: 'Jobless Claims', block: false, confidenceDelta: -10, reason: 'Thursday 12:30 UTC jobless claims — confidence -10' }
   }
 
-  // FOMC: Wednesdays 18:00–20:00 UTC (rough window, real date varies)
-  if (day === 3 && h >= 18 && h < 20) {
-    return { session: 'FOMC Window', block: false, confidenceDelta: -10, reason: 'Wednesday FOMC window — confidence threshold raised' }
+  // FOMC: exact meeting dates — announcement at ~19:00 UTC (2pm ET / 1pm EDT)
+  // Block 18:00–21:00 UTC on these specific dates to catch prep + statement + press conf
+  // Dates are the SECOND day of each 2-day FOMC meeting (announcement day).
+  const FOMC_DATES: [number, number, number][] = [
+    // [year, month(1-12), day]
+    [2025, 1, 29], [2025, 3, 19], [2025, 5, 7],  [2025, 6, 18],
+    [2025, 7, 30], [2025, 9, 17], [2025, 10, 29], [2025, 12, 10],
+    [2026, 1, 28], [2026, 3, 18], [2026, 4, 29],  [2026, 6, 10],
+    [2026, 7, 29], [2026, 9, 16], [2026, 10, 28], [2026, 12, 9],
+  ]
+  const isFomcDay = FOMC_DATES.some(([y, mo, d]) => yr === y && mon + 1 === mo && dom === d)
+  if (isFomcDay && h >= 18 && h < 21) {
+    return { session: 'FOMC Window', block: false, confidenceDelta: -15, reason: 'FOMC announcement window 18:00–21:00 UTC — statement + Powell presser, confidence -15' }
+  }
+  // FOMC prep: first day of meeting, low confidence all afternoon
+  const FOMC_PREP_DATES: [number, number, number][] = [
+    [2025, 1, 28], [2025, 3, 18], [2025, 5, 6],  [2025, 6, 17],
+    [2025, 7, 29], [2025, 9, 16], [2025, 10, 28], [2025, 12, 9],
+    [2026, 1, 27], [2026, 3, 17], [2026, 4, 28],  [2026, 6, 9],
+    [2026, 7, 28], [2026, 9, 15], [2026, 10, 27], [2026, 12, 8],
+  ]
+  const isFomcPrepDay = FOMC_PREP_DATES.some(([y, mo, d]) => yr === y && mon + 1 === mo && dom === d)
+  if (isFomcPrepDay && h >= 14) {
+    return { session: 'FOMC Day 1', block: false, confidenceDelta: -10, reason: 'FOMC meeting day 1 afternoon — markets on hold, confidence -10' }
   }
 
   const sessionName = h < 8 ? 'Asian' : h < 16 ? 'London' : 'New York'
@@ -150,11 +177,15 @@ async function fetchFundingRate(symbol: string): Promise<number | null> {
 // ── Daily max loss: halt if today's realised P&L < -2% of portfolio ──────────
 
 async function checkDailyMaxLoss(userId: string, config: AgentConfig, portfolioUsd = 10_000): Promise<{ halt: boolean; reason?: string; dailyPnl: number }> {
-  const today = new Date()
-  today.setHours(0, 0, 0, 0)
+  // "Trading day" resets at 22:00 UTC (post-NY close / dead zone start), not UTC midnight.
+  // This prevents a 23:50 UTC blowup from resetting in 10 minutes.
+  const now = new Date()
+  const cutoff = new Date(now)
+  cutoff.setUTCHours(22, 0, 0, 0)
+  if (now.getUTCHours() < 22) cutoff.setUTCDate(cutoff.getUTCDate() - 1)
   const closedToday = await PositionDoc.find({
     userId, mode: config.mode, status: 'closed',
-    exitAt: { $gte: today },
+    exitAt: { $gte: cutoff },
   }).lean()
   if (!closedToday.length) return { halt: false, dailyPnl: 0 }
 
@@ -174,21 +205,37 @@ async function checkDailyMaxLoss(userId: string, config: AgentConfig, portfolioU
 
 async function fetchBtcMomentum(): Promise<{ movePct: number; block: boolean; blockShorts: boolean; note: string }> {
   try {
-    const r = await fetch('https://api.binance.com/api/v3/klines?symbol=BTCUSDT&interval=4h&limit=2')
-    if (!r.ok) return { movePct: 0, block: false, blockShorts: false, note: '' }
-    const klines = await r.json() as number[][]
-    if (!klines?.length) return { movePct: 0, block: false, blockShorts: false, note: '' }
-    const prevClose = parseFloat(String(klines[0][4]))
-    const currOpen  = parseFloat(String(klines[1][1]))
-    const movePct   = prevClose > 0 ? (currOpen - prevClose) / prevClose * 100 : 0
-    const block       = movePct <= -2.5
-    const blockShorts = movePct >= 3.0
+    const [r4h, r1h] = await Promise.all([
+      fetch('https://api.binance.com/api/v3/klines?symbol=BTCUSDT&interval=4h&limit=2'),
+      fetch('https://api.binance.com/api/v3/klines?symbol=BTCUSDT&interval=1h&limit=2'),
+    ])
+    if (!r4h.ok) return { movePct: 0, block: false, blockShorts: false, note: '' }
+
+    const klines4h = await r4h.json() as number[][]
+    const prevClose4h = parseFloat(String(klines4h[0][4]))
+    const currOpen4h  = parseFloat(String(klines4h[1][1]))
+    const move4h = prevClose4h > 0 ? (currOpen4h - prevClose4h) / prevClose4h * 100 : 0
+
+    let move1h = 0
+    if (r1h.ok) {
+      const klines1h   = await r1h.json() as number[][]
+      const prevClose1h = parseFloat(String(klines1h[0][4]))
+      const currOpen1h  = parseFloat(String(klines1h[1][1]))
+      move1h = prevClose1h > 0 ? (currOpen1h - prevClose1h) / prevClose1h * 100 : 0
+    }
+
+    // Block longs: 4H alone bearish -2.5%, OR compounding weakness on both TFs
+    const block = move4h <= -2.5 || (move4h <= -1.5 && move1h <= -1.5)
+    // Block shorts: 4H alone pumping +3%, OR compounding strength on both TFs
+    const blockShorts = move4h >= 3.0 || (move4h >= 2.0 && move1h >= 1.5)
+
+    const movePct = move4h  // primary reference for logging
     const note = block
-      ? ` [⚠ BTC -${Math.abs(movePct).toFixed(1)}% on 4H — altcoin long risk elevated, blocking]`
+      ? ` [⚠ BTC 4H ${move4h.toFixed(1)}% / 1H ${move1h.toFixed(1)}% — long risk elevated, blocking]`
       : blockShorts
-      ? ` [⚠ BTC +${movePct.toFixed(1)}% on 4H — short squeeze risk, blocking altcoin shorts]`
-      : movePct <= -1.5
-      ? ` [BTC -${Math.abs(movePct).toFixed(1)}% on 4H — caution]`
+      ? ` [⚠ BTC 4H +${move4h.toFixed(1)}% / 1H +${move1h.toFixed(1)}% — short squeeze risk, blocking]`
+      : move4h <= -1.5
+      ? ` [BTC -${Math.abs(move4h).toFixed(1)}% on 4H — caution]`
       : ''
     return { movePct, block, blockShorts, note }
   } catch { return { movePct: 0, block: false, blockShorts: false, note: '' } }
@@ -484,12 +531,15 @@ async function autoExecuteBest(
     return 'completed'
   }
 
-  // ── Re-entry block: 4h cooldown after stop-out in same direction ──────────
+  // ── Re-entry block: 4h cooldown after stop-out, same direction only ──────
   if (recentStopOut) {
     const stoppedBias = (recentStopOut as any).bias as string | undefined
-    const blocked = !stoppedBias || stoppedBias === signalBias  // block if same direction or unknown
+    // If bias wasn't stored (legacy position), block conservatively
+    const blocked = !stoppedBias || stoppedBias === signalBias
     if (blocked) {
-      skipAll(`[Re-entry block] ${symbol} stopped out $${(recentStopOut.realizedPnlUsd ?? 0).toFixed(2)} in last 4h — 4h ${signalBias} cooldown after loss`)
+      const oppDir = signalBias === 'long' ? 'short' : 'long'
+      const hint = stoppedBias ? '' : ` (bias unknown — reverse ${oppDir} setup may be allowed once position records bias)`
+      skipAll(`[Re-entry block] ${symbol} stopped out $${(recentStopOut.realizedPnlUsd ?? 0).toFixed(2)} in last 4h — ${signalBias} cooldown active${hint}`)
       return 'completed'
     }
   }
@@ -509,18 +559,35 @@ async function autoExecuteBest(
     }
   }
 
-  // ── Portfolio heat check: total open-position risk must stay < heat cap ───
+  // ── Portfolio heat check: use live prices so heat reflects current distance to SL ──
+  // Remaining risk = |livePrice - SL| × units. Avoids overstating heat on a position
+  // that is already deep in profit (SL ratcheted up) and understating on a loser near its SL.
   const riskPct    = (config.riskPerTradePct ?? 1.0) / 100
   const heatCapPct = (config.maxPortfolioHeatPct ?? 5.0) / 100
+
   let totalOpenRiskUsd = 0
-  for (const pos of allOpen) {
-    if (!pos.entryPrice || !pos.stopLossPrice || !pos.entryAmountUsd) continue
-    const slDist = Math.abs(pos.entryPrice - pos.stopLossPrice) / pos.entryPrice
-    totalOpenRiskUsd += slDist * pos.entryAmountUsd
+  if (allOpen.length > 0) {
+    const openSymbols = [...new Set(allOpen.map(p => p.tokenOut))]
+    const livePrices: Record<string, number> = {}
+    await Promise.all(openSymbols.map(async sym => {
+      try {
+        const r = await fetch(`https://api.binance.com/api/v3/ticker/price?symbol=${sym}USDT`)
+        if (r.ok) { const d = await r.json() as { price: string }; livePrices[sym] = parseFloat(d.price) }
+      } catch { /* use entry price as fallback */ }
+    }))
+
+    for (const pos of allOpen) {
+      if (!pos.entryPrice || !pos.stopLossPrice || !pos.entryAmountUsd) continue
+      const livePrice = livePrices[pos.tokenOut] ?? pos.entryPrice
+      const units     = pos.entryAmountUsd / pos.entryPrice
+      const remaining = Math.abs(livePrice - pos.stopLossPrice) * units
+      totalOpenRiskUsd += Math.max(0, remaining)
+    }
   }
+
   const heatCapUsd = portfolioUsd * heatCapPct
   if (totalOpenRiskUsd >= heatCapUsd) {
-    skipAll(`[Portfolio heat] Open risk $${totalOpenRiskUsd.toFixed(0)} already at ${(heatCapPct * 100).toFixed(0)}% cap ($${heatCapUsd.toFixed(0)}) — wait for exits`)
+    skipAll(`[Portfolio heat] Live open risk $${totalOpenRiskUsd.toFixed(0)} at ${(heatCapPct * 100).toFixed(0)}% cap ($${heatCapUsd.toFixed(0)}) — wait for exits or trailing SL tightening`)
     return 'completed'
   }
 
@@ -605,6 +672,38 @@ async function autoExecuteBest(
     qualifying.push(...afterCooldown)
   }
 
+  // ── Cross-symbol ranking: don't execute if a better signal exists in watchlist ──
+  // Prevents taking a 65% signal on SOL when BTC just ran an 82% signal in the same loop.
+  // Uses recent CoinAnalysisRun records (<30 min) for other watchlist symbols.
+  const thisConf = Math.max(...qualifying.map(c => c.signal!.confidence + c.newsImpact.confidenceDelta))
+  try {
+    const watchlistSymbols = (config.watchlist ?? []).map(s => s.toUpperCase()).filter(s => s !== symbol.toUpperCase())
+    if (watchlistSymbols.length > 0) {
+      const recentOtherRuns = await CoinAnalysisRunDoc.find({
+        userId,
+        symbol: { $in: watchlistSymbols },
+        status: { $in: ['completed', 'auto_executed', 'pending_approval'] },
+        completedAt: { $gte: new Date(Date.now() - 30 * 60 * 1000) },
+      }).select('symbol strategyCards').lean()
+
+      let bestOtherConf = 0
+      let bestOtherSymbol = ''
+      for (const run of recentOtherRuns) {
+        for (const card of run.strategyCards ?? []) {
+          if (!card.signal || card.approvalStatus === 'skipped') continue
+          const conf = (card.signal as any).confidence + ((card.newsImpact as any)?.confidenceDelta ?? 0)
+          if (conf > bestOtherConf) { bestOtherConf = conf; bestOtherSymbol = run.symbol }
+        }
+      }
+
+      // Only defer if the other signal is meaningfully stronger (>5% margin to avoid flip-flopping)
+      if (bestOtherConf > thisConf + 5) {
+        skipAll(`[Cross-symbol rank] ${symbol} ${thisConf}% conf — deferring to ${bestOtherSymbol} (${bestOtherConf}%) in same loop`)
+        return 'completed'
+      }
+    }
+  } catch { /* non-fatal — proceed if ranking check fails */ }
+
   // ── Policy engine gate: LLM validates card results before execution ───────
   // The LLM sees the deterministic strategy signals AND can call read tools.
   // If it disagrees with the chart signals, it vetoes the trade.
@@ -665,17 +764,20 @@ async function autoExecuteBest(
   const agreeingCount = qualifying.filter(c => c.signal?.bias === best.signal!.bias).length
   const confluenceMultiplier = Math.min(1.15, 1 + (agreeingCount - 1) * 0.08)
 
-  // ── Position sizing: risk riskPerTradePct of portfolio, sized by SL distance ──
-  // Use worst-case fill (zone high for longs) to match R:R filter — consistent risk calc.
+  // ── Position sizing: risk-based with absolute dollar cap ─────────────────
+  // Use worst-case fill (zone high for longs) for consistency with R:R filter.
+  // Cap dollar risk at min(portfolio%, maxRiskPerTradeUsd) to prevent giant notional
+  // positions on tight SLs (e.g. 0.2% SL distance on $10k portfolio = $50k position).
   const worstFillEntry = best.signal!.bias === 'long'
     ? best.signal!.entry_zone.high
     : best.signal!.entry_zone.low
   const slDistance = worstFillEntry > 0 && best.signal!.stop_loss > 0
     ? Math.abs(worstFillEntry - best.signal!.stop_loss) / worstFillEntry
     : 0.02
-  const portfolioRisk  = portfolioUsd * riskPct
-  const riskBasedSize  = slDistance > 0 ? portfolioRisk / slDistance : config.maxTradeUsd
-  const tradeAmount    = Math.min(riskBasedSize * confluenceMultiplier, config.maxTradeUsd)
+  const portfolioRiskPct = portfolioUsd * riskPct
+  const maxRiskUsd       = Math.min(portfolioRiskPct, config.maxRiskPerTradeUsd ?? 150)
+  const riskBasedSize    = slDistance > 0 ? maxRiskUsd / slDistance : config.maxTradeUsd
+  const tradeAmount      = Math.min(riskBasedSize * confluenceMultiplier, config.maxTradeUsd)
 
   // ── Volume (already fetched in parallel above) ────────────────────────────
   const isLowVol = vol24h !== null && vol24h < 30_000_000
@@ -718,6 +820,7 @@ async function autoExecuteBest(
   const finalTradeAmount = tradeAmount * drawdownSizeMultiplier * atrSizeMultiplier * volumeSizeMultiplier
   const regimeNote = regime.warning ? ` [${regime.warning}]` : ` [regime: ${regime.regime} ADX ${regime.adx.toFixed(0)}]`
 
+  const signalBiasDir = best.signal!.bias as 'long' | 'short'
   const intent: TradeIntent = {
     type:             'propose_trade',
     tokenIn:          'USDC',
@@ -726,7 +829,7 @@ async function autoExecuteBest(
     maxSlippageBps:   50,
     rationale:        best.signal!.reasoning +
                       (agreeingCount >= 2 ? ` [${agreeingCount} frameworks confluent]` : '') +
-                      ` [risk-sized: 1% of $${(walletState.totalValueUsd ?? 0).toFixed(0)} / ${(slDistance * 100).toFixed(1)}% SL = $${finalTradeAmount.toFixed(0)}]` +
+                      ` [risk-sized: $${maxRiskUsd.toFixed(0)} max-risk / ${(slDistance * 100).toFixed(1)}% SL = $${finalTradeAmount.toFixed(0)} notional]` +
                       volumeTag + drawdownNote + atrNote + slBufferNote + regimeNote + fundingNote + btcMomentum.note,
     stopLossPrice:    adjustedSL,
     takeProfitPrice:  best.signal!.take_profit_levels[0],
@@ -734,12 +837,21 @@ async function autoExecuteBest(
     entryZoneLow:     best.signal!.entry_zone.low,
     entryZoneHigh:    best.signal!.entry_zone.high,
     framework:        best.framework,
+    bias:             signalBiasDir,
   } as TradeIntent & { takeProfitPrice2?: number }
 
   await executeIntent(intent, walletState, {
     userId, config, runId: coinAnalysisRunId, strategy: 'chartSignal',
     rationale: intent.rationale, confidence: adjustedConf,
   })
+
+  console.log(
+    `[AUTO_EXECUTE] ${symbol} ${signalBiasDir.toUpperCase()} — ${best.framework} ${adjustedConf}% conf` +
+    ` | entry $${best.signal!.entry_zone.low}–$${best.signal!.entry_zone.high}` +
+    ` | SL $${adjustedSL} | TP $${best.signal!.take_profit_levels[0]}` +
+    ` | size $${finalTradeAmount.toFixed(0)} (risk $${maxRiskUsd.toFixed(0)})` +
+    ` | user ${userId}`,
+  )
 
   for (const card of cards) {
     card.approvalStatus = card === best ? 'auto_executed' : 'skipped'

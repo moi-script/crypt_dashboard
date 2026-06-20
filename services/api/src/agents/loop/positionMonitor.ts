@@ -244,7 +244,7 @@ export async function runPositionMonitorSweep(): Promise<void> {
     }
   }
 
-  // ── Server-side trailing stop: ratchet SL up as price rises ─────────────
+  // ── Server-side trailing stop: ratchet SL up (longs) or down (shorts) ───
   for (const position of openPositions) {
     const runnerTrailPct = (position as any).runnerTrailPct as number | undefined
     const trailPct = (position as any).trailingStopPct as number | undefined ?? runnerTrailPct
@@ -252,19 +252,39 @@ export async function runPositionMonitorSweep(): Promise<void> {
     const currentPrice = prices[position.tokenOut]
     if (!currentPrice) continue
 
-    const hwm       = ((position as any).highWaterMarkPrice as number | undefined) ?? position.entryPrice
-    const newHwm    = Math.max(hwm, currentPrice)
-    const newTrailSL = parseFloat((newHwm * (1 - trailPct / 100)).toFixed(4))
-    const currentSL  = position.stopLossPrice ?? 0
+    const positionBias = (position as any).bias as 'long' | 'short' | undefined
+    const posIsLong = !positionBias || positionBias === 'long'
 
-    if (newHwm > hwm || newTrailSL > currentSL) {
-      const update: Record<string, number> = { highWaterMarkPrice: newHwm }
-      if (newTrailSL > currentSL) update.stopLossPrice = newTrailSL
-      await PositionDoc.updateOne({ positionId: position.positionId }, { $set: update }).catch(() => {})
-      if (newTrailSL > currentSL) {
-        console.log(`[PositionMonitor] Trail: ${position.positionId} SL $${currentSL.toFixed(4)} → $${newTrailSL.toFixed(4)} (HWM $${newHwm.toFixed(4)})`)
-        // Refresh in-memory value so the SL/TP check below uses the new SL
-        position.stopLossPrice = newTrailSL
+    if (posIsLong) {
+      const hwm        = ((position as any).highWaterMarkPrice as number | undefined) ?? position.entryPrice
+      const newHwm     = Math.max(hwm, currentPrice)
+      const newTrailSL = parseFloat((newHwm * (1 - trailPct / 100)).toFixed(4))
+      const currentSL  = position.stopLossPrice ?? 0
+
+      if (newHwm > hwm || newTrailSL > currentSL) {
+        const update: Record<string, number> = { highWaterMarkPrice: newHwm }
+        if (newTrailSL > currentSL) update.stopLossPrice = newTrailSL
+        await PositionDoc.updateOne({ positionId: position.positionId }, { $set: update }).catch(() => {})
+        if (newTrailSL > currentSL) {
+          console.log(`[PositionMonitor] Trail (long): ${position.positionId} SL $${currentSL.toFixed(4)} → $${newTrailSL.toFixed(4)} (HWM $${newHwm.toFixed(4)})`)
+          position.stopLossPrice = newTrailSL
+        }
+      }
+    } else {
+      // Short: low-water-mark, trail SL downward
+      const lwm        = ((position as any).highWaterMarkPrice as number | undefined) ?? position.entryPrice
+      const newLwm     = Math.min(lwm, currentPrice)
+      const newTrailSL = parseFloat((newLwm * (1 + trailPct / 100)).toFixed(4))
+      const currentSL  = position.stopLossPrice ?? Infinity
+
+      if (newLwm < lwm || newTrailSL < currentSL) {
+        const update: Record<string, number> = { highWaterMarkPrice: newLwm }
+        if (newTrailSL < currentSL) update.stopLossPrice = newTrailSL
+        await PositionDoc.updateOne({ positionId: position.positionId }, { $set: update }).catch(() => {})
+        if (newTrailSL < currentSL) {
+          console.log(`[PositionMonitor] Trail (short): ${position.positionId} SL $${currentSL.toFixed(4)} → $${newTrailSL.toFixed(4)} (LWM $${newLwm.toFixed(4)})`)
+          position.stopLossPrice = newTrailSL
+        }
       }
     }
   }
@@ -282,8 +302,10 @@ export async function runPositionMonitorSweep(): Promise<void> {
     // Only time-exit if price hasn't moved meaningfully toward TP1 (< 25% of the way)
     const tp = position.takeProfitPrice
     if (tp && position.entryPrice) {
-      const totalMove  = tp - position.entryPrice
-      const actualMove = currentPrice - position.entryPrice
+      const timeBias   = (position as any).bias as 'long' | 'short' | undefined
+      const timeIsLong = !timeBias || timeBias === 'long'
+      const totalMove  = Math.abs(tp - position.entryPrice)
+      const actualMove = timeIsLong ? currentPrice - position.entryPrice : position.entryPrice - currentPrice
       if (totalMove > 0 && actualMove / totalMove >= 0.25) continue // trade is progressing, let it run
     }
 
@@ -300,24 +322,28 @@ export async function runPositionMonitorSweep(): Promise<void> {
     const currentPrice = prices[position.tokenOut]
     if (!currentPrice) continue
 
-    const hitStopLoss   = position.stopLossPrice   !== undefined && currentPrice <= position.stopLossPrice
-    const hitTakeProfit = position.takeProfitPrice !== undefined && currentPrice >= position.takeProfitPrice
+    const bias     = (position as any).bias as 'long' | 'short' | undefined
+    const isLong   = !bias || bias === 'long'  // default long for backward compat
+    const FEE_PCT  = 0.001  // taker fee on partial exits (full closes use executePaper which already fees)
+
+    const hitStopLoss   = position.stopLossPrice   !== undefined && (isLong ? currentPrice <= position.stopLossPrice : currentPrice >= position.stopLossPrice)
+    const hitTakeProfit = position.takeProfitPrice !== undefined && (isLong ? currentPrice >= position.takeProfitPrice : currentPrice <= position.takeProfitPrice)
     if (!hitStopLoss && !hitTakeProfit) continue
 
     try {
       const tp2          = (position as any).takeProfitPrice2 as number | undefined
       const tp1ScaledOut = (position as any).tp1ScaledOut as boolean | undefined
-
       const runnerActive = (position as any).runnerActive as boolean | undefined
 
-      // TP1 hit + TP2 exists + not yet scaled → do 50% exit, move SL to BE, switch to TP2
+      // TP1 hit + TP2 exists + not yet scaled → 50% exit, move SL to BE, switch to TP2
       if (hitTakeProfit && tp2 && !tp1ScaledOut && position.entryPrice) {
         const halfAmount = position.entryAmountUsd * 0.5
-        const pnlPct     = (currentPrice - position.entryPrice) / position.entryPrice
-        const partialPnl = parseFloat((halfAmount * pnlPct).toFixed(4))
+        const pnlPct     = isLong
+          ? (currentPrice - position.entryPrice) / position.entryPrice
+          : (position.entryPrice - currentPrice) / position.entryPrice
+        const partialPnl = parseFloat((halfAmount * pnlPct * (1 - FEE_PCT)).toFixed(4))
         console.log(`[PositionMonitor] TP1 scale-out: ${position.positionId} — exit 50% @ $${currentPrice}, locked PnL $${partialPnl.toFixed(2)}, SL → BE, TP → $${tp2}`)
 
-        // Record the partial exit as a closed order so it appears in P&L stats
         await OrderDoc.create({
           orderId:         `order-tp1-${generateMyId(10)}`,
           runId:           (position as any).runId ?? `monitor-${generateMyId(10)}`,
@@ -328,43 +354,66 @@ export async function runPositionMonitorSweep(): Promise<void> {
           tokenOut:        position.tokenIn,
           amountUsd:       halfAmount,
           status:          'filled',
-          filledAmountUsd: parseFloat((halfAmount * (1 + pnlPct)).toFixed(4)),
+          filledAmountUsd: parseFloat((halfAmount * (1 + pnlPct) * (1 - FEE_PCT)).toFixed(4)),
           entryPrice:      currentPrice,
-          feesUsd:         parseFloat((halfAmount * 0.001).toFixed(4)),
+          feesUsd:         parseFloat((halfAmount * FEE_PCT).toFixed(4)),
           executedAt:      new Date(),
           positionId:      position.positionId,
         })
 
+        // BE stop: for longs = entryPrice, for shorts = entryPrice (same concept, opposite polarity)
+        const beStop = position.entryPrice
         await PositionDoc.updateOne({ positionId: position.positionId }, {
           $set: {
             entryAmountUsd:  halfAmount,
-            stopLossPrice:   position.entryPrice,
+            stopLossPrice:   beStop,
             takeProfitPrice: tp2,
             tp1ScaledOut:    true,
           },
           $inc: { realizedPnlUsd: partialPnl },
         })
 
-      // TP2 hit after TP1 scale-out + no runner yet → exit 90%, keep 10% as runner with 5% trail
+      // TP2 hit after TP1 scale-out + no runner yet → exit 90%, keep 10% runner with 5% trail
       } else if (hitTakeProfit && tp1ScaledOut && !runnerActive && position.entryPrice) {
         const runnerAmount   = position.entryAmountUsd * 0.10
         const exitAmount     = position.entryAmountUsd * 0.90
         const runnerTrailPct = 5
-        const runnerSL       = parseFloat((currentPrice * (1 - runnerTrailPct / 100)).toFixed(4))
-        console.log(`[PositionMonitor] TP2 hit — keeping 10% runner @ $${runnerAmount.toFixed(2)}, trail ${runnerTrailPct}% SL $${runnerSL}`)
-        // Simulate partial exit at current price (record PnL for the 90% slice)
-        const pnlPct    = position.entryPrice > 0 ? (currentPrice - position.entryPrice) / position.entryPrice : 0
-        const partialPnl = exitAmount * pnlPct
+        const runnerSL       = isLong
+          ? parseFloat((currentPrice * (1 - runnerTrailPct / 100)).toFixed(4))
+          : parseFloat((currentPrice * (1 + runnerTrailPct / 100)).toFixed(4))
+        const pnlPct     = position.entryPrice > 0
+          ? (isLong ? (currentPrice - position.entryPrice) / position.entryPrice
+                    : (position.entryPrice - currentPrice) / position.entryPrice)
+          : 0
+        const partialPnl = parseFloat((exitAmount * pnlPct * (1 - FEE_PCT)).toFixed(4))
+        console.log(`[PositionMonitor] TP2 hit — keeping 10% runner @ $${runnerAmount.toFixed(2)}, trail ${runnerTrailPct}% SL $${runnerSL}, locked PnL $${partialPnl.toFixed(2)}`)
+
+        await OrderDoc.create({
+          orderId:         `order-tp2-${generateMyId(10)}`,
+          runId:           (position as any).runId ?? `monitor-${generateMyId(10)}`,
+          userId:          position.userId,
+          mode:            'paper',
+          intentType:      'partial_exit',
+          tokenIn:         position.tokenOut,
+          tokenOut:        position.tokenIn,
+          amountUsd:       exitAmount,
+          status:          'filled',
+          filledAmountUsd: parseFloat((exitAmount * (1 + pnlPct) * (1 - FEE_PCT)).toFixed(4)),
+          entryPrice:      currentPrice,
+          feesUsd:         parseFloat((exitAmount * FEE_PCT).toFixed(4)),
+          executedAt:      new Date(),
+          positionId:      position.positionId,
+        })
+
         await PositionDoc.updateOne({ positionId: position.positionId }, {
           $set: {
-            entryAmountUsd:  runnerAmount,
-            stopLossPrice:   runnerSL,
-            takeProfitPrice: undefined,   // let the runner ride with trailing stop only
-            runnerActive:    true,
-            runnerTrailPct:  runnerTrailPct,
+            entryAmountUsd:     runnerAmount,
+            stopLossPrice:      runnerSL,
+            runnerActive:       true,
+            runnerTrailPct:     runnerTrailPct,
             highWaterMarkPrice: currentPrice,
-            realizedPnlUsd:  (position as any).realizedPnlUsd ? (position as any).realizedPnlUsd + partialPnl : partialPnl,
           },
+          $inc:  { realizedPnlUsd: partialPnl },
           $unset: { takeProfitPrice: '' },
         })
 
@@ -375,9 +424,12 @@ export async function runPositionMonitorSweep(): Promise<void> {
         await closePosition(position, slExitPrice, 'stop_loss')
 
       } else {
+        // Full close: apply SL slippage model for stops; model taker fee for TP exits
         const exitPrice = hitStopLoss
           ? computeSlExitPrice(currentPrice, position.stopLossPrice)
-          : currentPrice
+          : isLong
+            ? parseFloat((currentPrice * (1 - FEE_PCT)).toFixed(4))   // TP fee for longs
+            : parseFloat((currentPrice * (1 + FEE_PCT)).toFixed(4))   // TP fee for shorts (higher price = worse fill)
         await closePosition(position, exitPrice, hitStopLoss ? 'stop_loss' : 'take_profit')
       }
     } catch (err: any) {
