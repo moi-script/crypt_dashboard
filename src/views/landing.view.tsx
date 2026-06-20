@@ -112,6 +112,20 @@ function LandingNav({ show }: { show: boolean }) {
         ))}
       </div>
 
+      <a
+        href="https://github.com/moi-script/crypt_dashboard"
+        target="_blank"
+        rel="noopener noreferrer"
+        title="View source on GitHub"
+        style={{ display: "flex", alignItems: "center", padding: "6px 8px", borderRadius: 8, color: "var(--ink-muted)", transition: "color 0.15s", marginRight: 8 }}
+        onMouseEnter={e => { (e.currentTarget as HTMLAnchorElement).style.color = "var(--ink)"; }}
+        onMouseLeave={e => { (e.currentTarget as HTMLAnchorElement).style.color = "var(--ink-muted)"; }}
+      >
+        <svg viewBox="0 0 24 24" fill="currentColor" width="17" height="17" aria-hidden="true">
+          <path d="M12 2C6.477 2 2 6.484 2 12.017c0 4.425 2.865 8.18 6.839 9.504.5.092.682-.217.682-.483 0-.237-.008-.868-.013-1.703-2.782.605-3.369-1.343-3.369-1.343-.454-1.158-1.11-1.466-1.11-1.466-.908-.62.069-.608.069-.608 1.003.07 1.531 1.032 1.531 1.032.892 1.53 2.341 1.088 2.91.832.092-.647.35-1.088.636-1.338-2.22-.253-4.555-1.113-4.555-4.951 0-1.093.39-1.988 1.029-2.688-.103-.253-.446-1.272.098-2.65 0 0 .84-.27 2.75 1.026A9.564 9.564 0 0112 6.844c.85.004 1.705.115 2.504.337 1.909-1.296 2.747-1.027 2.747-1.027.546 1.379.202 2.398.1 2.651.64.7 1.028 1.595 1.028 2.688 0 3.848-2.339 4.695-4.566 4.943.359.309.678.92.678 1.855 0 1.338-.012 2.419-.012 2.747 0 .268.18.58.688.482A10.019 10.019 0 0022 12.017C22 6.484 17.522 2 12 2z" />
+        </svg>
+      </a>
+
       <Link href="/login" style={{ padding: "7px 18px", borderRadius: 8, fontFamily: "var(--font-mono)", fontSize: 10, fontWeight: 600, letterSpacing: "0.12em", textTransform: "uppercase", textDecoration: "none", color: "var(--cyan)", border: "1px solid rgba(0,212,255,0.28)", background: "rgba(0,212,255,0.06)", transition: "all 0.2s" }}>
         Sign In
       </Link>
@@ -186,8 +200,20 @@ function Footer() {
         </div>
       </div>
       <div style={{ marginTop: "2.5rem", paddingTop: "1.5rem", borderTop: "1px solid rgba(255,255,255,0.04)", display: "flex", justifyContent: "space-between", flexWrap: "wrap", gap: 10 }}>
-        <span style={{ fontFamily: "var(--font-mono)", fontSize: 10, color: "var(--ink-faint)" }}>© 2026 CRPTX Terminal</span>
-        <span style={{ fontFamily: "var(--font-mono)", fontSize: 10, color: "var(--ink-faint)" }}>Educational purposes only · Not financial advice.</span>
+        <span style={{ fontFamily: "var(--font-mono)", fontSize: 10, color: "var(--ink-faint)" }}>© 2026 CRPTX Terminal · Educational purposes only · Not financial advice.</span>
+        <a
+          href="https://github.com/moi-script/crypt_dashboard"
+          target="_blank"
+          rel="noopener noreferrer"
+          style={{ display: "inline-flex", alignItems: "center", gap: 6, fontFamily: "var(--font-mono)", fontSize: 10, color: "var(--ink-faint)", textDecoration: "none", transition: "color 0.15s" }}
+          onMouseEnter={e => { (e.currentTarget as HTMLAnchorElement).style.color = "var(--ink-soft)"; }}
+          onMouseLeave={e => { (e.currentTarget as HTMLAnchorElement).style.color = "var(--ink-faint)"; }}
+        >
+          <svg viewBox="0 0 24 24" fill="currentColor" width="12" height="12" aria-hidden="true">
+            <path d="M12 2C6.477 2 2 6.484 2 12.017c0 4.425 2.865 8.18 6.839 9.504.5.092.682-.217.682-.483 0-.237-.008-.868-.013-1.703-2.782.605-3.369-1.343-3.369-1.343-.454-1.158-1.11-1.466-1.11-1.466-.908-.62.069-.608.069-.608 1.003.07 1.531 1.032 1.531 1.032.892 1.53 2.341 1.088 2.91.832.092-.647.35-1.088.636-1.338-2.22-.253-4.555-1.113-4.555-4.951 0-1.093.39-1.988 1.029-2.688-.103-.253-.446-1.272.098-2.65 0 0 .84-.27 2.75 1.026A9.564 9.564 0 0112 6.844c.85.004 1.705.115 2.504.337 1.909-1.296 2.747-1.027 2.747-1.027.546 1.379.202 2.398.1 2.651.64.7 1.028 1.595 1.028 2.688 0 3.848-2.339 4.695-4.566 4.943.359.309.678.92.678 1.855 0 1.338-.012 2.419-.012 2.747 0 .268.18.58.688.482A10.019 10.019 0 0022 12.017C22 6.484 17.522 2 12 2z" />
+          </svg>
+          moi-script/crypt_dashboard
+        </a>
       </div>
     </footer>
   );
@@ -801,6 +827,7 @@ export default function LandingView() {
   const { data: coins, isError: coinsError } = useCoinList();
   const [activeSection, setActiveSection] = useState<ActiveSection>("hero");
   const [navShow, setNavShow] = useState(false);
+  const [show3D, setShow3D] = useState(true);
 
   // Smooth scroll
   useEffect(() => {
@@ -910,7 +937,7 @@ export default function LandingView() {
               <div className="land-blob" style={{ position: "absolute", width: 680, height: 600, borderRadius: "50%", background: "radial-gradient(circle, rgba(0,212,255,0.065), transparent 65%)", top: "-15%", left: "-12%", animation: "drift1 9s ease-in-out infinite" }} />
               <div className="land-blob" style={{ position: "absolute", width: 540, height: 540, borderRadius: "50%", background: "radial-gradient(circle, rgba(167,139,250,0.055), transparent 65%)", bottom: "-15%", right: "-8%", animation: "drift2 11s ease-in-out infinite" }} />
               <div className="retro-grid" style={{ position: "absolute", inset: 0, opacity: 0.025 }} />
-              <HeroBg3D />
+              {show3D && <HeroBg3D />}
             </div>
 
             <div className="land-hero-content" style={{ position: "relative", zIndex: 1, maxWidth: 680 }}>
@@ -928,6 +955,31 @@ export default function LandingView() {
                 <Link href="/register" className="land-cta-ghost" style={{ display: "inline-flex", alignItems: "center", padding: "14px 30px", borderRadius: 12, fontFamily: "var(--font-mono)", fontSize: 11, fontWeight: 600, letterSpacing: "0.14em", textTransform: "uppercase", textDecoration: "none", color: "var(--ink-soft)", background: "transparent", border: "1px solid rgba(255,255,255,0.1)", cursor: "pointer" }}>
                   Create Account
                 </Link>
+              </div>
+
+              {/* Sub-row: 3D toggle + GitHub */}
+              <div style={{ display: "flex", alignItems: "center", gap: 10, marginTop: 20, flexWrap: "wrap" }}>
+                <button
+                  onClick={() => setShow3D(v => !v)}
+                  style={{ display: "inline-flex", alignItems: "center", gap: 7, padding: "7px 13px", borderRadius: 8, fontFamily: "var(--font-mono)", fontSize: 10, letterSpacing: "0.12em", textTransform: "uppercase", cursor: "pointer", background: "transparent", border: `1px solid ${show3D ? "rgba(0,212,255,0.28)" : "rgba(255,255,255,0.08)"}`, color: show3D ? "var(--cyan)" : "var(--ink-faint)", transition: "all 0.2s" }}
+                >
+                  <span style={{ width: 6, height: 6, borderRadius: "50%", background: show3D ? "var(--cyan)" : "rgba(255,255,255,0.2)", boxShadow: show3D ? "0 0 6px var(--cyan)" : "none", flexShrink: 0, transition: "all 0.2s" }} />
+                  Live 3D {show3D ? "On" : "Off"}
+                </button>
+
+                <a
+                  href="https://github.com/moi-script/crypt_dashboard"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  style={{ display: "inline-flex", alignItems: "center", gap: 7, padding: "7px 13px", borderRadius: 8, fontFamily: "var(--font-mono)", fontSize: 10, letterSpacing: "0.12em", textTransform: "uppercase", textDecoration: "none", color: "var(--ink-muted)", border: "1px solid rgba(255,255,255,0.08)", background: "transparent", transition: "all 0.2s" }}
+                  onMouseEnter={e => { const el = e.currentTarget as HTMLAnchorElement; el.style.borderColor = "rgba(255,255,255,0.18)"; el.style.color = "var(--ink)"; }}
+                  onMouseLeave={e => { const el = e.currentTarget as HTMLAnchorElement; el.style.borderColor = "rgba(255,255,255,0.08)"; el.style.color = "var(--ink-muted)"; }}
+                >
+                  <svg viewBox="0 0 24 24" fill="currentColor" width="13" height="13" aria-hidden="true">
+                    <path d="M12 2C6.477 2 2 6.484 2 12.017c0 4.425 2.865 8.18 6.839 9.504.5.092.682-.217.682-.483 0-.237-.008-.868-.013-1.703-2.782.605-3.369-1.343-3.369-1.343-.454-1.158-1.11-1.466-1.11-1.466-.908-.62.069-.608.069-.608 1.003.07 1.531 1.032 1.531 1.032.892 1.53 2.341 1.088 2.91.832.092-.647.35-1.088.636-1.338-2.22-.253-4.555-1.113-4.555-4.951 0-1.093.39-1.988 1.029-2.688-.103-.253-.446-1.272.098-2.65 0 0 .84-.27 2.75 1.026A9.564 9.564 0 0112 6.844c.85.004 1.705.115 2.504.337 1.909-1.296 2.747-1.027 2.747-1.027.546 1.379.202 2.398.1 2.651.64.7 1.028 1.595 1.028 2.688 0 3.848-2.339 4.695-4.566 4.943.359.309.678.92.678 1.855 0 1.338-.012 2.419-.012 2.747 0 .268.18.58.688.482A10.019 10.019 0 0022 12.017C22 6.484 17.522 2 12 2z" />
+                  </svg>
+                  View Source
+                </a>
               </div>
             </div>
           </section>
