@@ -20,6 +20,7 @@ import type { Decision, Intent, LoopContext }              from '../loop/loop.ty
 import type { AgentConfig }                                from '../../config/agent.config'
 import type { ToolCall, ToolContext }                      from '../tools/tool.types'
 import { MarketRegime }                                    from '../chartAnalysis.types'
+import { PositionDoc }                                     from '../../models/position.model'
 
 // ─── Regime → Skills routing table ───────────────────────────
 // Imported from regimeDetector.prompt.ts where REGIME_TO_SKILLS is defined,
@@ -82,11 +83,23 @@ export async function runPolicyEngine(
     dryRun:   config.mode === 'paper',
   }
 
+  // Fetch open positions so LLM can reason about correlation / existing exposure
+  let openPositionLines = 'None'
+  try {
+    const openPos = await PositionDoc.find({ userId: ctx.userId, isOpen: true, mode: config.mode })
+      .select('tokenOut entryPrice stopLossPrice takeProfitPrice entryAmountUsd framework').lean()
+    if (openPos.length > 0) {
+      openPositionLines = openPos.map(p =>
+        `${p.tokenOut} | entry $${p.entryPrice?.toFixed(4) ?? '?'} | SL $${p.stopLossPrice?.toFixed(4) ?? '?'} | TP $${p.takeProfitPrice?.toFixed(4) ?? '?'} | size $${p.entryAmountUsd?.toFixed(0) ?? '?'} | ${p.framework ?? 'unknown'}`
+      ).join('\n  ')
+    }
+  } catch { /* non-fatal */ }
+
   const walletSummary = [
     `Mode: ${config.mode}`,
     `Total value: $${ctx.walletState.totalValueUsd.toFixed(2)}`,
     `Daily PnL: $${ctx.walletState.dailyPnlUsd.toFixed(2)}`,
-    `Open positions: ${ctx.walletState.openPositions}`,
+    `Open positions (${ctx.walletState.openPositions}):\n  ${openPositionLines}`,
   ].join(' | ')
 
   const systemPrompt = buildAgentSystemPrompt({

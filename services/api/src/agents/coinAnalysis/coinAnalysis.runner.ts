@@ -39,6 +39,224 @@ function getClient(): OpenAI {
   return _deepseek
 }
 
+// ── Correlated asset groups — max 2 open from any one group ──────────────────
+
+const CORRELATED_GROUPS: Set<string>[] = [
+  new Set(['BTC', 'ETH', 'SOL', 'BNB', 'AVAX', 'MATIC', 'ARB', 'OP', 'NEAR', 'APT', 'SUI', 'INJ']),
+]
+
+// ── Session / macro-event risk ────────────────────────────────────────────────
+
+function getNthWeekday(year: number, month: number, weekday: number, n: number): number {
+  // Returns the date of the nth occurrence of weekday (0=Sun) in a given month
+  const first = new Date(Date.UTC(year, month, 1))
+  const diff  = (weekday - first.getUTCDay() + 7) % 7
+  return 1 + diff + (n - 1) * 7
+}
+
+function getSessionRisk(): { session: string; block: boolean; confidenceDelta: number; reason?: string } {
+  const now = new Date()
+  const h   = now.getUTCHours()
+  const m   = now.getUTCMinutes()
+  const day = now.getUTCDay()   // 0=Sun
+  const dom = now.getUTCDate()
+  const yr  = now.getUTCFullYear()
+  const mon = now.getUTCMonth() // 0-indexed
+
+  if (h >= 22) {
+    return { session: 'Dead Zone', block: true, confidenceDelta: 0, reason: `Post-NY dead zone (${h}:${String(m).padStart(2, '0')} UTC) — skip new entries` }
+  }
+
+  // NFP: first Friday of month 12:30–14:30 UTC
+  if (day === 5 && dom <= 7 && h >= 12 && (h < 14 || (h === 14 && m < 30))) {
+    return { session: 'NFP Window', block: true, confidenceDelta: 0, reason: 'First-Friday 12:30–14:30 UTC NFP window — high slippage, skipping' }
+  }
+
+  // CPI: 2nd Tuesday of month 12:30–13:30 UTC (US inflation print)
+  const cpiDate = getNthWeekday(yr, mon, 2, 2) // 2nd Tuesday
+  if (dom === cpiDate && day === 2 && h >= 12 && h < 14) {
+    return { session: 'CPI Window', block: true, confidenceDelta: 0, reason: `2nd-Tuesday CPI print window 12:30–14:00 UTC — extreme vol, skipping` }
+  }
+
+  // PPI: day after CPI date
+  if (dom === cpiDate + 1 && day === 3 && h >= 12 && h < 13) {
+    return { session: 'PPI Window', block: true, confidenceDelta: 0, reason: 'PPI print window (day after CPI) — skipping' }
+  }
+
+  // Jobless Claims: every Thursday 12:30–13:30 UTC
+  if (day === 4 && h === 12 && m >= 30) {
+    return { session: 'Jobless Claims', block: false, confidenceDelta: -10, reason: 'Thursday 12:30 UTC jobless claims — confidence -10' }
+  }
+
+  // FOMC: Wednesdays 18:00–20:00 UTC (rough window, real date varies)
+  if (day === 3 && h >= 18 && h < 20) {
+    return { session: 'FOMC Window', block: false, confidenceDelta: -10, reason: 'Wednesday FOMC window — confidence threshold raised' }
+  }
+
+  const sessionName = h < 8 ? 'Asian' : h < 16 ? 'London' : 'New York'
+  return { session: sessionName, block: false, confidenceDelta: 0 }
+}
+
+// ── Market regime filter: trend + volatility ──────────────────────────────────
+
+function getMarketRegime(primitives: MarketPrimitives): {
+  regime: 'trending_bull' | 'trending_bear' | 'ranging' | 'unknown'
+  adx: number
+  htfTrend: string
+  confidenceDelta: number
+  warning?: string
+} {
+  const adx      = primitives.indicators?.adx ?? 0
+  const htfTrend = primitives.structure?.trend_htf ?? 'neutral'
+  const atr      = primitives.indicators?.atr_14 ?? 0
+  const bb       = primitives.indicators?.bb
+
+  // ADX-based regime
+  const isRanging  = adx > 0 && adx < 22
+  const isTrending = adx >= 25
+
+  // Bollinger squeeze also signals low-volatility range
+  const bbSqueeze  = bb?.squeeze ?? false
+
+  const regime = isRanging || bbSqueeze
+    ? 'ranging'
+    : htfTrend === 'bullish' ? 'trending_bull'
+    : htfTrend === 'bearish' ? 'trending_bear'
+    : 'unknown'
+
+  // In a ranging market, breakout signals have low hit rate — reduce confidence
+  const confidenceDelta = isRanging ? -15 : bbSqueeze ? -10 : htfTrend === 'neutral' ? -5 : 0
+
+  const warning = isRanging
+    ? `Market ranging (ADX ${adx.toFixed(0)}) — breakout signals unreliable, confidence -15`
+    : bbSqueeze
+    ? `Bollinger squeeze active (ATR ${atr.toFixed(0)}) — low volatility, confidence -10`
+    : undefined
+
+  return { regime, adx, htfTrend, confidenceDelta, warning }
+}
+
+// ── Funding rate — extreme positive funding crowds longs ──────────────────────
+
+async function fetchFundingRate(symbol: string): Promise<number | null> {
+  try {
+    const r = await fetch(`https://fapi.binance.com/fapi/v1/premiumIndex?symbol=${symbol}USDT`)
+    if (!r.ok) return null
+    const d = await r.json() as { lastFundingRate?: string }
+    return d.lastFundingRate ? parseFloat(d.lastFundingRate) : null
+  } catch { return null }
+}
+
+// ── Daily max loss: halt if today's realised P&L < -2% of portfolio ──────────
+
+async function checkDailyMaxLoss(userId: string, config: AgentConfig, portfolioUsd = 10_000): Promise<{ halt: boolean; reason?: string; dailyPnl: number }> {
+  const today = new Date()
+  today.setHours(0, 0, 0, 0)
+  const closedToday = await PositionDoc.find({
+    userId, mode: config.mode, status: 'closed',
+    exitAt: { $gte: today },
+  }).lean()
+  if (!closedToday.length) return { halt: false, dailyPnl: 0 }
+
+  const dailyPnl = closedToday.reduce((s, p) => s + (p.realizedPnlUsd ?? 0), 0)
+  const DAILY_LOSS_LIMIT = -Math.max(200, portfolioUsd * 0.02)
+  if (dailyPnl <= DAILY_LOSS_LIMIT) {
+    return {
+      halt:     true,
+      reason:   `Daily loss limit: -$${Math.abs(dailyPnl).toFixed(2)} today exceeds 2% of $${portfolioUsd.toFixed(0)} portfolio — no new entries until tomorrow`,
+      dailyPnl,
+    }
+  }
+  return { halt: false, dailyPnl }
+}
+
+// ── Intraday BTC momentum: block longs on sell-off, shorts on pump ───────────
+
+async function fetchBtcMomentum(): Promise<{ movePct: number; block: boolean; blockShorts: boolean; note: string }> {
+  try {
+    const r = await fetch('https://api.binance.com/api/v3/klines?symbol=BTCUSDT&interval=4h&limit=2')
+    if (!r.ok) return { movePct: 0, block: false, blockShorts: false, note: '' }
+    const klines = await r.json() as number[][]
+    if (!klines?.length) return { movePct: 0, block: false, blockShorts: false, note: '' }
+    const prevClose = parseFloat(String(klines[0][4]))
+    const currOpen  = parseFloat(String(klines[1][1]))
+    const movePct   = prevClose > 0 ? (currOpen - prevClose) / prevClose * 100 : 0
+    const block       = movePct <= -2.5
+    const blockShorts = movePct >= 3.0
+    const note = block
+      ? ` [⚠ BTC -${Math.abs(movePct).toFixed(1)}% on 4H — altcoin long risk elevated, blocking]`
+      : blockShorts
+      ? ` [⚠ BTC +${movePct.toFixed(1)}% on 4H — short squeeze risk, blocking altcoin shorts]`
+      : movePct <= -1.5
+      ? ` [BTC -${Math.abs(movePct).toFixed(1)}% on 4H — caution]`
+      : ''
+    return { movePct, block, blockShorts, note }
+  } catch { return { movePct: 0, block: false, blockShorts: false, note: '' } }
+}
+
+// ── Framework win-rate check: disable if rolling 10-trade WR < 35% ────────────
+
+async function getFrameworkWinRates(userId: string, config: AgentConfig): Promise<Record<string, { winRate: number; tradeCount: number; disabled: boolean }>> {
+  const recent = await PositionDoc.find({ userId, mode: config.mode, status: 'closed', framework: { $exists: true } })
+    .sort({ exitAt: -1 }).limit(40).lean()
+
+  const byFw: Record<string, { wins: number; total: number }> = {}
+  for (const p of recent) {
+    const fw = p.framework as string
+    if (!byFw[fw]) byFw[fw] = { wins: 0, total: 0 }
+    if (byFw[fw].total >= 10) continue  // only rolling 10
+    byFw[fw].total++
+    if ((p.realizedPnlUsd ?? 0) > 0) byFw[fw].wins++
+  }
+
+  const result: Record<string, { winRate: number; tradeCount: number; disabled: boolean }> = {}
+  for (const [fw, s] of Object.entries(byFw)) {
+    const winRate = s.total > 0 ? s.wins / s.total : 1
+    result[fw] = { winRate, tradeCount: s.total, disabled: (s.total >= 10 && winRate < 0.35) || (s.total >= 5 && winRate < 0.25) }
+  }
+  return result
+}
+
+// ── Equity curve halt: stop trading after 10% drawdown from peak ──────────────
+
+async function checkEquityCurveHalt(userId: string, config: AgentConfig, currentEquity = 10_000): Promise<{ halt: boolean; reason?: string; drawdownPct: number }> {
+  const allClosed = await PositionDoc.find({ userId, mode: config.mode, status: 'closed' })
+    .sort({ exitAt: 1 }).lean()
+  if (allClosed.length < 5) return { halt: false, drawdownPct: 0 }
+
+  // Reconstruct equity curve from current value (most accurate) plus closed P&L
+  const totalRealised = allClosed.reduce((s, p) => s + (p.realizedPnlUsd ?? 0), 0)
+  const impliedStart  = currentEquity - totalRealised
+
+  let balance = impliedStart
+  let peak    = impliedStart
+  for (const p of allClosed) {
+    balance += p.realizedPnlUsd ?? 0
+    if (balance > peak) peak = balance
+  }
+
+  const drawdownPct = peak > 0 ? (peak - balance) / peak * 100 : 0
+  if (drawdownPct >= 10) {
+    return {
+      halt:         true,
+      reason:       `Circuit breaker: ${drawdownPct.toFixed(1)}% drawdown from $${peak.toFixed(0)} peak — halting all new entries until manual reset`,
+      drawdownPct,
+    }
+  }
+  return { halt: false, drawdownPct }
+}
+
+// ── 24h Binance spot volume ───────────────────────────────────────────────────
+
+async function fetch24hVolumeUsd(binanceSymbol: string): Promise<number | null> {
+  try {
+    const r = await fetch(`https://api.binance.com/api/v3/ticker/24hr?symbol=${binanceSymbol}`)
+    if (!r.ok) return null
+    const d = await r.json() as { quoteVolume: string }
+    return parseFloat(d.quoteVolume)
+  } catch { return null }
+}
+
 // ── Framework → strategy runner map ───────────────────────────────────────────
 
 type StrategyRunner = (p: MarketPrimitives) => ChartStrategyResult
@@ -176,12 +394,88 @@ async function autoExecuteBest(
   walletState:       Awaited<ReturnType<typeof loadWalletState>>,
   memoryContext:     string | undefined,
   cardsSummary:      string,
+  primitives:        MarketPrimitives,
 ): Promise<CoinAnalysisRunStatus> {
-  // ── De-duplication: don't stack positions in the same symbol ──────────────
-  const alreadyOpen = await PositionDoc.countDocuments({
-    userId, tokenOut: symbol.toUpperCase(), isOpen: true, mode: config.mode,
-  }).catch(() => 0)
+  const skipAll = (reason: string) => {
+    for (const card of cards) { card.approvalStatus = 'skipped'; if (card.signal) card.skippedReason = reason }
+  }
 
+  const portfolioUsd = walletState.totalValueUsd ?? 10_000
+  const anyLong  = cards.some(c => c.signal?.bias === 'long')
+  const anyShort = cards.some(c => c.signal?.bias === 'short')
+  const signalBias = anyLong ? 'long' : 'short'
+
+  // ── Parallel pre-filters (independent DB + network calls) ────────────────
+  const [equityCheck, dailyCheck, btcMomentum, fwWinRates, allOpen, recentStopOut, fundingRate, vol24h] = await Promise.all([
+    checkEquityCurveHalt(userId, config, portfolioUsd),
+    checkDailyMaxLoss(userId, config, portfolioUsd),
+    fetchBtcMomentum(),
+    getFrameworkWinRates(userId, config),
+    PositionDoc.find({ userId, isOpen: true, mode: config.mode }).lean(),
+    PositionDoc.findOne({
+      userId, tokenOut: symbol.toUpperCase(), mode: config.mode, status: 'closed',
+      exitAt: { $gte: new Date(Date.now() - 4 * 60 * 60 * 1000) },
+      realizedPnlUsd: { $lt: 0 },
+    }).lean(),
+    fetchFundingRate(symbol),
+    fetch24hVolumeUsd(`${symbol}USDT`),
+  ])
+
+  // ── Equity curve circuit breaker ─────────────────────────────────────────
+  if (equityCheck.halt) {
+    skipAll(`[Circuit breaker] ${equityCheck.reason}`)
+    return 'completed'
+  }
+
+  // ── Daily max loss halt ───────────────────────────────────────────────────
+  if (dailyCheck.halt) {
+    skipAll(`[Daily limit] ${dailyCheck.reason}`)
+    return 'completed'
+  }
+
+  // ── Session / macro-event gate ────────────────────────────────────────────
+  const sessionRisk = getSessionRisk()
+  if (sessionRisk.block) {
+    skipAll(`Session blocked [${sessionRisk.session}]: ${sessionRisk.reason}`)
+    return 'completed'
+  }
+
+  // ── Market regime filter ──────────────────────────────────────────────────
+  const regime = getMarketRegime(primitives)
+  if (anyLong && regime.htfTrend === 'bearish' && regime.adx >= 25) {
+    skipAll(`[Regime] Counter-trend long blocked — HTF trend bearish with ADX ${regime.adx.toFixed(0)} (strong downtrend)`)
+    return 'completed'
+  }
+
+  // ── Intraday BTC momentum filter: block longs on sell-off, shorts on pump ──
+  if (anyLong && btcMomentum.block) {
+    skipAll(`[BTC Momentum] ${btcMomentum.note.trim()}`)
+    return 'completed'
+  }
+  if (anyShort && btcMomentum.blockShorts) {
+    skipAll(`[BTC Momentum] ${btcMomentum.note.trim()}`)
+    return 'completed'
+  }
+
+  // ── Framework win-rate filter ─────────────────────────────────────────────
+  for (const card of cards) {
+    if (!card.signal || card.approvalStatus === 'skipped') continue
+    const fwStats = fwWinRates[card.framework]
+    if (fwStats?.disabled) {
+      card.approvalStatus = 'skipped'
+      card.skippedReason  = `[Framework disabled] ${card.framework} WR ${(fwStats.winRate * 100).toFixed(0)}% over last ${fwStats.tradeCount} trades — below threshold`
+    }
+  }
+
+  // ── Max concurrent positions hard cap ────────────────────────────────────
+  const maxPositions = config.maxConcurrentPositions ?? 6
+  if (allOpen.length >= maxPositions) {
+    skipAll(`[Position cap] Already at max ${maxPositions} concurrent positions — close one before opening more`)
+    return 'completed'
+  }
+
+  // ── De-duplication: don't stack positions in the same symbol ──────────────
+  const alreadyOpen = allOpen.filter(p => p.tokenOut === symbol.toUpperCase()).length
   if (alreadyOpen > 0) {
     for (const card of cards) {
       card.approvalStatus = 'skipped'
@@ -190,20 +484,125 @@ async function autoExecuteBest(
     return 'completed'
   }
 
+  // ── Re-entry block: 4h cooldown after stop-out in same direction ──────────
+  if (recentStopOut) {
+    const stoppedBias = (recentStopOut as any).bias as string | undefined
+    const blocked = !stoppedBias || stoppedBias === signalBias  // block if same direction or unknown
+    if (blocked) {
+      skipAll(`[Re-entry block] ${symbol} stopped out $${(recentStopOut.realizedPnlUsd ?? 0).toFixed(2)} in last 4h — 4h ${signalBias} cooldown after loss`)
+      return 'completed'
+    }
+  }
+
+  // ── Correlation filter: max 2 positions from any correlated group ──────────
+  for (const group of CORRELATED_GROUPS) {
+    if (group.has(symbol.toUpperCase())) {
+      const correlatedOpen = allOpen.filter(p => group.has(p.tokenOut))
+      if (correlatedOpen.length >= 2) {
+        const held = correlatedOpen.map(p => p.tokenOut).join(', ')
+        for (const card of cards) {
+          card.approvalStatus = 'skipped'
+          if (card.signal) card.skippedReason = `Correlation risk: already holding ${held} — max 2 correlated positions`
+        }
+        return 'completed'
+      }
+    }
+  }
+
+  // ── Portfolio heat check: total open-position risk must stay < heat cap ───
+  const riskPct    = (config.riskPerTradePct ?? 1.0) / 100
+  const heatCapPct = (config.maxPortfolioHeatPct ?? 5.0) / 100
+  let totalOpenRiskUsd = 0
+  for (const pos of allOpen) {
+    if (!pos.entryPrice || !pos.stopLossPrice || !pos.entryAmountUsd) continue
+    const slDist = Math.abs(pos.entryPrice - pos.stopLossPrice) / pos.entryPrice
+    totalOpenRiskUsd += slDist * pos.entryAmountUsd
+  }
+  const heatCapUsd = portfolioUsd * heatCapPct
+  if (totalOpenRiskUsd >= heatCapUsd) {
+    skipAll(`[Portfolio heat] Open risk $${totalOpenRiskUsd.toFixed(0)} already at ${(heatCapPct * 100).toFixed(0)}% cap ($${heatCapUsd.toFixed(0)}) — wait for exits`)
+    return 'completed'
+  }
+
+  // ── Funding rate filter ───────────────────────────────────────────────────
+  let fundingDelta = 0
+  let fundingNote  = ''
+  if (fundingRate !== null) {
+    if (fundingRate > 0.001) {
+      fundingDelta = -20
+      fundingNote  = ` [⚠ funding +${(fundingRate * 100).toFixed(3)}% — crowded longs, conf -20]`
+    } else if (fundingRate < -0.0005) {
+      fundingDelta = +5
+      fundingNote  = ` [funding ${(fundingRate * 100).toFixed(3)}% — short squeeze risk, conf +5]`
+    }
+  }
+
+  // ── Minimum R:R filter: use worst-case fill (zone high for longs) ─────────
+  const MIN_RAW_RR = 1.5
+  for (const card of cards) {
+    if (!card.signal || card.approvalStatus === 'skipped') continue
+    const worstEntry = card.signal.bias === 'long'
+      ? card.signal.entry_zone.high   // worst long fill = top of zone
+      : card.signal.entry_zone.low    // worst short fill = bottom of zone
+    const risk   = worstEntry > 0 && card.signal.stop_loss > 0 ? Math.abs(worstEntry - card.signal.stop_loss) / worstEntry : 0
+    const reward = worstEntry > 0 && card.signal.take_profit_levels[0] ? Math.abs(card.signal.take_profit_levels[0] - worstEntry) / worstEntry : 0
+    const rawRr  = risk > 0 ? reward / risk : 0
+    if (rawRr < MIN_RAW_RR) {
+      card.approvalStatus = 'skipped'
+      card.skippedReason  = `R:R ${rawRr.toFixed(2)} (worst-case fill) below minimum 1.5 — not worth the fee drag`
+    }
+  }
+
+  // ── Confidence threshold (session delta + regime delta applied to qualifying) ──
+  const baseThreshold = config.minSignalConfidence
+  const sessionDelta  = sessionRisk.confidenceDelta  // negative = harder to pass
+  const confidenceThreshold = baseThreshold - sessionDelta  // e.g. base 65, delta -10 → need 75
+
   const qualifying = cards.filter(c =>
     c.signal !== null &&
+    c.approvalStatus !== 'skipped' &&
     (c.signal.bias === 'long' || config.allowShorts) &&
-    (c.signal.confidence + c.newsImpact.confidenceDelta) >= config.minSignalConfidence,
+    (c.signal.confidence + c.newsImpact.confidenceDelta + regime.confidenceDelta + fundingDelta) >= confidenceThreshold,
   )
 
   if (!qualifying.length) {
     for (const card of cards) {
       card.approvalStatus = 'skipped'
       if (card.signal && !card.skippedReason) {
-        card.skippedReason = `Confidence ${card.signal.confidence + card.newsImpact.confidenceDelta} below threshold ${config.minSignalConfidence}`
+        const adj = card.signal.confidence + card.newsImpact.confidenceDelta + regime.confidenceDelta + fundingDelta
+        const modifiers = [
+          sessionRisk.confidenceDelta !== 0 ? `${sessionRisk.session} ${sessionRisk.confidenceDelta}` : '',
+          regime.confidenceDelta !== 0      ? `${regime.regime} ${regime.confidenceDelta}` : '',
+          fundingDelta !== 0                ? `funding ${fundingDelta}` : '',
+        ].filter(Boolean).join(', ')
+        card.skippedReason = `Adj. confidence ${adj} below ${confidenceThreshold}${modifiers ? ` (${modifiers})` : ''}`
       }
     }
     return 'completed'
+  }
+
+  // ── Cooldown: require +15% confidence if same symbol rejected in last 2h ──
+  const recentRejection = await CoinAnalysisRunDoc.findOne({
+    userId,
+    symbol: symbol.toUpperCase(),
+    completedAt: { $gte: new Date(Date.now() - 2 * 60 * 60 * 1000) },
+    'strategyCards.approvalStatus': 'rejected',
+  }).lean()
+
+  if (recentRejection) {
+    const cooldownThreshold = confidenceThreshold + 15
+    const afterCooldown = qualifying.filter(c =>
+      (c.signal!.confidence + c.newsImpact.confidenceDelta) >= cooldownThreshold,
+    )
+    if (!afterCooldown.length) {
+      for (const card of qualifying) {
+        card.approvalStatus = 'skipped'
+        card.skippedReason = `Cooldown: ${symbol} rejected <2h ago — need ${cooldownThreshold}%+ confidence (got ${card.signal!.confidence + card.newsImpact.confidenceDelta}%)`
+      }
+      return 'completed'
+    }
+    qualifying.length = 0
+    qualifying.push(...afterCooldown)
   }
 
   // ── Policy engine gate: LLM validates card results before execution ───────
@@ -241,25 +640,101 @@ async function autoExecuteBest(
   )
   const adjustedConf = best.signal!.confidence + best.newsImpact.confidenceDelta
 
-  // ── Confluence bonus: 2+ frameworks agree → increase position size ─────────
-  // Each additional agreeing framework adds 25%, capped at 2× maxTradeUsd.
+  // ── TP sanity check: must clear entry zone by at least 0.5% ──────────────
+  const tp1 = best.signal!.take_profit_levels[0]
+  const tp2 = best.signal!.take_profit_levels[1]
+  const tpEntryRef = best.signal!.bias === 'long' ? best.signal!.entry_zone.high : best.signal!.entry_zone.low
+  const tp1Valid = tp1 && (
+    best.signal!.bias === 'long'  ? tp1 > tpEntryRef * 1.005 :
+                                    tp1 < tpEntryRef * 0.995
+  )
+  const tp2Valid = !tp2 || (
+    best.signal!.bias === 'long'  ? tp2 > tp1! :
+                                    tp2 < tp1!
+  )
+  if (!tp1Valid || !tp2Valid) {
+    for (const card of cards) {
+      card.approvalStatus = 'skipped'
+      if (card.signal && !card.skippedReason)
+        card.skippedReason = `TP level invalid: TP1 $${tp1} must clear entry zone (${best.signal!.bias} $${tpEntryRef}) by ≥0.5%${!tp2Valid ? ', TP2 ordering wrong' : ''}`
+    }
+    return 'completed'
+  }
+
+  // ── Confluence: 2+ frameworks agree — modest size bonus ──────────────────
   const agreeingCount = qualifying.filter(c => c.signal?.bias === best.signal!.bias).length
-  const confluenceMultiplier = Math.min(2, 1 + (agreeingCount - 1) * 0.25)
-  const tradeAmount = config.maxTradeUsd * confluenceMultiplier
+  const confluenceMultiplier = Math.min(1.15, 1 + (agreeingCount - 1) * 0.08)
+
+  // ── Position sizing: risk riskPerTradePct of portfolio, sized by SL distance ──
+  // Use worst-case fill (zone high for longs) to match R:R filter — consistent risk calc.
+  const worstFillEntry = best.signal!.bias === 'long'
+    ? best.signal!.entry_zone.high
+    : best.signal!.entry_zone.low
+  const slDistance = worstFillEntry > 0 && best.signal!.stop_loss > 0
+    ? Math.abs(worstFillEntry - best.signal!.stop_loss) / worstFillEntry
+    : 0.02
+  const portfolioRisk  = portfolioUsd * riskPct
+  const riskBasedSize  = slDistance > 0 ? portfolioRisk / slDistance : config.maxTradeUsd
+  const tradeAmount    = Math.min(riskBasedSize * confluenceMultiplier, config.maxTradeUsd)
+
+  // ── Volume (already fetched in parallel above) ────────────────────────────
+  const isLowVol = vol24h !== null && vol24h < 30_000_000
+  const volumeSizeMultiplier = isLowVol ? 0.5 : 1.0
+  const volumeTag = vol24h !== null
+    ? ` [vol $${(vol24h / 1e6).toFixed(0)}M${isLowVol ? ' ⚠ low-vol → 50% size' : ''}]`
+    : ''
+
+  // ── Drawdown-based size reduction: streak on fully-closed positions only ────
+  // Exclude positions with tp1ScaledOut (partial-exit P&L on open pos distorts streak)
+  const recentClosed = await PositionDoc.find({
+    userId, mode: config.mode, status: 'closed',
+    $or: [{ tp1ScaledOut: { $ne: true } }, { tp1ScaledOut: { $exists: false } }],
+  }).sort({ exitAt: -1 }).limit(5).lean()
+  let lossStreak = 0
+  for (const p of recentClosed) { if ((p.realizedPnlUsd ?? 0) < 0) lossStreak++; else break }
+  const drawdownSizeMultiplier = lossStreak >= 3 ? 0.5 : lossStreak >= 2 ? 0.75 : 1.0
+  const drawdownNote = lossStreak >= 2 ? ` [⚠ ${lossStreak}-loss streak → ${drawdownSizeMultiplier * 100}% size]` : ''
+
+  // ── ATR noise check: half size if SL distance < 0.5×ATR ─────────────────
+  const atr14 = primitives.indicators?.atr_14 ?? 0
+  let atrSizeMultiplier = 1.0
+  let atrNote = ''
+  if (atr14 > 0 && worstFillEntry > 0) {
+    const slDistAbs = Math.abs(worstFillEntry - best.signal!.stop_loss)
+    const halfAtr   = atr14 * 0.5
+    if (slDistAbs < halfAtr) {
+      atrSizeMultiplier = 0.5
+      atrNote = ` [⚠ SL $${slDistAbs.toFixed(0)} < 0.5×ATR $${halfAtr.toFixed(0)} — inside noise, size halved]`
+    }
+  }
+
+  // ── SL buffer: push SL 0.3×ATR past structural level to survive wicks ─────
+  const slBufferAbs = atr14 > 0 ? atr14 * 0.3 : 0
+  const adjustedSL  = best.signal!.bias === 'long'
+    ? parseFloat((best.signal!.stop_loss - slBufferAbs).toFixed(4))
+    : parseFloat((best.signal!.stop_loss + slBufferAbs).toFixed(4))
+  const slBufferNote = slBufferAbs > 0 ? ` [SL buffered 0.3×ATR $${slBufferAbs.toFixed(0)} beyond structural level]` : ''
+
+  const finalTradeAmount = tradeAmount * drawdownSizeMultiplier * atrSizeMultiplier * volumeSizeMultiplier
+  const regimeNote = regime.warning ? ` [${regime.warning}]` : ` [regime: ${regime.regime} ADX ${regime.adx.toFixed(0)}]`
 
   const intent: TradeIntent = {
-    type:            'propose_trade',
-    tokenIn:         'USDC',
-    tokenOut:        symbol,
-    amountUsd:       tradeAmount,
-    maxSlippageBps:  50,
-    rationale:       best.signal!.reasoning + (agreeingCount >= 2 ? ` [${agreeingCount} frameworks confluent → ${confluenceMultiplier.toFixed(2)}× size]` : ''),
-    stopLossPrice:   best.signal!.stop_loss,
-    takeProfitPrice: best.signal!.take_profit_levels[0],
-    entryZoneLow:    best.signal!.entry_zone.low,
-    entryZoneHigh:   best.signal!.entry_zone.high,
-    framework:       best.framework,
-  }
+    type:             'propose_trade',
+    tokenIn:          'USDC',
+    tokenOut:         symbol,
+    amountUsd:        finalTradeAmount,
+    maxSlippageBps:   50,
+    rationale:        best.signal!.reasoning +
+                      (agreeingCount >= 2 ? ` [${agreeingCount} frameworks confluent]` : '') +
+                      ` [risk-sized: 1% of $${(walletState.totalValueUsd ?? 0).toFixed(0)} / ${(slDistance * 100).toFixed(1)}% SL = $${finalTradeAmount.toFixed(0)}]` +
+                      volumeTag + drawdownNote + atrNote + slBufferNote + regimeNote + fundingNote + btcMomentum.note,
+    stopLossPrice:    adjustedSL,
+    takeProfitPrice:  best.signal!.take_profit_levels[0],
+    takeProfitPrice2: best.signal!.take_profit_levels[1],
+    entryZoneLow:     best.signal!.entry_zone.low,
+    entryZoneHigh:    best.signal!.entry_zone.high,
+    framework:        best.framework,
+  } as TradeIntent & { takeProfitPrice2?: number }
 
   await executeIntent(intent, walletState, {
     userId, config, runId: coinAnalysisRunId, strategy: 'chartSignal',
@@ -332,7 +807,7 @@ export async function runCoinAnalysis(
     let finalStatus: CoinAnalysisRunStatus
     if (autoMode) {
       finalStatus = await autoExecuteBest(
-        userId, coinAnalysisRunId, symbol.toUpperCase(), cards, config, walletState, memoryContext, cardsSummary,
+        userId, coinAnalysisRunId, symbol.toUpperCase(), cards, config, walletState, memoryContext, cardsSummary, primitives,
       )
     } else {
       finalStatus = 'pending_approval'
@@ -373,23 +848,54 @@ export async function approveCard(
   if (card.approvalStatus !== 'pending') throw Object.assign(new Error(`Card "${framework}" is not pending approval`), { statusCode: 400 })
   if (!card.signal)    throw Object.assign(new Error(`Card "${framework}" has no signal`), { statusCode: 400 })
 
+  // Re-check signal age — block approvals older than 6h
+  const run2 = await CoinAnalysisRunDoc.findOne({ coinAnalysisRunId, userId }).lean()
+  if (run2?.startedAt) {
+    const ageH = (Date.now() - new Date(run2.startedAt).getTime()) / 3_600_000
+    if (ageH > 6) throw Object.assign(new Error(`Signal is ${ageH.toFixed(0)}h old — too stale to approve (max 6h)`), { statusCode: 400 })
+  }
+
+  // Re-enforce min R:R — use worst-case fill (zone high for longs)
+  const apEntry  = card.signal.bias === 'long' ? card.signal.entry_zone.high : card.signal.entry_zone.low
+  const apRisk   = apEntry > 0 && card.signal.stop_loss > 0 ? Math.abs(apEntry - card.signal.stop_loss) / apEntry : 0
+  const apReward = apEntry > 0 && card.signal.take_profit_levels[0] ? Math.abs(card.signal.take_profit_levels[0] - apEntry) / apEntry : 0
+  const apRawRr  = apRisk > 0 ? apReward / apRisk : 0
+  if (apRawRr < 1.5) throw Object.assign(new Error(`R:R ${apRawRr.toFixed(2)} (worst-case fill) below minimum 1.5 — cannot approve`), { statusCode: 400 })
+
   const config      = await getOrCreateConfig(userId)
   const walletState = await loadWalletState(userId, config)
   const adjustedConf = card.signal.confidence + card.newsImpact.confidenceDelta
 
+  // Portfolio-derived sizing — worst-case fill, riskPerTradePct from config
+  const worstApEntry = card.signal.bias === 'long' ? card.signal.entry_zone.high : card.signal.entry_zone.low
+  const slDistance   = worstApEntry > 0 && card.signal.stop_loss > 0 ? Math.abs(worstApEntry - card.signal.stop_loss) / worstApEntry : 0.02
+  const apRiskPct    = (config.riskPerTradePct ?? 1.0) / 100
+  const riskBasedSize = slDistance > 0 ? ((walletState.totalValueUsd ?? 0) * apRiskPct) / slDistance : config.maxTradeUsd
+  const tradeAmount  = Math.min(riskBasedSize, config.maxTradeUsd)
+
+  const recentClosed2 = await PositionDoc.find({
+    userId, mode: config.mode, status: 'closed',
+    $or: [{ tp1ScaledOut: { $ne: true } }, { tp1ScaledOut: { $exists: false } }],
+  }).sort({ exitAt: -1 }).limit(5).lean()
+  let lossStreak2 = 0
+  for (const p of recentClosed2) { if ((p.realizedPnlUsd ?? 0) < 0) lossStreak2++; else break }
+  const ddMult = lossStreak2 >= 3 ? 0.5 : lossStreak2 >= 2 ? 0.75 : 1.0
+  const finalAmount = tradeAmount * ddMult
+
   const intent: TradeIntent = {
-    type:            'propose_trade',
-    tokenIn:         'USDC',
-    tokenOut:        run.symbol,
-    amountUsd:       config.maxTradeUsd,
-    maxSlippageBps:  50,
-    rationale:       card.signal.reasoning,
-    stopLossPrice:   card.signal.stop_loss,
-    takeProfitPrice: card.signal.take_profit_levels[0],
-    entryZoneLow:    card.signal.entry_zone.low,
-    entryZoneHigh:   card.signal.entry_zone.high,
-    framework:       card.framework,
-  }
+    type:             'propose_trade',
+    tokenIn:          'USDC',
+    tokenOut:         run.symbol,
+    amountUsd:        finalAmount,
+    maxSlippageBps:   50,
+    rationale:        card.signal.reasoning + ` [manual approve · risk-sized: 1% of $${(walletState.totalValueUsd ?? 0).toFixed(0)} / ${(slDistance * 100).toFixed(1)}% SL = $${finalAmount.toFixed(0)}]` + (lossStreak2 >= 2 ? ` [⚠ ${lossStreak2}-loss streak → ${ddMult * 100}% size]` : ''),
+    stopLossPrice:    card.signal.stop_loss,
+    takeProfitPrice:  card.signal.take_profit_levels[0],
+    takeProfitPrice2: card.signal.take_profit_levels[1],
+    entryZoneLow:     card.signal.entry_zone.low,
+    entryZoneHigh:    card.signal.entry_zone.high,
+    framework:        card.framework,
+  } as TradeIntent & { takeProfitPrice2?: number }
 
   const gateway = await executeIntent(intent, walletState, {
     userId, config, runId: coinAnalysisRunId, strategy: 'chartSignal',

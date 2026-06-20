@@ -14,11 +14,16 @@ import { PositionDoc, OrderDoc }       from '../models/position.model'
 export async function updatePosition(req: AuthRequest, res: Response, next: NextFunction) {
   try {
     const { positionId } = req.params
-    const allowed = ['stopLossPrice', 'takeProfitPrice']
+    const numericFields = ['stopLossPrice', 'takeProfitPrice', 'highWaterMarkPrice']
+    const pctFields     = ['trailingStopPct']
     const update: Record<string, number> = {}
-    for (const field of allowed) {
+    for (const field of numericFields) {
       const v = req.body[field]
       if (v !== undefined && isFinite(Number(v)) && Number(v) > 0) update[field] = Number(v)
+    }
+    for (const field of pctFields) {
+      const v = req.body[field]
+      if (v !== undefined && isFinite(Number(v)) && Number(v) >= 0) update[field] = Number(v)
     }
     if (!Object.keys(update).length) return res.status(400).json({ error: 'No valid fields to update' })
 
@@ -29,6 +34,72 @@ export async function updatePosition(req: AuthRequest, res: Response, next: Next
     ).lean()
     if (!pos) return res.status(404).json({ error: 'Position not found or not open' })
     res.json({ ok: true, position: pos })
+  } catch (err) { next(err) }
+}
+
+export async function partialExitPosition(req: AuthRequest, res: Response, next: NextFunction) {
+  try {
+    const { positionId } = req.params
+    const exitPercent = Math.max(10, Math.min(90, Number(req.body.exitPercent) || 50))
+
+    const pos = await PositionDoc.findOne({ positionId, userId: req.userId!, isOpen: true }).lean()
+    if (!pos)            return res.status(404).json({ error: 'Position not found or not open' })
+    if (!pos.entryPrice) return res.status(400).json({ error: 'Position has no entry price' })
+
+    const priceRes = await fetch(`https://api.binance.com/api/v3/ticker/price?symbol=${pos.tokenOut}USDT`)
+    if (!priceRes.ok) return res.status(502).json({ error: 'Could not fetch live price from Binance' })
+    const { price } = await priceRes.json() as { price: string }
+    const currentPrice = parseFloat(price)
+    if (!isFinite(currentPrice) || currentPrice <= 0) return res.status(502).json({ error: 'Invalid price from Binance' })
+
+    const exitFraction      = exitPercent / 100
+    const exitAmountUsd     = pos.entryAmountUsd * exitFraction
+    const pnlUsd            = ((currentPrice - pos.entryPrice) / pos.entryPrice) * exitAmountUsd
+    const remainingAmountUsd = pos.entryAmountUsd * (1 - exitFraction)
+
+    await PositionDoc.updateOne({ positionId }, { $set: { entryAmountUsd: remainingAmountUsd } })
+
+    res.json({
+      ok:                  true,
+      exitedAmountUsd:     parseFloat(exitAmountUsd.toFixed(4)),
+      pnlUsd:              parseFloat(pnlUsd.toFixed(4)),
+      currentPrice,
+      remainingPercent:    100 - exitPercent,
+      remainingAmountUsd:  parseFloat(remainingAmountUsd.toFixed(4)),
+    })
+  } catch (err) { next(err) }
+}
+
+export async function closePositionAtMarket(req: AuthRequest, res: Response, next: NextFunction) {
+  try {
+    const { positionId } = req.params
+    const pos = await PositionDoc.findOne({ positionId, userId: req.userId!, isOpen: true }).lean()
+    if (!pos)            return res.status(404).json({ error: 'Position not found or not open' })
+    if (!pos.entryPrice) return res.status(400).json({ error: 'Position has no entry price' })
+
+    const priceRes = await fetch(`https://api.binance.com/api/v3/ticker/price?symbol=${pos.tokenOut}USDT`)
+    if (!priceRes.ok) return res.status(502).json({ error: 'Could not fetch live price' })
+    const { price } = await priceRes.json() as { price: string }
+    const exitPrice = parseFloat(price)
+    if (!isFinite(exitPrice) || exitPrice <= 0) return res.status(502).json({ error: 'Invalid price' })
+
+    const SLIPPAGE_PCT = 0.001  // 0.1% market order slippage + 0.1% fee
+    const FEE_PCT      = 0.001
+    const netExit      = exitPrice * (1 - SLIPPAGE_PCT - FEE_PCT)
+    const pnlUsd       = ((netExit - pos.entryPrice) / pos.entryPrice) * pos.entryAmountUsd
+
+    await PositionDoc.updateOne({ positionId }, {
+      $set: {
+        status:         'closed',
+        isOpen:         false,
+        exitPrice:      parseFloat(netExit.toFixed(4)),
+        exitAmountUsd:  pos.entryAmountUsd * (netExit / pos.entryPrice),
+        exitAt:         new Date(),
+        realizedPnlUsd: parseFloat(pnlUsd.toFixed(4)),
+      },
+    })
+
+    res.json({ ok: true, exitPrice: netExit, pnlUsd, positionId })
   } catch (err) { next(err) }
 }
 

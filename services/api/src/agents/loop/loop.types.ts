@@ -23,11 +23,12 @@ export interface TradeIntent {
   maxSlippageBps: number
   rationale: string
   venue?: string         // 'binance' | 'uniswap_v3_base' | etc.
-  stopLossPrice?: number     // set by chartSignal strategy only
-  takeProfitPrice?: number   // set by chartSignal strategy only
-  entryZoneLow?: number      // set by chartSignal strategy only — limit-order entry zone
-  entryZoneHigh?: number     // set by chartSignal strategy only — limit-order entry zone
-  framework?: string         // 'SmartMoney' | 'Wyckoff' | 'ElliottWave' | 'Harmonic'
+  stopLossPrice?: number      // set by chartSignal strategy only
+  takeProfitPrice?: number    // TP1 — partial scale-out target
+  takeProfitPrice2?: number   // TP2 — final target after TP1 scale-out
+  entryZoneLow?: number       // set by chartSignal strategy only — limit-order entry zone
+  entryZoneHigh?: number      // set by chartSignal strategy only — limit-order entry zone
+  framework?: string          // 'SmartMoney' | 'Wyckoff' | 'ElliottWave' | 'Harmonic'
 }
 
 export interface AlertIntent {

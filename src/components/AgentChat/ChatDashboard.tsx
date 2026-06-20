@@ -80,8 +80,10 @@ interface Position {
   entryZoneLow?:    number;
   entryZoneHigh?:   number;
   entryExpiresAt?:  string;
-  framework?:       string;
-  confidence?:      number;
+  framework?:          string;
+  confidence?:         number;
+  trailingStopPct?:    number;
+  highWaterMarkPrice?: number;
 }
 
 interface PnlSummary {
@@ -174,6 +176,7 @@ function RunsTab({ accentColor }: { accentColor: string }) {
   const [selectedCoin,setSelectedCoin]= useState<string>("BTC");
   const [agentEnabled,setAgentEnabled]= useState<boolean | null>(null);
   const [latestRun,   setLatestRun]   = useState<CoinAnalysisRun | null>(null);
+  const [approvalPrices, setApprovalPrices] = useState<Record<string, number>>({});
 
   const displayRun = latestRun;
 
@@ -201,6 +204,28 @@ function RunsTab({ accentColor }: { accentColor: string }) {
   }, []);
 
   useEffect(() => { load(); }, [load]);
+
+  // Fetch live prices for pending approval entry zones (re-validation)
+  useEffect(() => {
+    if (!approvals.length) return;
+    const symbols = approvals.map(ap => ap.chartSnapshot?.binanceSymbol).filter(Boolean) as string[];
+    if (!symbols.length) return;
+    const fetchPrices = async () => {
+      const prices: Record<string, number> = {};
+      await Promise.all(symbols.map(async sym => {
+        try {
+          const r = await fetch(`https://api.binance.com/api/v3/ticker/price?symbol=${sym}`);
+          const d = await r.json() as { price: string };
+          const p = parseFloat(d.price);
+          if (isFinite(p) && p > 0) prices[sym] = p;
+        } catch {}
+      }));
+      setApprovalPrices(prices);
+    };
+    fetchPrices();
+    const id = setInterval(fetchPrices, 30_000);
+    return () => clearInterval(id);
+  }, [approvals]);
 
   // Keep agentEnabled in sync if user toggles it from the Config tab
   useEffect(() => {
@@ -376,6 +401,25 @@ function RunsTab({ accentColor }: { accentColor: string }) {
             const intent   = ap.decision?.intent;
             const isActing = approving === ap.runId;
 
+            // Stale signal warning
+            const signalAgeMs = Date.now() - new Date(ap.startedAt).getTime();
+            const signalAgeH  = signalAgeMs / 3_600_000;
+            const isStale     = signalAgeH > 2;
+            const isDanger    = signalAgeH > 6;
+            const ageLabel    = signalAgeH >= 1 ? `${signalAgeH.toFixed(0)}h` : `${Math.round(signalAgeMs / 60_000)}m`;
+
+            // Live price zone re-validation
+            const bSym          = ap.chartSnapshot?.binanceSymbol;
+            const liveApPrice   = bSym ? approvalPrices[bSym] : undefined;
+            const zoneLow       = ap.chartSnapshot?.entryZone?.low;
+            const zoneHigh      = ap.chartSnapshot?.entryZone?.high;
+            const priceAboveZone = liveApPrice && zoneHigh && liveApPrice > zoneHigh * 1.03;
+            const priceBelowZone = liveApPrice && zoneLow  && liveApPrice < zoneLow  * 0.97;
+            const priceInZone    = liveApPrice && zoneLow && zoneHigh && liveApPrice >= zoneLow && liveApPrice <= zoneHigh;
+            const pricePctFromZone = liveApPrice && zoneHigh && zoneLow
+              ? liveApPrice > zoneHigh ? ((liveApPrice - zoneHigh) / zoneHigh * 100) : liveApPrice < zoneLow ? ((zoneLow - liveApPrice) / zoneLow * 100) : 0
+              : null;
+
             // R:R ratio from snapshot levels
             const rrApproval = ap.chartSnapshot ? (() => {
               const entry  = (ap.chartSnapshot.entryZone.low + ap.chartSnapshot.entryZone.high) / 2;
@@ -463,10 +507,62 @@ function RunsTab({ accentColor }: { accentColor: string }) {
                   </div>
                 )}
 
+                {/* Live price zone re-validation */}
+                {liveApPrice && (
+                  <div style={{ margin: "0 12px 8px", padding: "6px 10px", borderRadius: 7,
+                    background: priceInZone ? "#00e5a010" : (priceAboveZone || priceBelowZone) ? "#ff557210" : "#ffffff08",
+                    border: `1px solid ${priceInZone ? "#00e5a030" : (priceAboveZone || priceBelowZone) ? "#ff557230" : "#ffffff12"}` }}>
+                    <span style={{ fontSize: 10, fontFamily: "var(--font-mono)", color: priceInZone ? "#00e5a0" : (priceAboveZone || priceBelowZone) ? "#ff5572" : "rgba(255,255,255,0.4)" }}>
+                      {priceInZone
+                        ? `✓ Price $${liveApPrice.toLocaleString()} is in entry zone — ready to fill`
+                        : priceAboveZone
+                        ? `⚠ Price $${liveApPrice.toLocaleString()} is ${pricePctFromZone?.toFixed(1)}% above zone — limit order may never fill`
+                        : priceBelowZone
+                        ? `✗ Price $${liveApPrice.toLocaleString()} broke ${pricePctFromZone?.toFixed(1)}% below zone — entry thesis likely invalidated`
+                        : `Live $${liveApPrice.toLocaleString()} · near zone`}
+                    </span>
+                  </div>
+                )}
+
+                {/* Stale signal warning */}
+                {isStale && (
+                  <div style={{ margin: "0 12px 8px", padding: "6px 10px", borderRadius: 7, background: isDanger ? "#ff557210" : "#ffb02010", border: `1px solid ${isDanger ? "#ff557230" : "#ffb02030"}` }}>
+                    <span style={{ fontSize: 10, fontFamily: "var(--font-mono)", color: isDanger ? "#ff5572" : "#ffb020" }}>
+                      ⚠ Signal {ageLabel} old{isDanger ? " — entry zone likely invalidated, verify price before approving" : " — price may have moved from entry zone"}
+                    </span>
+                  </div>
+                )}
+
+                {/* Net R:R (after fees + slippage) */}
+                {rrApproval !== null && (
+                  (() => {
+                    const entry    = ap.chartSnapshot ? (ap.chartSnapshot.entryZone.low + ap.chartSnapshot.entryZone.high) / 2 : 0;
+                    const sl       = ap.chartSnapshot?.stopLoss ?? 0;
+                    const tp       = ap.chartSnapshot?.takeProfitLevels[0] ?? 0;
+                    const friction = 0.0025;  // 0.1% entry fee + 0.1% exit fee + 0.05% slippage
+                    const rawRisk  = entry > 0 ? (entry - sl) / entry : 0;
+                    const rawRew   = entry > 0 ? (tp - entry) / entry  : 0;
+                    const netRew   = rawRew - friction;
+                    const netRisk  = rawRisk + friction;
+                    const netRr    = netRisk > 0 ? netRew / netRisk : 0;
+                    const netOk    = netRr >= 1.5;
+                    return (
+                      <div style={{ margin: "0 12px 8px", padding: "5px 10px", borderRadius: 7,
+                        background: netOk ? "#00e5a008" : "#ff557210",
+                        border: `1px solid ${netOk ? "#00e5a025" : "#ff557230"}` }}>
+                        <span style={{ fontSize: 10, fontFamily: "var(--font-mono)", color: netOk ? "#00e5a0" : "#ff5572" }}>
+                          Net R:R after fees: <b>{netRr.toFixed(2)}</b>
+                          {!netOk && " — below 1.5 minimum, edge is thin after fees"}
+                        </span>
+                      </div>
+                    );
+                  })()
+                )}
+
                 {/* Approve / Reject buttons */}
                 <div style={{ display: "flex", gap: 6, padding: "0 12px 12px" }}>
                   <button
-                    disabled={isActing}
+                    disabled={isActing || isDanger}
                     onClick={async () => {
                       setApproving(ap.runId);
                       try { await doApprove(ap.runId); await load(); }
@@ -475,12 +571,12 @@ function RunsTab({ accentColor }: { accentColor: string }) {
                     }}
                     style={{
                       flex: 1, padding: "8px 0", borderRadius: 8, border: "none",
-                      fontSize: 12, fontWeight: 700, cursor: isActing ? "not-allowed" : "pointer",
-                      background: isActing ? "rgba(0,229,160,0.2)" : "#00e5a0",
-                      color: isActing ? "rgba(255,255,255,0.3)" : "#020609",
+                      fontSize: 12, fontWeight: 700, cursor: (isActing || isDanger) ? "not-allowed" : "pointer",
+                      background: isDanger ? "rgba(255,255,255,0.06)" : isActing ? "rgba(0,229,160,0.2)" : "#00e5a0",
+                      color: isDanger ? "rgba(255,255,255,0.2)" : isActing ? "rgba(255,255,255,0.3)" : "#020609",
                       fontFamily: "var(--font-display,sans-serif)", transition: "all 0.15s ease",
                     }}
-                  >{isActing ? "Processing…" : "✓ Approve"}</button>
+                  >{isActing ? "Processing…" : isDanger ? "Expired — Reject" : "✓ Approve"}</button>
                   <button
                     disabled={isActing}
                     onClick={async () => {
@@ -970,12 +1066,15 @@ function positionSnapshot(pos: Position) {
 // ── POSITIONS TAB ─────────────────────────────────────────────────────────────
 
 function PositionsTab({ accentColor }: { accentColor: string }) {
-  const [positions,   setPositions]   = useState<Position[]>([]);
-  const [pnl,         setPnl]         = useState<PnlSummary | null>(null);
-  const [loading,     setLoading]     = useState(true);
-  const [livePrices,  setLivePrices]  = useState<Record<string, number>>({});
-  const [trailInputs, setTrailInputs] = useState<Record<string, string>>({});
-  const [updatingSl,  setUpdatingSl]  = useState<Record<string, boolean>>({});
+  const [positions,      setPositions]      = useState<Position[]>([]);
+  const [pnl,            setPnl]            = useState<PnlSummary | null>(null);
+  const [loading,        setLoading]        = useState(true);
+  const [livePrices,     setLivePrices]     = useState<Record<string, number>>({});
+  const [fundingRates,   setFundingRates]   = useState<Record<string, number>>({});
+  const [trailInputs,    setTrailInputs]    = useState<Record<string, string>>({});
+  const [updatingSl,     setUpdatingSl]     = useState<Record<string, boolean>>({});
+  const [partialExiting, setPartialExiting] = useState<Record<string, boolean>>({});
+  const [closingPos,     setClosingPos]     = useState<Record<string, boolean>>({});
   const pnlColor = (v: number) => v >= 0 ? "#00e5a0" : "#ff5572";
 
   const reloadPositions = useCallback(async () => {
@@ -1016,6 +1115,141 @@ function PositionsTab({ accentColor }: { accentColor: string }) {
     return () => clearInterval(id);
   }, [positions]);
 
+  // Funding rate fetch — Binance perp market context for open positions
+  useEffect(() => {
+    const syms = [...new Set(positions.filter(p => p.isOpen).map(p => p.tokenOut))];
+    if (!syms.length) return;
+    const fetch = async () => {
+      const rates: Record<string, number> = {};
+      await Promise.all(syms.map(async sym => {
+        try {
+          const r = await window.fetch(`https://fapi.binance.com/fapi/v1/premiumIndex?symbol=${sym}USDT`);
+          if (!r.ok) return;
+          const d = await r.json() as { lastFundingRate: string };
+          rates[sym] = parseFloat(d.lastFundingRate) * 100;
+        } catch {}
+      }));
+      setFundingRates(rates);
+    };
+    fetch();
+    const id = setInterval(fetch, 60_000);
+    return () => clearInterval(id);
+  }, [positions]);
+
+  // Portfolio heat — total open notional + at-risk $ from SL distance
+  const portfolioHeat = (() => {
+    const open = positions.filter(p => p.isOpen);
+    let totalNotional = 0, totalAtRisk = 0;
+    for (const p of open) {
+      totalNotional += p.entryAmountUsd;
+      if (p.stopLossPrice && p.entryPrice && p.entryPrice > p.stopLossPrice) {
+        totalAtRisk += p.entryAmountUsd * ((p.entryPrice - p.stopLossPrice) / p.entryPrice);
+      }
+    }
+    return { totalNotional, totalAtRisk, posCount: open.length };
+  })();
+
+  // BTC benchmark — compare agent P&L % to holding BTC over same window
+  const [btcBenchmark, setBtcBenchmark] = useState<{ btcReturnPct: number; agentReturnPct: number; firstTradeDate: string } | null>(null);
+  useEffect(() => {
+    const closed = positions.filter(p => p.status === "closed" && p.entryAt);
+    if (!closed.length) return;
+    const firstTrade = closed.slice().sort((a, b) => new Date(a.entryAt).getTime() - new Date(b.entryAt).getTime())[0];
+    const firstDate  = new Date(firstTrade.entryAt);
+    const startTs    = Math.floor(firstDate.getTime() / 1000);
+    const endTs      = Math.floor(Date.now() / 1000);
+    const INITIAL    = 10_000;
+    const totalPnl   = closed.reduce((s, p) => s + (p.realizedPnlUsd ?? 0), 0);
+    const agentReturnPct = totalPnl / INITIAL * 100;
+    fetch(`https://api.binance.com/api/v3/klines?symbol=BTCUSDT&interval=1d&startTime=${startTs * 1000}&limit=1`)
+      .then(r => r.json())
+      .then((klines: number[][]) => {
+        if (!klines?.length) return;
+        const btcStart = parseFloat(String(klines[0][1])); // open of first candle
+        return fetch(`https://api.binance.com/api/v3/ticker/price?symbol=BTCUSDT`)
+          .then(r => r.json())
+          .then((d: { price: string }) => {
+            const btcNow = parseFloat(d.price);
+            const btcReturnPct = btcStart > 0 ? (btcNow - btcStart) / btcStart * 100 : 0;
+            setBtcBenchmark({ btcReturnPct, agentReturnPct, firstTradeDate: firstDate.toLocaleDateString() });
+          });
+      }).catch(() => {});
+  }, [positions]);
+
+  // Advanced stats: E(V), Profit Factor, Sharpe, Kelly
+  const advancedStats = (() => {
+    const closed = positions.filter(p => p.status === "closed" && p.realizedPnlUsd !== undefined);
+    if (!closed.length) return null;
+    const wins   = closed.filter(p => (p.realizedPnlUsd ?? 0) > 0);
+    const losses = closed.filter(p => (p.realizedPnlUsd ?? 0) < 0);
+    const grossWin  = wins.reduce((s, p)  => s + (p.realizedPnlUsd ?? 0), 0);
+    const grossLoss = losses.reduce((s, p) => s + (p.realizedPnlUsd ?? 0), 0);
+    const avgWin   = wins.length   > 0 ? grossWin  / wins.length  : 0;
+    const avgLoss  = losses.length > 0 ? Math.abs(grossLoss / losses.length) : 0;
+    const winRate  = closed.length > 0 ? wins.length / closed.length : 0;
+    const ev       = winRate * avgWin - (1 - winRate) * avgLoss;
+    const pf       = grossLoss < 0 ? grossWin / Math.abs(grossLoss) : null;
+    // Kelly criterion: f* = W - (1-W)/R  where R = avgWin/avgLoss
+    const rr     = avgLoss > 0 ? avgWin / avgLoss : 0;
+    const kelly  = rr > 0 ? winRate - (1 - winRate) / rr : null;
+    // Simple Sharpe: mean PnL / std dev of PnL per trade
+    const pnls     = closed.map(p => p.realizedPnlUsd ?? 0);
+    const mean     = pnls.reduce((a, b) => a + b, 0) / pnls.length;
+    const variance = pnls.reduce((a, b) => a + (b - mean) ** 2, 0) / pnls.length;
+    const sharpe   = variance > 0 ? mean / Math.sqrt(variance) : null;
+    return { ev, pf, sharpe, kelly };
+  })();
+
+  // Confidence calibration: group closed positions by confidence bucket → win rate
+  const confCalibration = (() => {
+    const closed = positions.filter(p => p.status === "closed" && p.confidence !== undefined);
+    if (closed.length < 3) return null;
+    const buckets: Record<string, {wins: number; total: number}> = { "50-64": {wins:0,total:0}, "65-74": {wins:0,total:0}, "75-84": {wins:0,total:0}, "85+": {wins:0,total:0} };
+    for (const p of closed) {
+      const c = p.confidence!;
+      const key = c >= 85 ? "85+" : c >= 75 ? "75-84" : c >= 65 ? "65-74" : "50-64";
+      buckets[key].total++;
+      if ((p.realizedPnlUsd ?? 0) > 0) buckets[key].wins++;
+    }
+    return Object.entries(buckets).filter(([, v]) => v.total > 0).map(([range, v]) => ({
+      range, winRate: Math.round(v.wins / v.total * 100), total: v.total,
+    }));
+  })();
+
+  // Strategy performance breakdown by framework
+  const strategyPerf = (() => {
+    const closed = positions.filter(p => p.status === "closed" && p.framework);
+    const byFw: Record<string, { wins: number; losses: number; totalPnl: number }> = {};
+    for (const p of closed) {
+      const fw = p.framework!;
+      if (!byFw[fw]) byFw[fw] = { wins: 0, losses: 0, totalPnl: 0 };
+      const v = p.realizedPnlUsd ?? 0;
+      byFw[fw].totalPnl += v;
+      if (v > 0) byFw[fw].wins++; else byFw[fw].losses++;
+    }
+    return Object.entries(byFw).map(([fw, s]) => ({
+      framework: fw, ...s,
+      winRate: s.wins + s.losses > 0 ? Math.round(s.wins / (s.wins + s.losses) * 100) : 0,
+    })).sort((a, b) => b.totalPnl - a.totalPnl);
+  })();
+
+  // Per-coin P&L breakdown
+  const coinPerf = (() => {
+    const closed = positions.filter(p => p.status === "closed");
+    const byCoin: Record<string, { wins: number; losses: number; totalPnl: number; trades: number }> = {};
+    for (const p of closed) {
+      const coin = p.tokenOut;
+      if (!byCoin[coin]) byCoin[coin] = { wins: 0, losses: 0, totalPnl: 0, trades: 0 };
+      const v = p.realizedPnlUsd ?? 0;
+      byCoin[coin].totalPnl += v;
+      byCoin[coin].trades++;
+      if (v > 0) byCoin[coin].wins++; else byCoin[coin].losses++;
+    }
+    return Object.entries(byCoin)
+      .map(([coin, s]) => ({ coin, ...s, winRate: s.trades > 0 ? Math.round(s.wins / s.trades * 100) : 0 }))
+      .sort((a, b) => b.totalPnl - a.totalPnl);
+  })();
+
   // Drawdown / risk stats from closed position history
   const riskStats = (() => {
     const closed = positions
@@ -1042,14 +1276,33 @@ function PositionsTab({ accentColor }: { accentColor: string }) {
     catch {} finally { setUpdatingSl(prev => ({ ...prev, [pos.positionId]: false })); }
   };
 
+  // Server-side trailing stop — stores pct in DB; monitor ratchets SL as price rises
   const applyTrailing = async (pos: Position) => {
     const pct = parseFloat(trailInputs[pos.positionId] ?? "");
     const cur = livePrices[pos.tokenOut];
-    if (!isFinite(pct) || pct <= 0 || pct > 20 || !cur) return;
-    const newSl = parseFloat((cur * (1 - pct / 100)).toFixed(2));
+    if (!isFinite(pct) || pct <= 0 || pct > 20) return;
     setUpdatingSl(prev => ({ ...prev, [pos.positionId]: true }));
-    try { await apiClient.patch(`/positions/${pos.positionId}`, { stopLossPrice: newSl }); await reloadPositions(); }
+    try {
+      // Set initial SL from current price + store trailingStopPct for server monitor
+      const updates: Record<string, number> = { trailingStopPct: pct };
+      if (cur) updates.stopLossPrice = parseFloat((cur * (1 - pct / 100)).toFixed(2));
+      await apiClient.patch(`/positions/${pos.positionId}`, updates);
+      await reloadPositions();
+    }
     catch {} finally { setUpdatingSl(prev => ({ ...prev, [pos.positionId]: false })); }
+  };
+
+  const partialExit = async (pos: Position, pct: number) => {
+    setPartialExiting(prev => ({ ...prev, [pos.positionId]: true }));
+    try { await apiClient.post(`/positions/${pos.positionId}/partial-exit`, { exitPercent: pct }); await reloadPositions(); }
+    catch {} finally { setPartialExiting(prev => ({ ...prev, [pos.positionId]: false })); }
+  };
+
+  const closeAtMarket = async (pos: Position) => {
+    if (!window.confirm(`Close ${pos.tokenOut} position at market? This cannot be undone.`)) return;
+    setClosingPos(prev => ({ ...prev, [pos.positionId]: true }));
+    try { await apiClient.post(`/positions/${pos.positionId}/close`, {}); await reloadPositions(); }
+    catch {} finally { setClosingPos(prev => ({ ...prev, [pos.positionId]: false })); }
   };
 
   return (
@@ -1069,6 +1322,77 @@ function PositionsTab({ accentColor }: { accentColor: string }) {
               </div>
             ))}
           </div>
+          {/* Portfolio heat — open exposure */}
+          {portfolioHeat.posCount > 0 && (
+            <div style={{ padding: "10px 14px", borderRadius: 10, background: "rgb(8,18,32)", border: `1px solid ${portfolioHeat.totalAtRisk > 50 ? "rgba(255,85,114,0.2)" : "rgba(255,176,32,0.15)"}` }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
+                <span style={{ fontSize: 9, color: "rgba(255,255,255,0.3)", textTransform: "uppercase", letterSpacing: "0.08em", fontFamily: "var(--font-mono)" }}>Portfolio Heat · {portfolioHeat.posCount} Open</span>
+                <span style={{ fontSize: 11, fontFamily: "var(--font-mono)", fontWeight: 700, color: portfolioHeat.totalAtRisk > 50 ? "#ff5572" : "#ffb020" }}>
+                  ${portfolioHeat.totalAtRisk.toFixed(2)} at risk
+                </span>
+              </div>
+              <div style={{ display: "flex", gap: 14 }}>
+                <span style={{ fontSize: 10, fontFamily: "var(--font-mono)", color: "rgba(255,255,255,0.35)" }}>
+                  Notional <span style={{ color: "rgba(255,255,255,0.65)" }}>${portfolioHeat.totalNotional.toFixed(2)}</span>
+                </span>
+                <span style={{ fontSize: 10, fontFamily: "var(--font-mono)", color: "rgba(255,255,255,0.35)" }}>
+                  Max simultaneous loss <span style={{ color: "#ff5572" }}>-${portfolioHeat.totalAtRisk.toFixed(2)}</span>
+                </span>
+              </div>
+            </div>
+          )}
+
+          {/* BTC benchmark */}
+          {btcBenchmark && (
+            <div style={{ padding: "10px 14px", borderRadius: 10, background: "rgb(8,18,32)", border: "1px solid rgba(255,255,255,0.07)" }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
+                <span style={{ fontSize: 9, color: "rgba(255,255,255,0.3)", textTransform: "uppercase", letterSpacing: "0.08em", fontFamily: "var(--font-mono)" }}>vs BTC Hold · since {btcBenchmark.firstTradeDate}</span>
+                <span style={{ fontSize: 10, fontFamily: "var(--font-mono)", color: btcBenchmark.agentReturnPct >= btcBenchmark.btcReturnPct ? "#00e5a0" : "#ff5572", fontWeight: 700 }}>
+                  {btcBenchmark.agentReturnPct >= btcBenchmark.btcReturnPct ? "▲ Beating BTC" : "▼ Underperforming"}
+                </span>
+              </div>
+              <div style={{ display: "flex", gap: 20 }}>
+                <div>
+                  <p style={{ fontSize: 9, color: "rgba(255,255,255,0.25)", margin: "0 0 2px", textTransform: "uppercase" }}>Agent</p>
+                  <p style={{ fontSize: 14, fontWeight: 700, fontFamily: "var(--font-mono)", margin: 0, color: pnlColor(btcBenchmark.agentReturnPct) }}>
+                    {btcBenchmark.agentReturnPct >= 0 ? "+" : ""}{btcBenchmark.agentReturnPct.toFixed(1)}%
+                  </p>
+                </div>
+                <div>
+                  <p style={{ fontSize: 9, color: "rgba(255,255,255,0.25)", margin: "0 0 2px", textTransform: "uppercase" }}>BTC Hold</p>
+                  <p style={{ fontSize: 14, fontWeight: 700, fontFamily: "var(--font-mono)", margin: 0, color: pnlColor(btcBenchmark.btcReturnPct) }}>
+                    {btcBenchmark.btcReturnPct >= 0 ? "+" : ""}{btcBenchmark.btcReturnPct.toFixed(1)}%
+                  </p>
+                </div>
+                <div>
+                  <p style={{ fontSize: 9, color: "rgba(255,255,255,0.25)", margin: "0 0 2px", textTransform: "uppercase" }}>Alpha</p>
+                  <p style={{ fontSize: 14, fontWeight: 700, fontFamily: "var(--font-mono)", margin: 0, color: pnlColor(btcBenchmark.agentReturnPct - btcBenchmark.btcReturnPct) }}>
+                    {(btcBenchmark.agentReturnPct - btcBenchmark.btcReturnPct) >= 0 ? "+" : ""}{(btcBenchmark.agentReturnPct - btcBenchmark.btcReturnPct).toFixed(1)}%
+                  </p>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Advanced stats: E(V), Profit Factor, Sharpe, Kelly */}
+          {advancedStats && (
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 7 }}>
+              {[
+                { label: "Exp. Value / Trade", val: `${advancedStats.ev >= 0 ? "+" : ""}$${advancedStats.ev.toFixed(2)}`, color: advancedStats.ev > 0 ? "#00e5a0" : "#ff5572" },
+                { label: "Profit Factor",      val: advancedStats.pf !== null ? advancedStats.pf.toFixed(2) + "×" : "—",  color: (advancedStats.pf ?? 0) >= 1.5 ? "#00e5a0" : (advancedStats.pf ?? 0) >= 1 ? "#ffb020" : "#ff5572" },
+                { label: "Info Ratio (per trade)", val: advancedStats.sharpe !== null ? advancedStats.sharpe.toFixed(2) : "—", color: (advancedStats.sharpe ?? 0) > 0.5 ? "#00e5a0" : (advancedStats.sharpe ?? 0) > 0 ? "#ffb020" : "#ff5572",
+                  tip: "Mean P&L / Std Dev P&L per trade — not annualised Sharpe. Needs 20+ trades to be meaningful." },
+                { label: "Kelly %",            val: advancedStats.kelly !== null ? `${(advancedStats.kelly * 100).toFixed(1)}%` : "—", color: (advancedStats.kelly ?? 0) > 0.05 ? "#00e5a0" : (advancedStats.kelly ?? 0) > 0 ? "#ffb020" : "#ff5572",
+                  tip: "Optimal bet size per Kelly criterion — use half-Kelly (÷2) in practice" },
+              ].map(s => (
+                <div key={s.label} title={"tip" in s ? s.tip : undefined} style={{ padding: "8px 6px", borderRadius: 10, background: "rgb(8,18,32)", border: "1px solid rgba(255,255,255,0.06)", textAlign: "center", cursor: "tip" in s ? "help" : "default" }}>
+                  <p style={{ fontSize: 14, fontWeight: 700, color: s.color, margin: "0 0 2px", fontFamily: "var(--font-mono)" }}>{s.val}</p>
+                  <p style={{ fontSize: 9, color: "rgba(255,255,255,0.22)", margin: 0, textTransform: "uppercase", letterSpacing: "0.04em" }}>{s.label}</p>
+                </div>
+              ))}
+            </div>
+          )}
+
           {/* Risk stats row — drawdown, worst loss, loss streak */}
           {positions.some(p => p.status === "closed") && (
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 7 }}>
@@ -1082,6 +1406,64 @@ function PositionsTab({ accentColor }: { accentColor: string }) {
                   <p style={{ fontSize: 9, color: "rgba(255,255,255,0.25)", margin: 0, textTransform: "uppercase", letterSpacing: "0.05em" }}>{s.label}</p>
                 </div>
               ))}
+            </div>
+          )}
+
+          {/* Strategy performance breakdown by framework */}
+          {strategyPerf.length > 0 && (
+            <div style={{ borderRadius: 10, background: "rgb(8,18,32)", border: "1px solid rgba(255,255,255,0.06)", padding: "10px 12px" }}>
+              <p style={{ fontSize: 9, color: "rgba(255,255,255,0.25)", margin: "0 0 8px", textTransform: "uppercase", letterSpacing: "0.08em" }}>Strategy P&L by Framework</p>
+              {strategyPerf.map(s => (
+                <div key={s.framework} style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 5 }}>
+                  <span style={{ fontSize: 10, color: "rgba(255,255,255,0.5)", width: 90, flexShrink: 0, fontFamily: "var(--font-mono)" }}>{s.framework}</span>
+                  <span style={{ fontSize: 10, fontFamily: "var(--font-mono)", color: s.winRate >= 60 ? "#00e5a0" : s.winRate >= 40 ? "#ffb020" : "#ff5572", width: 38 }}>{s.winRate}% WR</span>
+                  <span style={{ fontSize: 10, fontFamily: "var(--font-mono)", color: "rgba(255,255,255,0.3)", width: 42 }}>{s.wins}W/{s.losses}L</span>
+                  <div style={{ flex: 1, height: 4, borderRadius: 2, background: "rgba(255,255,255,0.06)", overflow: "hidden" }}>
+                    <div style={{ height: "100%", width: `${Math.min(100, Math.abs(s.totalPnl) / 5)}%`, background: s.totalPnl >= 0 ? "#00e5a0" : "#ff5572", borderRadius: 2 }} />
+                  </div>
+                  <span style={{ fontSize: 11, fontFamily: "var(--font-mono)", fontWeight: 700, color: pnlColor(s.totalPnl), width: 56, textAlign: "right" }}>
+                    {s.totalPnl >= 0 ? "+" : ""}${s.totalPnl.toFixed(2)}
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* Per-coin P&L breakdown */}
+          {coinPerf.length > 0 && (
+            <div style={{ borderRadius: 10, background: "rgb(8,18,32)", border: "1px solid rgba(255,255,255,0.06)", padding: "10px 12px" }}>
+              <p style={{ fontSize: 9, color: "rgba(255,255,255,0.25)", margin: "0 0 8px", textTransform: "uppercase", letterSpacing: "0.08em" }}>P&L by Coin</p>
+              {coinPerf.map(s => (
+                <div key={s.coin} style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 5 }}>
+                  <span style={{ fontSize: 10, fontFamily: "var(--font-mono)", color: "rgba(255,255,255,0.6)", width: 44, flexShrink: 0 }}>{s.coin}</span>
+                  <span style={{ fontSize: 9, fontFamily: "var(--font-mono)", color: "rgba(255,255,255,0.2)", width: 32 }}>{s.trades}t</span>
+                  <span style={{ fontSize: 10, fontFamily: "var(--font-mono)", color: s.winRate >= 60 ? "#00e5a0" : s.winRate >= 40 ? "#ffb020" : "#ff5572", width: 38 }}>{s.winRate}% WR</span>
+                  <div style={{ flex: 1, height: 4, borderRadius: 2, background: "rgba(255,255,255,0.06)", overflow: "hidden" }}>
+                    <div style={{ height: "100%", width: `${Math.min(100, Math.abs(s.totalPnl) / 3)}%`, background: s.totalPnl >= 0 ? "#00e5a0" : "#ff5572", borderRadius: 2 }} />
+                  </div>
+                  <span style={{ fontSize: 11, fontFamily: "var(--font-mono)", fontWeight: 700, color: pnlColor(s.totalPnl), width: 60, textAlign: "right" }}>
+                    {s.totalPnl >= 0 ? "+" : ""}${s.totalPnl.toFixed(2)}
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* Confidence calibration: are high-confidence signals actually more accurate? */}
+          {confCalibration && confCalibration.length >= 2 && (
+            <div style={{ borderRadius: 10, background: "rgb(8,18,32)", border: "1px solid rgba(255,255,255,0.06)", padding: "10px 12px" }}>
+              <p style={{ fontSize: 9, color: "rgba(255,255,255,0.25)", margin: "0 0 8px", textTransform: "uppercase", letterSpacing: "0.08em" }}>Confidence Calibration</p>
+              {confCalibration.map(b => (
+                <div key={b.range} style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 5 }}>
+                  <span style={{ fontSize: 10, fontFamily: "var(--font-mono)", color: "rgba(255,255,255,0.4)", width: 46 }}>{b.range}%</span>
+                  <div style={{ flex: 1, height: 6, borderRadius: 3, background: "rgba(255,255,255,0.06)", overflow: "hidden" }}>
+                    <div style={{ height: "100%", width: `${b.winRate}%`, background: b.winRate >= 60 ? "#00e5a0" : b.winRate >= 40 ? "#ffb020" : "#ff5572", borderRadius: 3 }} />
+                  </div>
+                  <span style={{ fontSize: 10, fontFamily: "var(--font-mono)", color: b.winRate >= 60 ? "#00e5a0" : b.winRate >= 40 ? "#ffb020" : "#ff5572", width: 48 }}>{b.winRate}% WR</span>
+                  <span style={{ fontSize: 9, fontFamily: "var(--font-mono)", color: "rgba(255,255,255,0.2)", width: 28 }}>n={b.total}</span>
+                </div>
+              ))}
+              <p style={{ fontSize: 9, color: "rgba(255,255,255,0.15)", margin: "6px 0 0", fontFamily: "var(--font-mono)" }}>If high-conf ≠ high WR, the confidence score is uncalibrated</p>
             </div>
           )}
         </>
@@ -1205,7 +1587,7 @@ function PositionsTab({ accentColor }: { accentColor: string }) {
                       {livePnlUsd >= 0 ? "+" : ""}${livePnlUsd.toFixed(2)} · {livePct >= 0 ? "+" : ""}{livePct.toFixed(2)}%
                     </span>
                   </div>
-                  <div style={{ display: "flex", gap: 14, flexWrap: "wrap" }}>
+                  <div style={{ display: "flex", gap: 14, flexWrap: "wrap", alignItems: "center" }}>
                     {pos.stopLossPrice && (
                       <span style={{ fontSize: 10, fontFamily: "var(--font-mono)", color: nearSl ? "#ff5572" : "rgba(255,85,114,0.55)" }}>
                         SL {(((pos.stopLossPrice - livePrice) / livePrice) * 100).toFixed(2)}% away
@@ -1216,6 +1598,48 @@ function PositionsTab({ accentColor }: { accentColor: string }) {
                         TP {(((pos.takeProfitPrice - livePrice) / livePrice) * 100).toFixed(2)}% away
                       </span>
                     )}
+                    {pos.trailingStopPct && (
+                      <span style={{ fontSize: 10, fontFamily: "var(--font-mono)", color: "#ffb020" }}>
+                        ⟳ trail {pos.trailingStopPct}%{pos.highWaterMarkPrice ? ` · HWM $${pos.highWaterMarkPrice.toLocaleString()}` : ""}
+                      </span>
+                    )}
+                    {fundingRates[pos.tokenOut] !== undefined && (
+                      <span style={{ fontSize: 10, fontFamily: "var(--font-mono)", marginLeft: "auto", color: fundingRates[pos.tokenOut] > 0 ? "rgba(255,85,114,0.6)" : "rgba(0,229,160,0.6)" }}
+                        title="Perp funding rate (8h). Positive = longs pay shorts.">
+                        funding {fundingRates[pos.tokenOut] > 0 ? "+" : ""}{fundingRates[pos.tokenOut].toFixed(4)}%
+                      </span>
+                    )}
+                  </div>
+                  {/* Partial exit + Close at market */}
+                  <div style={{ display: "flex", gap: 5, marginTop: 7, flexWrap: "wrap", alignItems: "center" }}>
+                    <span style={{ fontSize: 9, color: "rgba(255,255,255,0.25)", alignSelf: "center", textTransform: "uppercase", letterSpacing: "0.05em" }}>Exit partial:</span>
+                    {[25, 50, 75].map(pct => (
+                      <button key={pct}
+                        onClick={() => partialExit(pos, pct)}
+                        disabled={!!partialExiting[pos.positionId]}
+                        style={{
+                          padding: "3px 9px", borderRadius: 5, border: "1px solid rgba(255,255,255,0.1)",
+                          background: "rgba(255,255,255,0.04)", color: "rgba(255,255,255,0.5)",
+                          fontSize: 10, fontFamily: "var(--font-mono)", cursor: "pointer",
+                          opacity: partialExiting[pos.positionId] ? 0.4 : 1,
+                        }}
+                      >
+                        {partialExiting[pos.positionId] ? "…" : `${pct}%`}
+                      </button>
+                    ))}
+                    <button
+                      onClick={() => closeAtMarket(pos)}
+                      disabled={!!closingPos[pos.positionId]}
+                      style={{
+                        marginLeft: "auto", padding: "3px 10px", borderRadius: 5,
+                        border: "1px solid rgba(255,85,114,0.35)",
+                        background: "rgba(255,85,114,0.08)", color: "#ff5572",
+                        fontSize: 10, fontWeight: 700, fontFamily: "var(--font-mono)", cursor: "pointer",
+                        opacity: closingPos[pos.positionId] ? 0.4 : 1,
+                      }}
+                    >
+                      {closingPos[pos.positionId] ? "Closing…" : "✕ Close Now"}
+                    </button>
                   </div>
                 </div>
               )}
@@ -1280,6 +1704,36 @@ function PositionsTab({ accentColor }: { accentColor: string }) {
           );
         })}
         {!loading && positions.length === 0 && <EmptyMsg msg="No positions yet — run the agent loop first." />}
+
+        {/* ── Trade Journal: closed trades log ── */}
+        {positions.filter(p => p.status === "closed").length > 0 && (
+          <div style={{ borderRadius: 10, background: "rgb(8,18,32)", border: "1px solid rgba(255,255,255,0.06)", padding: "10px 12px", marginTop: 4 }}>
+            <p style={{ fontSize: 9, color: "rgba(255,255,255,0.25)", margin: "0 0 10px", textTransform: "uppercase", letterSpacing: "0.08em" }}>Trade Journal</p>
+            <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+              {positions.filter(p => p.status === "closed").slice(0, 10).map(p => {
+                const won      = (p.realizedPnlUsd ?? 0) > 0;
+                const durationMs = p.exitAt && p.entryAt ? new Date(p.exitAt).getTime() - new Date(p.entryAt).getTime() : null;
+                const durationH  = durationMs ? durationMs / 3_600_000 : null;
+                const pnl        = p.realizedPnlUsd ?? 0;
+                const pnlPct     = p.entryAmountUsd > 0 ? pnl / p.entryAmountUsd * 100 : 0;
+                return (
+                  <div key={p.positionId} style={{ display: "flex", alignItems: "center", gap: 8, padding: "5px 0", borderBottom: "1px solid rgba(255,255,255,0.04)" }}>
+                    <span style={{ width: 6, height: 6, borderRadius: "50%", background: won ? "#00e5a0" : "#ff5572", flexShrink: 0 }} />
+                    <span style={{ fontSize: 10, fontFamily: "var(--font-mono)", color: "rgba(255,255,255,0.5)", width: 36, flexShrink: 0 }}>{p.tokenOut}</span>
+                    <span style={{ fontSize: 9, color: p.framework ? "#a78bfa" : "rgba(255,255,255,0.2)", width: 78, flexShrink: 0, fontFamily: "var(--font-mono)" }}>{p.framework ?? p.strategy}</span>
+                    <span style={{ fontSize: 9, fontFamily: "var(--font-mono)", color: "rgba(255,255,255,0.2)", flex: 1 }}>
+                      {new Date(p.entryAt).toLocaleDateString("en-GB", { day: "2-digit", month: "short" })}
+                      {durationH !== null && ` · ${durationH < 24 ? durationH.toFixed(0) + "h" : (durationH / 24).toFixed(1) + "d"}`}
+                    </span>
+                    <span style={{ fontSize: 11, fontFamily: "var(--font-mono)", fontWeight: 700, color: pnlColor(pnl), textAlign: "right", minWidth: 60 }}>
+                      {pnl >= 0 ? "+" : ""}${pnl.toFixed(2)} <span style={{ fontSize: 9, fontWeight: 400, color: "rgba(255,255,255,0.25)" }}>({pnlPct >= 0 ? "+" : ""}{pnlPct.toFixed(1)}%)</span>
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );
