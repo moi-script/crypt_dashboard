@@ -1,4 +1,4 @@
-# CRPTX Terminal V2
+# Profy.ai
 
 An autonomous AI crypto trading terminal — live market data, a multi-framework analysis agent, paper trading engine with full position lifecycle, and a real-time dashboard built as a monorepo with Next.js + Express + Python.
 

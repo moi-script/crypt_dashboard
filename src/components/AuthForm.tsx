@@ -54,7 +54,7 @@ export function AuthForm({ mode }: { mode: "login" | "register" }) {
           </div>
           <div>
             <div style={{ fontFamily: "var(--font-display)", fontSize: 16, fontWeight: 700, color: "var(--ink)", letterSpacing: "-0.02em" }}>
-              CRPTX <span style={{ color: "var(--cyan)" }}>Terminal</span>
+              Profy<span style={{ color: "var(--cyan)" }}>.ai</span>
             </div>
             <div className="label" style={{ marginTop: 2 }}>Professional crypto platform</div>
           </div>

@@ -177,7 +177,7 @@ function Footer() {
       <div style={{ display: "flex", flexWrap: "wrap", gap: "2.5rem", justifyContent: "space-between" }}>
         <div style={{ maxWidth: 240 }}>
           <div style={{ fontFamily: "var(--font-display)", fontSize: 15, fontWeight: 700, color: "var(--ink)", letterSpacing: "-0.02em", marginBottom: 10 }}>
-            CRPT<span style={{ color: "var(--cyan)" }}>X</span> Terminal
+            Profy<span style={{ color: "var(--cyan)" }}>.ai</span>
           </div>
           <p style={{ fontFamily: "var(--font-mono)", fontSize: 11, color: "var(--ink-faint)", lineHeight: 1.7 }}>
             Professional-grade crypto analytics for serious traders.
@@ -200,7 +200,7 @@ function Footer() {
         </div>
       </div>
       <div style={{ marginTop: "2.5rem", paddingTop: "1.5rem", borderTop: "1px solid rgba(255,255,255,0.04)", display: "flex", justifyContent: "space-between", flexWrap: "wrap", gap: 10 }}>
-        <span style={{ fontFamily: "var(--font-mono)", fontSize: 10, color: "var(--ink-faint)" }}>© 2026 CRPTX Terminal · Educational purposes only · Not financial advice.</span>
+        <span style={{ fontFamily: "var(--font-mono)", fontSize: 10, color: "var(--ink-faint)" }}>© 2026 Profy.ai · Educational purposes only · Not financial advice.</span>
         <a
           href="https://github.com/moi-script/crypt_dashboard"
           target="_blank"
@@ -686,7 +686,7 @@ function DashboardShowcase() {
                 <path d="M6 2a4 4 0 100 8A4 4 0 006 2zM0 6a6 6 0 1110.89 3.477l4.817 4.816a1 1 0 01-1.414 1.414l-4.816-4.817A6 6 0 010 6z" fill="currentColor" style={{ color: "rgba(255,255,255,0.2)" }} />
               </svg>
               <span style={{ fontFamily: "var(--font-mono)", fontSize: 11, color: "var(--ink-faint)", letterSpacing: "0.03em" }}>
-                crptx.app / {tab.id}
+                profy.ai / {tab.id}
               </span>
             </div>
           </div>
@@ -725,7 +725,7 @@ function DashboardShowcase() {
           <img
             key={active}
             src={tab.src}
-            alt={`CRPTX Terminal — ${tab.label} view`}
+            alt={`Profy.ai — ${tab.label} view`}
             className="scrn-img"
             loading="lazy"
             style={{ width: "100%", display: "block", maxHeight: 560, objectFit: "cover", objectPosition: "top center" }}
@@ -879,7 +879,7 @@ function AuthPanel({ section }: { section: ActiveSection }) {
           </div>
           <div>
             <div style={{ fontFamily: "var(--font-display)", fontSize: 15, fontWeight: 700, color: "var(--ink)", letterSpacing: "-0.02em" }}>
-              CRPT<span style={{ color: accent, transition: "color 1s ease" }}>X</span> Terminal
+              Profy<span style={{ color: accent, transition: "color 1s ease" }}>.ai</span>
             </div>
             <div style={{ fontFamily: "var(--font-mono)", fontSize: 10, color: "var(--ink-faint)", marginTop: 2 }}>Professional crypto platform</div>
           </div>

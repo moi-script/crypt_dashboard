@@ -143,7 +143,7 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
   const currentItem = NAV.find(n => n.match(pathname));
   const pageTitle = pathname.startsWith("/coins/") ? "Markets / Detail"
     : pathname.startsWith("/agent/") ? "AI Agent"
-    : currentItem?.label ?? "Terminal";
+    : currentItem?.label ?? "Profy.ai";
 
   return (
     <div className="flex h-screen flex-col" style={{ background: "var(--bg)", position: "relative", zIndex: 1 }}>
@@ -185,9 +185,9 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
                 className="text-sm font-bold tracking-tight"
                 style={{ fontFamily: "var(--font-display)", color: "var(--ink)" }}
               >
-                CRPT<span style={{ color: "var(--cyan)" }}>X</span>
+                Profy<span style={{ color: "var(--cyan)" }}>.ai</span>
               </div>
-              <div className="label" style={{ marginTop: 1 }}>Terminal v2</div>
+              <div className="label" style={{ marginTop: 1 }}>Professional crypto</div>
             </div>
           </Link>
 
