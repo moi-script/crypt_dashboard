@@ -1,0 +1,10 @@
+services:
+  api:
+    build:
+      context: ./services/api
+      dockerfile: Dockerfile.dev
+    volumes:
+      - ./services/api/src:/app/src
+      - ./services/api/tsconfig.json:/app/tsconfig.json
+      - ./services/api/tsconfig.paths.json:/app/tsconfig.paths.json
+      - ./services/api/node_modules:/app/node_modules

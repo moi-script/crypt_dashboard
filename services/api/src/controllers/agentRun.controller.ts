@@ -14,7 +14,7 @@ import type { Response, NextFunction }           from 'express'
 import type { AuthRequest }                      from '../middleware/auth'
 import { AgentRunDoc }                            from '../models/agentRun.model'
 import { getOrCreateConfig, patchConfig }         from '../services/agentConfig.service'
-import { triggerOneTick, isSchedulerRunning }     from '../agents/loop/scheduler'
+import { triggerOneTick, isSchedulerRunning, startScheduler, stopScheduler } from '../agents/loop/scheduler'
 import { checkKeyPresence }                       from '../execution/wallet/keystore'
 import { approveRun as doApproveRun, rejectRun as doRejectRun } from '../agents/loop/agent.loop'
 
@@ -90,6 +90,10 @@ export async function getConfig(req: AuthRequest, res: Response, next: NextFunct
 export async function updateConfig(req: AuthRequest, res: Response, next: NextFunction) {
   try {
     const config = await patchConfig(req.userId!, req.body)
+    if ('enabled' in req.body) {
+      if (config.enabled && !isSchedulerRunning()) startScheduler()
+      else if (!config.enabled && isSchedulerRunning()) stopScheduler()
+    }
     res.json({ ok: true, config })
   } catch (err: any) {
     next(err)

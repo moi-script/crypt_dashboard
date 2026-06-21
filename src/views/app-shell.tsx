@@ -55,7 +55,7 @@ const Icons = {
 };
 
 const NAV = [
-  { href: "/",          label: "Markets",   icon: Icons.markets,   match: (p: string) => p === "/" || p.startsWith("/coins") },
+  { href: "/markets",   label: "Markets",   icon: Icons.markets,   match: (p: string) => p === "/markets" || p.startsWith("/coins") },
   { href: "/portfolio", label: "Portfolio", icon: Icons.portfolio, match: (p: string) => p.startsWith("/portfolio") },
   { href: "/alerts",    label: "Alerts",    icon: Icons.alerts,    match: (p: string) => p.startsWith("/alerts") },
   

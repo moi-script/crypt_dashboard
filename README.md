@@ -4,6 +4,141 @@ An autonomous AI crypto trading terminal — live market data, a multi-framework
 
 ---
 
+## Tech Stack
+
+### Frontend
+![Next.js](https://img.shields.io/badge/Next.js-000000?style=for-the-badge&logo=nextdotjs&logoColor=white)
+![TypeScript](https://img.shields.io/badge/TypeScript-3178C6?style=for-the-badge&logo=typescript&logoColor=white)
+![React](https://img.shields.io/badge/React-20232A?style=for-the-badge&logo=react&logoColor=61DAFB)
+![TailwindCSS](https://img.shields.io/badge/Tailwind_CSS-38B2AC?style=for-the-badge&logo=tailwind-css&logoColor=white)
+
+### Backend
+![Node.js](https://img.shields.io/badge/Node.js-339933?style=for-the-badge&logo=nodedotjs&logoColor=white)
+![Express](https://img.shields.io/badge/Express-000000?style=for-the-badge&logo=express&logoColor=white)
+![TypeScript](https://img.shields.io/badge/TypeScript-3178C6?style=for-the-badge&logo=typescript&logoColor=white)
+![Python](https://img.shields.io/badge/Python-3776AB?style=for-the-badge&logo=python&logoColor=white)
+
+### Database & Cache
+![MongoDB](https://img.shields.io/badge/MongoDB_Atlas-47A248?style=for-the-badge&logo=mongodb&logoColor=white)
+![Redis](https://img.shields.io/badge/Redis-DC382D?style=for-the-badge&logo=redis&logoColor=white)
+
+### AI & Data
+![OpenRouter](https://img.shields.io/badge/OpenRouter-6B46C1?style=for-the-badge&logo=openai&logoColor=white)
+![DeepSeek](https://img.shields.io/badge/DeepSeek-0066FF?style=for-the-badge&logo=deepmind&logoColor=white)
+![HuggingFace](https://img.shields.io/badge/HuggingFace-FFD21E?style=for-the-badge&logo=huggingface&logoColor=black)
+![Celery](https://img.shields.io/badge/Celery-37814A?style=for-the-badge&logo=celery&logoColor=white)
+
+### Infrastructure
+![Docker](https://img.shields.io/badge/Docker-2496ED?style=for-the-badge&logo=docker&logoColor=white)
+![MongoDB Atlas](https://img.shields.io/badge/Atlas_CLI-47A248?style=for-the-badge&logo=mongodb&logoColor=white)
+![Socket.io](https://img.shields.io/badge/Socket.io-010101?style=for-the-badge&logo=socketdotio&logoColor=white)
+
+---
+
+## Starting from Scratch (Every Session)
+
+Follow these steps in order every time you open the project.
+
+### Step 1 — Open Docker Desktop
+Open **Docker Desktop** from the Start menu and wait until it says **"Engine running"** in the bottom left.
+
+### Step 2 — Start Atlas + API (Backend)
+Open a terminal in the API folder and run the startup script:
+
+```powershell
+cd C:\crypto_dashboard\my-app\services\api
+.\start-dev.ps1
+```
+
+This script automatically:
+- Starts the Atlas local MongoDB deployment (`local8499`)
+- Detects the new port Docker assigned
+- Updates `MONGO_URL` in `.env.local` with the correct `host.docker.internal` address
+- Restarts the Docker API container with the new URL
+
+You will see:
+```
+Starting Atlas local deployment 'local8499'...
+Deployment 'local8499' started
+Atlas connection string (Docker): mongodb://host.docker.internal:XXXXX/?directConnection=true
+Root .env.local updated.
+Restarting Docker containers...
+✔ Container my-app-redis-1  Healthy
+✔ Container my-app-api-1    Recreated
+Done. API container restarted with new MongoDB URL.
+```
+
+### Step 3 — Start the Frontend
+Open a **second terminal** and run:
+
+```powershell
+cd C:\crypto_dashboard\my-app
+npm run dev
+```
+
+Frontend runs on [http://localhost:3000](http://localhost:3000)
+
+### Step 4 — Open the App
+Go to [http://localhost:3000](http://localhost:3000) and log in.
+
+---
+
+## Stopping Everything
+
+When you're done for the day:
+
+**1. Stop the frontend** — press `Ctrl + C` in the terminal running `npm run dev`
+
+**2. Stop Docker containers:**
+```powershell
+cd C:\crypto_dashboard\my-app
+docker compose -f docker-compose.yml -f docker-compose.dev.yml down
+```
+
+**3. Stop Atlas** *(optional — closes automatically when Docker Desktop shuts down):*
+```powershell
+atlas local stop local8499
+```
+
+**4. Close Docker Desktop**
+
+> Logging out of the web app does **not** stop Docker. The API and Redis containers keep running in the background until you run `docker compose down` or shut down Docker Desktop.
+
+---
+
+## What's Running Where
+
+| Service | Where | Port |
+|---|---|---|
+| Frontend (Next.js) | Local `npm run dev` | 3000 |
+| API (Express) | Docker `my-app-api-1` | 4000 |
+| Redis | Docker `my-app-redis-1` | 6379 |
+| Data pipeline | Docker `my-app-data-1` | 8001 |
+| MongoDB | Atlas CLI local (`local8499`) | dynamic |
+
+---
+
+## Hot Reload (Code Changes)
+
+The API container has **hot reload enabled** — any change to a `.ts` file in `services/api/src/` is detected by nodemon and the server restarts automatically inside Docker. **No rebuild needed.**
+
+You only need to rebuild (`--build`) if you:
+- Add or remove a package in `package.json`
+- Change `Dockerfile.dev`
+
+To rebuild:
+```powershell
+cd C:\crypto_dashboard\my-app
+docker compose -f docker-compose.yml -f docker-compose.dev.yml --env-file .env.local up -d --build api
+```
+
+To watch live API logs:
+```powershell
+docker logs -f my-app-api-1
+```
+
+---
+
 ## Screenshots
 
 ### Dashboard — Agent Runs & Intelligence Scanner
@@ -116,7 +251,7 @@ my-app/
 Browser (Next.js :3000)
     │  REST + WebSocket
     ▼
-Express API (:4000) ──► MongoDB Atlas
+Express API (:4000) ──► MongoDB Atlas (local8499 via Atlas CLI)
     │                        │
     ├── Agent Loop           └── Redis (:6379)
     │   (60 s sweep)              (pub/sub, cache)
@@ -128,7 +263,7 @@ Express API (:4000) ──► MongoDB Atlas
 
 ---
 
-## Tech Stack
+## Full Tech Stack
 
 ### Frontend
 | Layer | Technology |
@@ -148,7 +283,7 @@ Express API (:4000) ──► MongoDB Atlas
 | Database | MongoDB Atlas (Mongoose) |
 | Cache / Pub-Sub | Redis 7 |
 | AI / LLM | OpenAI-compatible via OpenRouter (DeepSeek default) |
-| Embeddings | `@huggingface/transformers` (local, `nomic-embed-text-v1.5`) |
+| Embeddings | `@huggingface/transformers` (local, `all-MiniLM-L6-v2`) |
 | Auth | bcrypt + JWT (`jsonwebtoken`) |
 | Real-time | Socket.IO + Redis subscriber |
 | Rate limiting | `express-rate-limit` |
@@ -169,7 +304,8 @@ Express API (:4000) ──► MongoDB Atlas
 | Component | Details |
 |---|---|
 | Containerisation | Docker Compose (redis, api, data, worker, beat) |
-| MongoDB | MongoDB Atlas (external, set `MONGO_URL` in `.env.local`) |
+| Dev hot reload | nodemon + ts-node via volume mount |
+| MongoDB | Atlas CLI local deployment (`local8499`) |
 | Redis | `redis:7-alpine`, volume-persisted |
 
 ---
@@ -219,7 +355,7 @@ propose_trade → pending (limit order) → open → partial exit (TP1 50%)
 
 ### Agent Memory System
 - Writes structured memories after each completed analysis
-- Embeddings generated locally via HuggingFace `nomic-embed-text-v1.5`
+- Embeddings generated locally via HuggingFace `all-MiniLM-L6-v2` (baked into Docker image)
 - Vector similarity search retrieves relevant past context per coin/session
 - Reflection generator creates higher-level pattern summaries over time
 
@@ -342,88 +478,7 @@ All settings are configurable from the **Config** tab in the UI:
 
 ---
 
-## Getting Started
-
-### Prerequisites
-- Node.js 20+
-- Docker + Docker Compose
-- MongoDB Atlas account (free tier works)
-- OpenRouter API key (for LLM — DeepSeek is cheap)
-- CoinGecko API key (free tier)
-
-### 1. Clone and install
-
-```bash
-git clone https://github.com/moi-script/crypt_dashboard
-cd crypt_dashboard/my-app
-
-# Frontend
-npm install
-
-# Backend
-cd services/api && npm install && cd ../..
-```
-
-### 2. Environment variables
-
-Create `my-app/.env.local`:
-
-```env
-# MongoDB Atlas connection string
-MONGO_URL=mongodb+srv://<user>:<pass>@cluster.mongodb.net/crptx?retryWrites=true
-
-# Redis (docker-compose provides this automatically)
-REDIS_URL=redis://localhost:6379
-
-# JWT signing secret — any long random string
-JWT_SECRET=your-super-secret-jwt-key-here
-
-# LLM provider (OpenRouter recommended)
-OPENROUTER_API_KEY=sk-or-...
-# or direct OpenAI
-# OPENAI_API_KEY=sk-...
-
-# CoinGecko (free tier: 30 req/min)
-COINGECKO_API_KEY=CG-...
-
-# DeepSeek (optional, cheaper alternative)
-DEEPSEEK_API_KEY=...
-
-# Frontend URL (for CORS)
-WEB_URL=http://localhost:3000
-```
-
-### 3. Start infrastructure
-
-```bash
-# Starts Redis only (MongoDB is external via Atlas)
-docker-compose up -d redis
-```
-
-### 4. Run services
-
-```bash
-# Terminal 1 — API (port 4000)
-cd services/api && npm run dev
-
-# Terminal 2 — Data pipeline (port 8001) — optional for full OHLCV ingestion
-cd services/data && pip install -e . && uvicorn app.main:app --reload --port 8001
-
-# Terminal 3 — Frontend (port 3000)
-npm run dev
-```
-
-Open [http://localhost:3000](http://localhost:3000)
-
-### 5. Docker (production)
-
-```bash
-docker-compose up --build
-```
-
-All services (api, data, worker, beat, redis) start together.
-
-### 6. Seed demo data
+## Seed Demo Data
 
 After registering and logging in, call the seed endpoint to populate the UI with example runs, positions, memories, and opportunities:
 
@@ -437,31 +492,15 @@ fetch('/api/demo/seed', {
 }).then(r => r.json()).then(console.log)
 ```
 
-Expected response:
-```json
-{
-  "ok": true,
-  "seeded": {
-    "agentRuns": 5,
-    "positions": 4,
-    "coinAnalysisRuns": 1,
-    "strategyCards": 4,
-    "memories": 3,
-    "opportunities": 2
-  }
-}
-```
-
 ---
 
 ## Testing
 
 ```bash
-# Backend unit + integration tests
 cd services/api
 npm test
 
-# Individual test suites
+# Individual suites
 npm test -- --testPathPattern=positionMonitor
 npm test -- --testPathPattern=coinAnalysis
 npm test -- --testPathPattern=memory
@@ -480,13 +519,13 @@ Tests use `mongodb-memory-server` — no Atlas connection required.
 TP1 partial exits credit the wallet before the full position is closed. Using `$inc` means a subsequent TP2 or SL close does not overwrite the TP1 credit — both deltas accumulate correctly.
 
 **Why local embeddings?**
-`nomic-embed-text-v1.5` runs entirely on-device via `@huggingface/transformers`. No embedding API cost, no data leaving the server, and latency under 50 ms per document on CPU.
+`all-MiniLM-L6-v2` runs entirely on-device via `@huggingface/transformers`, baked into the Docker image. No embedding API cost, no data leaving the server.
 
 **Why flash-crash SL detection?**
 The position monitor sweeps every 60 s. A sharp wick can cross a SL and recover before the next sweep, leaving a losing position open. Fetching the 1H candle low/high on each sweep catches wicks that the live price comparison would miss.
 
 **Why regime-adjusted framework thresholds?**
-Framework win rates that are acceptable in trending markets become dangerous in ranging/choppy conditions. The policy engine softens disable thresholds in ranging regimes (30 %/20 % vs 35 %/25 %) to avoid cutting frameworks during low-volatility periods that naturally compress win rates.
+Framework win rates that are acceptable in trending markets become dangerous in ranging/choppy conditions. The policy engine softens disable thresholds in ranging regimes to avoid cutting frameworks during low-volatility periods that naturally compress win rates.
 
 ---
 

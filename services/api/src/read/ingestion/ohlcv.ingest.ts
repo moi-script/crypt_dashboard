@@ -65,6 +65,10 @@ function cacheKey(symbol: string, timeframe: Timeframe): string {
     return `ohlcv:${symbol}:${timeframe}`;
 }
 
+// ─── In-memory fallback cache (used when Redis is unavailable) ───────────────
+interface MemCacheEntry { result: OHLCVResult; expiresAt: number }
+const _memCache = new Map<string, MemCacheEntry>()
+
 // ─── Main Fetcher ────────────────────────────────────────────
 export class OHLCVIngest {
     private redisClient: any;
@@ -81,25 +85,38 @@ export class OHLCVIngest {
         await this.redisClient.connect();
     }
 
+    private memGet(key: string): OHLCVResult | null {
+        const entry = _memCache.get(key)
+        if (!entry) return null
+        if (Date.now() > entry.expiresAt) { _memCache.delete(key); return null }
+        return entry.result
+    }
+
+    private memSet(key: string, result: OHLCVResult, ttlSeconds: number): void {
+        _memCache.set(key, { result, expiresAt: Date.now() + ttlSeconds * 1000 })
+    }
+
     // ─── Fetch single timeframe ────────────────────────────────
     async fetch(req: OHLCVRequest): Promise<OHLCVResult> {
         const { symbol, timeframe, limit = 200, forceRefresh = false } = req;
         const key = cacheKey(symbol, timeframe);
+        const ttl = parseInt(process.env.CHART_ANALYSIS_CACHE_TTL || '0') || TTL_BY_TIMEFRAME[timeframe];
 
-        // 1. Try cache first (unless forced refresh)
+        // 1. Try Redis cache first
         if (!forceRefresh && this.redisClient) {
             try {
                 const cached = await this.redisClient.get(key);
-                if (cached) {
-                    const parsed = JSON.parse(cached);
-                    return { ...parsed, cached: true };
-                }
-            } catch (_) {
-                // Redis miss or error — fall through to API
-            }
+                if (cached) return { ...JSON.parse(cached), cached: true };
+            } catch (_) { /* fall through */ }
         }
 
-        // 2. Fetch from Binance
+        // 2. Try in-memory cache (fallback when Redis unavailable)
+        if (!forceRefresh) {
+            const mem = this.memGet(key)
+            if (mem) return { ...mem, cached: true }
+        }
+
+        // 3. Fetch from Binance
         const url = `${this.baseUrl}/api/v3/klines?symbol=${symbol}&interval=${BINANCE_INTERVAL[timeframe]}&limit=${limit}`;
         const headers: Record<string, string> = {};
         if (this.apiKey) headers['X-MBX-APIKEY'] = this.apiKey;
@@ -120,15 +137,13 @@ export class OHLCVIngest {
             fetched_at: new Date().toISOString(),
         };
 
-        // 3. Cache result
+        // 4. Write to Redis (if available) and always write to in-memory cache
         if (this.redisClient) {
-            const ttl = parseInt(process.env.CHART_ANALYSIS_CACHE_TTL || '0') || TTL_BY_TIMEFRAME[timeframe];
             try {
                 await this.redisClient.set(key, JSON.stringify(result), { EX: ttl });
-            } catch (_) {
-                // Cache write failure is non-fatal
-            }
+            } catch (_) { /* non-fatal */ }
         }
+        this.memSet(key, result, ttl)
 
         return result;
     }

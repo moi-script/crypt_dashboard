@@ -3,6 +3,8 @@ import type { Request, Response, NextFunction } from 'express'
 import type { AuthRequest } from '../middleware/auth'
 import { AuthService } from '../services/auth.service'
 import { validate, RegisterBody, LoginBody, RefreshBody } from '../middleware/validate'
+import { startScheduler, stopScheduler, isSchedulerRunning } from '../agents/loop/scheduler'
+import { getOrCreateConfig } from '../services/agentConfig.service'
 
 export class AuthController {
   private svc = new AuthService()
@@ -22,7 +24,10 @@ export class AuthController {
     async (req: Request, res: Response, next: NextFunction) => {
       try {
         const { email, password } = req.body as z.infer<typeof LoginBody>
-        res.json(await this.svc.login(email, password))
+        const result = await this.svc.login(email, password)
+        const cfg = await getOrCreateConfig(result.user.id)
+        if (cfg.enabled && !isSchedulerRunning()) startScheduler()
+        res.json(result)
       } catch (err) { next(err) }
     },
   ]
@@ -49,6 +54,7 @@ export class AuthController {
       const { refreshToken } = req.body
       const accessToken = req.headers.authorization?.slice(7) ?? ''
       await this.svc.logout(refreshToken ?? accessToken)
+      stopScheduler()
       res.json({ ok: true })
     } catch (err) { next(err) }
   }

@@ -925,30 +925,45 @@ export async function runCoinAnalysis(
 
   try {
     // 1. News (embed new articles into RAG, return top articles for this run)
+    console.log(`[CoinAnalysis] ${coinAnalysisRunId} [1/6] Ingesting news for ${symbol}…`)
     const { articles, articleIds } = await ingestAndFetchNews(userId, symbol)
+    console.log(`[CoinAnalysis] ${coinAnalysisRunId} [1/6] News done — ${articles.length} articles`)
 
     // 2. Market primitives — ONE fetch shared by all 4 cards
+    console.log(`[CoinAnalysis] ${coinAnalysisRunId} [2/6] Fetching market primitives for ${binanceSymbol}…`)
     const primitives = await buildMarketPrimitives(binanceSymbol)
+    console.log(`[CoinAnalysis] ${coinAnalysisRunId} [2/6] Primitives done — trend=${primitives.structure?.trend_htf} ADX=${primitives.indicators?.adx?.toFixed(0)}`)
 
     // 3. RAG memory context
+    console.log(`[CoinAnalysis] ${coinAnalysisRunId} [3/6] Retrieving memory context…`)
     const contextSummary = `Chart analysis for ${symbol.toUpperCase()} — ${new Date().toISOString()}`
     let memoryContext: string | undefined
     try {
       const memResult = await retrieve(userId, symbol.toUpperCase(), contextSummary)
       memoryContext = renderMemorySection(memResult) || undefined
     } catch { /* non-fatal */ }
+    console.log(`[CoinAnalysis] ${coinAnalysisRunId} [3/6] Memory done — ${memoryContext ? 'context loaded' : 'no prior memory'}`)
 
     // 4. All 4 strategy cards in parallel
+    console.log(`[CoinAnalysis] ${coinAnalysisRunId} [4/6] Running ${FRAMEWORKS.length} strategy frameworks in parallel…`)
     const cards = await Promise.all(
       FRAMEWORKS.map(fw =>
         runStrategyCard(fw, symbol.toUpperCase(), binanceSymbol, primitives, articles, memoryContext, config),
       ),
     )
+    for (const card of cards) {
+      const summary = card.signal
+        ? `${card.signal.bias.toUpperCase()} ${card.signal.confidence}% — ${card.signal.setup_name}`
+        : `skipped (${card.skippedReason ?? 'no signal'})`
+      console.log(`[CoinAnalysis] ${coinAnalysisRunId} [4/6]   ${card.framework}: ${summary}`)
+    }
 
     // 5. Build cards summary for policy engine + logging
+    console.log(`[CoinAnalysis] ${coinAnalysisRunId} [5/6] Building cards summary…`)
     const cardsSummary = buildCardsSummary(cards, symbol.toUpperCase())
 
     // 6. Route: auto-execute or mark pending
+    console.log(`[CoinAnalysis] ${coinAnalysisRunId} [6/6] Loading wallet & routing (autoMode=${autoMode})…`)
     const walletState = await loadWalletState(userId, config)
     let finalStatus: CoinAnalysisRunStatus
     if (autoMode) {

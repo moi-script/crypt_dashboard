@@ -39,6 +39,7 @@ const ACCESS_KEY = "cd.access";
 const REFRESH_KEY = "cd.refresh";
 
 let accessToken: string | null = null;
+let _loggedOut = false;
 
 export const tokenStore = {
   get access() {
@@ -50,7 +51,11 @@ export const tokenStore = {
     if (typeof window === "undefined") return null;
     return localStorage.getItem(REFRESH_KEY);
   },
+  get isLoggedOut() {
+    return _loggedOut;
+  },
   set(tokens: { accessToken: string; refreshToken: string }) {
+    _loggedOut = false;
     accessToken = tokens.accessToken;
     if (typeof window !== "undefined") {
       localStorage.setItem(ACCESS_KEY, tokens.accessToken);
@@ -58,6 +63,7 @@ export const tokenStore = {
     }
   },
   clear() {
+    _loggedOut = true;
     accessToken = null;
     if (typeof window !== "undefined") {
       localStorage.removeItem(ACCESS_KEY);
@@ -99,6 +105,7 @@ async function raw<T>(
   body?: unknown,
   retry = true,
 ): Promise<T> {
+  if (_loggedOut) throw new ApiError(401, "Logged out");
   const headers: Record<string, string> = { Accept: "application/json" };
   if (body !== undefined) headers["Content-Type"] = "application/json";
   const token = tokenStore.access;
@@ -148,7 +155,11 @@ async function raw<T>(
 
 async function tryRefresh(): Promise<boolean> {
   const refreshToken = tokenStore.refresh;
-  if (!refreshToken) return false;
+  if (!refreshToken) {
+    tokenStore.clear();
+    if (typeof window !== "undefined") window.location.replace("/");
+    return false;
+  }
   try {
     const res = await fetch(`${API_URL}/auth/refresh`, {
       method: "POST",

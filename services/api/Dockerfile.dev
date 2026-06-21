@@ -1,0 +1,19 @@
+FROM node:22-slim
+
+ENV NODE_ENV=development
+ENV TRANSFORMERS_CACHE=/app/.cache/huggingface
+
+WORKDIR /app
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    libgomp1 \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY package*.json ./
+# node_modules are mounted from the host via docker-compose volume
+# so no npm install needed here
+
+
+EXPOSE 4000
+
+CMD ["npx", "nodemon", "--watch", "src", "--ext", "ts", "--exec", "ts-node -r tsconfig-paths/register src/app.ts"]

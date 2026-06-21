@@ -20,7 +20,7 @@ export function AuthForm({ mode }: { mode: "login" | "register" }) {
     setBusy(true);
     try {
       await (isLogin ? login : register)({ email, password });
-      router.push("/");
+      router.push("/markets");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Authentication failed");
     } finally {
